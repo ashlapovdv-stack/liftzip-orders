@@ -1,0 +1,321 @@
+package ru.liftzip.orders.app.feature.orders
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import ru.liftzip.orders.app.ui.parseDecimal
+import ru.liftzip.orders.domain.calculation.OrderCalculator
+import ru.liftzip.orders.domain.calculation.OrderValidator
+import ru.liftzip.orders.domain.model.CalculationState
+import ru.liftzip.orders.domain.model.ChangeEvent
+import ru.liftzip.orders.domain.model.CostDraft
+import ru.liftzip.orders.domain.model.CostEntry
+import ru.liftzip.orders.domain.model.CostKind
+import ru.liftzip.orders.domain.model.CostOwnerType
+import ru.liftzip.orders.domain.model.Currency
+import ru.liftzip.orders.domain.model.GroupState
+import ru.liftzip.orders.domain.model.Money
+import ru.liftzip.orders.domain.model.Order
+import ru.liftzip.orders.domain.model.OrderCalculation
+import ru.liftzip.orders.domain.model.OrderLine
+import ru.liftzip.orders.domain.model.OrderLineDraft
+import ru.liftzip.orders.domain.model.Product
+import ru.liftzip.orders.domain.model.SaveOrderCommand
+import ru.liftzip.orders.domain.repository.OrdersRepository
+import java.math.BigDecimal
+import java.time.Instant
+import java.time.LocalDate
+import java.util.UUID
+
+data class EditorCostDraft(
+    val id: UUID? = null,
+    val kind: CostKind = CostKind.OTHER,
+    val amount: String = "",
+    val currency: Currency = Currency.RUB,
+    val rate: String = "1",
+    val isConfirmed: Boolean = true,
+    val date: LocalDate = LocalDate.now(),
+    val comment: String = "",
+)
+
+data class EditorLineDraft(
+    val id: UUID? = null,
+    val productId: UUID? = null,
+    val name: String = "",
+    val article: String = "",
+    val quantity: String = "1",
+    val salePrice: String = "",
+    val zeroSalePriceConfirmed: Boolean = false,
+    val purchasePrice: String = "",
+    val purchaseCurrency: Currency = Currency.RUB,
+    val purchaseRate: String = "1",
+    val costs: List<EditorCostDraft> = emptyList(),
+)
+
+data class OrderEditorState(
+    val loaded: Boolean = false,
+    val orderId: UUID? = null,
+    val orderNumber: Long? = null,
+    val groupId: UUID? = null,
+    val groupNumber: Long? = null,
+    val groupState: GroupState = GroupState.FORMING,
+    val date: LocalDate = LocalDate.now(),
+    val counterparty: String = "",
+    val payment: String = "",
+    val comment: String = "",
+    val costsConfirmed: Boolean = false,
+    val lines: List<EditorLineDraft> = listOf(EditorLineDraft()),
+    val costs: List<EditorCostDraft> = emptyList(),
+    val history: List<ChangeEvent> = emptyList(),
+    val dirty: Boolean = false,
+    val saving: Boolean = false,
+    val showLeaveConfirmation: Boolean = false,
+    val errors: Map<String, String> = emptyMap(),
+    val generalError: String? = null,
+) {
+    val salesLocked: Boolean = groupState != GroupState.FORMING
+}
+
+class OrderEditorViewModel(
+    private val repository: OrdersRepository,
+    private val existingOrderId: UUID?,
+) : ViewModel() {
+    private val _state = MutableStateFlow(OrderEditorState(orderId = existingOrderId))
+    val state = _state.asStateFlow()
+    private var commandId = UUID.randomUUID()
+    private val calculationOrderId = existingOrderId ?: UUID.randomUUID()
+
+    init {
+        if (existingOrderId == null) {
+            _state.update { it.copy(loaded = true) }
+        } else {
+            viewModelScope.launch {
+                val details = repository.observeOrder(existingOrderId).first()
+                if (details == null) {
+                    _state.update { it.copy(loaded = true, generalError = "Заказ не найден") }
+                } else {
+                    _state.update {
+                        OrderEditorState(
+                            loaded = true, orderId = details.order.id, orderNumber = details.order.number,
+                            groupId = details.group.id, groupNumber = details.group.number, groupState = details.group.state,
+                            date = details.order.date, counterparty = details.order.counterparty,
+                            payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
+                            comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
+                            lines = details.lines.map { line ->
+                                toEditorLine(line).copy(
+                                    costs = details.costs.filter {
+                                        it.ownerType == CostOwnerType.LINE && it.ownerId == line.id
+                                    }.map(::toEditorCost),
+                                )
+                            },
+                            costs = details.costs.filter { it.ownerType == CostOwnerType.ORDER }.map(::toEditorCost),
+                            history = details.history,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun update(transform: (OrderEditorState) -> OrderEditorState) {
+        _state.update { transform(it).copy(dirty = true, generalError = null) }
+    }
+
+    fun updateLine(index: Int, transform: (EditorLineDraft) -> EditorLineDraft) = update { state ->
+        state.copy(lines = state.lines.mapIndexed { i, line -> if (i == index) transform(line) else line })
+    }
+
+    fun addLine() = update { it.copy(lines = it.lines + EditorLineDraft()) }
+    fun removeLine(index: Int) = update { state ->
+        if (state.lines.size <= 1) state else state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
+    }
+
+    fun selectProduct(index: Int, product: Product) = updateLine(index) {
+        it.copy(productId = product.id, name = product.name, article = product.article.orEmpty())
+    }
+
+    fun addOrderCost() = update { it.copy(costs = it.costs + EditorCostDraft()) }
+    fun updateOrderCost(index: Int, transform: (EditorCostDraft) -> EditorCostDraft) = update { state ->
+        state.copy(costs = state.costs.mapIndexed { i, cost -> if (i == index) transform(cost) else cost })
+    }
+    fun removeOrderCost(index: Int) = update { it.copy(costs = it.costs.filterIndexed { i, _ -> i != index }) }
+
+    fun addLineCost(lineIndex: Int) = updateLine(lineIndex) { it.copy(costs = it.costs + EditorCostDraft()) }
+    fun updateLineCost(lineIndex: Int, costIndex: Int, transform: (EditorCostDraft) -> EditorCostDraft) =
+        updateLine(lineIndex) { line ->
+            line.copy(costs = line.costs.mapIndexed { i, cost -> if (i == costIndex) transform(cost) else cost })
+        }
+    fun removeLineCost(lineIndex: Int, costIndex: Int) = updateLine(lineIndex) {
+        it.copy(costs = it.costs.filterIndexed { i, _ -> i != costIndex })
+    }
+
+    fun requestBack(): Boolean {
+        if (!_state.value.dirty || _state.value.saving) return true
+        _state.update { it.copy(showLeaveConfirmation = true) }
+        return false
+    }
+    fun keepEditing() = _state.update { it.copy(showLeaveConfirmation = false) }
+    fun discardChanges() = _state.update { it.copy(showLeaveConfirmation = false, dirty = false) }
+
+    fun save(onSaved: (UUID) -> Unit) {
+        val snapshot = _state.value
+        if (snapshot.saving) return
+        val command = buildCommand(snapshot) ?: return
+        _state.update { it.copy(saving = true, generalError = null, errors = emptyMap()) }
+        viewModelScope.launch {
+            try {
+                val id = repository.saveOrder(command)
+                _state.update { it.copy(saving = false, dirty = false) }
+                commandId = UUID.randomUUID()
+                onSaved(id)
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        saving = false,
+                        generalError = error.message ?: "Не удалось сохранить заказ",
+                        errors = if (error.message?.contains("оплата", ignoreCase = true) == true)
+                            mapOf("payment" to error.message.orEmpty()) else emptyMap(),
+                    )
+                }
+            }
+        }
+    }
+
+    fun preview(): OrderCalculation? = try {
+        val state = _state.value
+        val lines = state.lines.mapIndexed { index, line -> line.toDomain(calculationOrderId, index) }
+        val order = Order(
+            id = calculationOrderId, number = state.orderNumber ?: 0, date = state.date,
+            counterparty = state.counterparty, groupId = state.groupId ?: calculationOrderId,
+            receivedPayment = state.payment.parseDecimal()?.let { Money.fromRubles(it) } ?: Money.ZERO,
+            comment = state.comment, costsConfirmed = state.costsConfirmed,
+            calculationState = CalculationState.INCOMPLETE, createdAt = Instant.EPOCH,
+            updatedAt = Instant.EPOCH, revision = 0,
+        )
+        val costs = buildList {
+            state.lines.forEachIndexed { lineIndex, line ->
+                line.costs.forEach { cost -> add(cost.toDomain(CostOwnerType.LINE, lines[lineIndex].id, state.date)) }
+            }
+            state.costs.forEach { add(it.toDomain(CostOwnerType.ORDER, calculationOrderId, state.date)) }
+        }
+        OrderCalculator.calculate(order, lines, costs)
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun buildCommand(state: OrderEditorState): SaveOrderCommand? {
+        val errors = mutableMapOf<String, String>()
+        if (state.counterparty.isBlank()) errors["counterparty"] = "Укажите клиента или менеджера"
+        val payment = state.payment.parseDecimal()
+        if (state.payment.isBlank() || payment == null) errors["payment"] = "Укажите полученную сумму"
+        val lines = state.lines.mapIndexed { index, line ->
+            val name = line.name.trim()
+            if (name.isEmpty()) errors["line_${index}_name"] = "Укажите название"
+            val quantity = line.quantity.parseDecimal()
+            if (quantity == null || quantity <= BigDecimal.ZERO) errors["line_${index}_quantity"] = "Количество больше нуля"
+            val sale = line.salePrice.parseDecimal()
+            if (line.salePrice.isBlank() || sale == null) errors["line_${index}_sale"] = "Укажите цену продажи"
+            if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
+                errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
+            }
+            val purchase = line.purchasePrice.parseDecimal()
+            if (line.purchasePrice.isNotBlank() && purchase == null) {
+                errors["line_${index}_purchase"] = "Некорректная закупочная цена"
+            }
+            val rate = line.purchaseRate.parseDecimal()
+            val purchaseComplete = purchase != null && rate != null && rate > BigDecimal.ZERO
+            if (purchase != null && !purchaseComplete) errors["line_${index}_rate"] = "Укажите положительный курс"
+            OrderLineDraft(
+                id = line.id, productId = line.productId, productName = name,
+                article = line.article.ifBlank { null }, quantity = quantity ?: BigDecimal.ONE,
+                saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
+                purchaseUnitPrice = purchase,
+                purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
+                purchaseRate = if (purchase == null) null else rate,
+                costs = line.costs.mapIndexedNotNull { costIndex, cost ->
+                    cost.toDomainOrNull(state.date, errors, "line_${index}_cost_$costIndex")
+                },
+            )
+        }
+        val costs = state.costs.mapIndexedNotNull { index, cost -> cost.toDomainOrNull(state.date, errors, "cost_$index") }
+        if (errors.isNotEmpty()) {
+            _state.update { it.copy(errors = errors, generalError = "Проверьте выделенные поля") }
+            return null
+        }
+        val command = SaveOrderCommand(
+            commandId = commandId, orderId = state.orderId, date = state.date,
+            counterparty = state.counterparty.trim(), receivedPayment = payment!!,
+            comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
+        )
+        try {
+            OrderValidator.validate(command)
+        } catch (error: Exception) {
+            _state.update {
+                it.copy(
+                    generalError = error.message,
+                    errors = if (error.message?.contains("оплата", true) == true)
+                        mapOf("payment" to error.message.orEmpty()) else emptyMap(),
+                )
+            }
+            return null
+        }
+        return command
+    }
+
+    private fun EditorCostDraft.toDomainOrNull(
+        date: LocalDate,
+        errors: MutableMap<String, String>,
+        prefix: String,
+    ): CostDraft? {
+        val parsedAmount = amount.parseDecimal()
+        val parsedRate = rate.parseDecimal()
+        if (amount.isBlank() || parsedAmount == null || parsedAmount < BigDecimal.ZERO) {
+            errors["${prefix}_amount"] = "Укажите неотрицательную сумму"
+        }
+        if (parsedRate == null || parsedRate <= BigDecimal.ZERO) errors["${prefix}_rate"] = "Курс должен быть положительным"
+        if (currency == Currency.RUB && parsedRate != null && parsedRate.compareTo(BigDecimal.ONE) != 0) {
+            errors["${prefix}_rate"] = "Для RUB курс равен 1"
+        }
+        return if (parsedAmount == null || parsedRate == null) null else CostDraft(
+            id = id, kind = kind, amount = parsedAmount, currency = currency, rate = parsedRate,
+            isConfirmed = isConfirmed, date = this.date, comment = comment,
+        )
+    }
+
+    private fun EditorCostDraft.toDomain(owner: CostOwnerType, ownerId: UUID, date: LocalDate) = CostEntry(
+        id = id ?: UUID.randomUUID(), ownerType = owner, ownerId = ownerId, kind = kind,
+        amount = amount.parseDecimal() ?: BigDecimal.ZERO, currency = currency,
+        rate = rate.parseDecimal() ?: BigDecimal.ONE, isConfirmed = isConfirmed, date = this.date,
+        comment = comment, createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
+    )
+
+    private fun EditorLineDraft.toDomain(orderId: UUID, index: Int) = OrderLine(
+        id = id ?: UUID.nameUUIDFromBytes("$orderId-preview-$index".toByteArray()), orderId = orderId,
+        productId = productId ?: orderId, productNameSnapshot = name, articleSnapshot = article.ifBlank { null },
+        quantity = quantity.parseDecimal() ?: BigDecimal.ONE,
+        saleUnitPrice = Money.fromRubles(salePrice.parseDecimal() ?: BigDecimal.ZERO),
+        purchaseUnitPrice = purchasePrice.parseDecimal(),
+        purchaseCurrency = if (purchasePrice.isBlank()) null else purchaseCurrency,
+        purchaseRate = if (purchasePrice.isBlank()) null else purchaseRate.parseDecimal(),
+        createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
+    )
+
+    private fun toEditorLine(line: OrderLine) = EditorLineDraft(
+        id = line.id, productId = line.productId, name = line.productNameSnapshot,
+        article = line.articleSnapshot.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
+        salePrice = line.saleUnitPrice.toBigDecimal().toPlainString(), zeroSalePriceConfirmed = true,
+        purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
+        purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
+        purchaseRate = line.purchaseRate?.toPlainString() ?: "1",
+        costs = emptyList(),
+    )
+
+    private fun toEditorCost(cost: CostEntry) = EditorCostDraft(
+        id = cost.id, kind = cost.kind, amount = cost.amount.toPlainString(), currency = cost.currency,
+        rate = cost.rate.toPlainString(), isConfirmed = cost.isConfirmed, date = cost.date, comment = cost.comment,
+    )
+}
