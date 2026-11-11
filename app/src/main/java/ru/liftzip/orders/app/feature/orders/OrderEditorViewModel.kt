@@ -215,7 +215,6 @@ class OrderEditorViewModel(
             updatedAt = Instant.EPOCH, revision = 0,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal()?.let(Money::fromRubles),
             orderRate = state.orderRate.parseDecimal(),
-            orderRate = state.orderRate.parseDecimal(),
         )
         val costs = buildList {
             state.lines.forEachIndexed { lineIndex, line ->
@@ -289,7 +288,6 @@ class OrderEditorViewModel(
             counterparty = state.counterparty.trim(), receivedPayment = payment,
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
-            orderRate = orderRate,
             orderRate = state.orderRate.parseDecimal(),
         )
         try {
