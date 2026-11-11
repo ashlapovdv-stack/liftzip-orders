@@ -34,6 +34,10 @@ object OrderValidator {
             line.costs.forEach { validateCost(it, "Позиция ${index + 1}") }
         }
         command.costs.forEach { validateCost(it, "Заказ") }
+        command.manualDeliveryPrice?.let {
+            if (it < BigDecimal.ZERO) fail("Цена доставки не может быть отрицательной")
+            Money.fromRubles(it)
+        }
         val sales = command.lines.fold(Money.ZERO) { sum, line ->
             sum + Money.fromRubles(line.quantity.multiply(line.saleUnitPrice))
         }
