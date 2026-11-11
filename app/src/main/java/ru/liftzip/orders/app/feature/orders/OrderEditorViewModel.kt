@@ -115,7 +115,6 @@ class OrderEditorViewModel(
                             payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
                             comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
                             manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
-                            orderRate = details.order.orderRate?.toPlainString() ?: details.lines.firstOrNull { it.deliveryRate != null }?.deliveryRate?.toPlainString().orEmpty(),
                             purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.let { cost ->
                                 (if (cost.currency == Currency.CNY) cost.amount.multiply(cost.rate) else cost.amount)
                                     .stripTrailingZeros().toPlainString()
