@@ -71,6 +71,7 @@ data class Order(
     val createdAt: Instant,
     val updatedAt: Instant,
     val revision: Long,
+    val manualDeliveryPrice: Money? = null,
 )
 
 data class OrderLine(
@@ -232,6 +233,7 @@ data class SaveOrderCommand(
     val costsConfirmed: Boolean,
     val lines: List<OrderLineDraft>,
     val costs: List<CostDraft>,
+    val manualDeliveryPrice: BigDecimal? = null,
 )
 
 data class SaveGroupCostsCommand(
