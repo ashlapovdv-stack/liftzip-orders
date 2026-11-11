@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupCommandEntity::class,
         AppMetadataEntity::class, DeliveryInvoiceEntity::class, DeliveryPaymentEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class OrdersDatabase : RoomDatabase() {
@@ -29,7 +29,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -52,6 +52,12 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orders ADD COLUMN manualDeliveryPriceMinor INTEGER")
+            }
+        }
+
         fun create(context: Context): OrdersDatabase {
             preserveBeforeMigration(context)
             return Room.databaseBuilder(
@@ -59,7 +65,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             DATABASE_NAME,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .addCallback(IntegrityCallback)
             .build()
         }
