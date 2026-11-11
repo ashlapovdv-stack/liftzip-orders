@@ -74,8 +74,9 @@ data class OrderEditorState(
     val costsConfirmed: Boolean = false,
     val manualDeliveryPrice: String = "",
     val purchaseTotal: String = "",
-    val purchaseCurrency: Currency = Currency.CNY,
-    val purchaseRate: String = "",
+    val purchaseCurrency: Currency = Currency.RUB,
+    val purchaseRate: String = "1",
+    val orderRate: String = "",
     val lines: List<EditorLineDraft> = listOf(EditorLineDraft()),
     val costs: List<EditorCostDraft> = emptyList(),
     val history: List<ChangeEvent> = emptyList(),
@@ -115,8 +116,9 @@ class OrderEditorViewModel(
                             comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
                             manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
                             purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.amount?.toPlainString().orEmpty(),
-                            purchaseCurrency = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.currency ?: Currency.CNY,
-                            purchaseRate = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.rate?.toPlainString().orEmpty(),
+                            purchaseCurrency = Currency.RUB,
+                            purchaseRate = "1",
+                            orderRate = details.order.orderRate?.toPlainString() ?: details.lines.firstNotNullOfOrNull { it.deliveryRate }?.toPlainString().orEmpty(),
                             lines = details.lines.map { line ->
                                 toEditorLine(line).copy(
                                     costs = details.costs.filter {
@@ -208,6 +210,7 @@ class OrderEditorViewModel(
             calculationState = CalculationState.INCOMPLETE, createdAt = Instant.EPOCH,
             updatedAt = Instant.EPOCH, revision = 0,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal()?.let(Money::fromRubles),
+            orderRate = state.orderRate.parseDecimal(),
         )
         val costs = buildList {
             state.lines.forEachIndexed { lineIndex, line ->
@@ -224,8 +227,7 @@ class OrderEditorViewModel(
     private fun buildCommand(state: OrderEditorState): SaveOrderCommand? {
         val errors = mutableMapOf<String, String>()
         if (state.counterparty.isBlank()) errors["counterparty"] = "Укажите клиента или менеджера"
-        val payment = state.payment.parseDecimal()
-        if (state.payment.isBlank() || payment == null) errors["payment"] = "Укажите полученную сумму"
+        val payment = state.payment.parseDecimal() ?: BigDecimal.ZERO
         val lines = state.lines.mapIndexed { index, line ->
             val name = line.name.trim()
             if (name.isEmpty()) errors["line_${index}_name"] = "Укажите название"
@@ -236,16 +238,15 @@ class OrderEditorViewModel(
             if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
             }
-            if (listOf(line.deliveryWeight, line.deliveryTariff, line.deliveryRate).any { it.isNotBlank() && it.parseDecimal() == null }) {
+            if (listOf(line.deliveryWeight, line.deliveryTariff).any { it.isNotBlank() && it.parseDecimal() == null }) {
                 errors["line_${index}_delivery"] = "Проверьте числовые значения доставки"
             }
             val purchase = line.purchasePrice.parseDecimal()
             if (line.purchasePrice.isNotBlank() && purchase == null) {
                 errors["line_${index}_purchase"] = "Некорректная закупочная цена"
             }
-            val rate = line.purchaseRate.parseDecimal()
-            val purchaseComplete = purchase != null && rate != null && rate > BigDecimal.ZERO
-            if (purchase != null && !purchaseComplete) errors["line_${index}_rate"] = "Укажите положительный курс"
+            val rate = if (line.purchaseCurrency == Currency.RUB) BigDecimal.ONE else state.orderRate.parseDecimal()
+            if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
                 id = line.id, productId = line.productId, productName = name,
                 article = line.article.ifBlank { null }, quantity = quantity ?: BigDecimal.ONE,
@@ -254,7 +255,7 @@ class OrderEditorViewModel(
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
                 purchaseRate = if (purchase == null) null else rate,
                 deliveryWeight = line.deliveryWeight.parseDecimal(), deliveryTariff = line.deliveryTariff.parseDecimal(),
-                deliveryRate = line.deliveryRate.parseDecimal(), deliveryPlanDate = if (line.deliveryWeight.isBlank() && line.deliveryTariff.isBlank() && line.deliveryRate.isBlank()) null else line.deliveryPlanDate,
+                deliveryRate = state.orderRate.parseDecimal(), deliveryPlanDate = if (line.deliveryWeight.isBlank() && line.deliveryTariff.isBlank()) null else line.deliveryPlanDate,
                 costs = line.costs.mapIndexedNotNull { costIndex, cost ->
                     cost.toDomainOrNull(state.date, errors, "line_${index}_cost_$costIndex")
                 },
@@ -264,24 +265,26 @@ class OrderEditorViewModel(
         val costs = state.costs.filter { it.kind != CostKind.PURCHASE }.mapIndexedNotNull { index, cost -> cost.toDomainOrNull(state.date, errors, "cost_$index") }.toMutableList()
         if (state.purchaseTotal.isNotBlank()) {
             val total = state.purchaseTotal.parseDecimal()
-            val rate = if (state.purchaseCurrency == Currency.RUB) BigDecimal.ONE else state.purchaseRate.parseDecimal()
+            val rate = BigDecimal.ONE
             if (total == null || total < BigDecimal.ZERO) errors["purchaseTotal"] = "Укажите сумму закупки заказа"
             if (rate == null || rate <= BigDecimal.ZERO) errors["purchaseRate"] = "Укажите курс закупки"
             if (total != null && total >= BigDecimal.ZERO && rate != null && rate > BigDecimal.ZERO) {
                 costs += CostDraft(id = state.costs.firstOrNull { it.kind == CostKind.PURCHASE && it.id != null }?.id,
-                    kind = CostKind.PURCHASE, amount = total, currency = state.purchaseCurrency,
+                    kind = CostKind.PURCHASE, amount = total, currency = Currency.RUB,
                     rate = rate, isConfirmed = true, date = state.date)
             }
         }
+        if (state.orderRate.isNotBlank() && (state.orderRate.parseDecimal() == null || state.orderRate.parseDecimal()!! <= BigDecimal.ZERO)) errors["orderRate"] = "Укажите положительный курс"
         if (errors.isNotEmpty()) {
             _state.update { it.copy(errors = errors, generalError = "Проверьте выделенные поля") }
             return null
         }
         val command = SaveOrderCommand(
             commandId = commandId, orderId = state.orderId, date = state.date,
-            counterparty = state.counterparty.trim(), receivedPayment = payment!!,
+            counterparty = state.counterparty.trim(), receivedPayment = payment,
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
+            orderRate = state.orderRate.parseDecimal(),
         )
         try {
             OrderValidator.validate(command)
@@ -300,9 +303,9 @@ class OrderEditorViewModel(
 
     private fun OrderEditorState.aggregatePurchaseCost(): EditorCostDraft? {
         if (purchaseTotal.isBlank()) return null
-        val rate = if (purchaseCurrency == Currency.RUB) "1" else purchaseRate
+        val rate = "1"
         return EditorCostDraft(id = costs.firstOrNull { it.kind == CostKind.PURCHASE }?.id,
-            kind = CostKind.PURCHASE, amount = purchaseTotal, currency = purchaseCurrency,
+            kind = CostKind.PURCHASE, amount = purchaseTotal, currency = Currency.RUB,
             rate = rate, date = date)
     }
 
@@ -340,10 +343,10 @@ class OrderEditorViewModel(
         saleUnitPrice = Money.fromRubles(salePrice.parseDecimal() ?: BigDecimal.ZERO),
         purchaseUnitPrice = purchasePrice.parseDecimal(),
         purchaseCurrency = if (purchasePrice.isBlank()) null else purchaseCurrency,
-        purchaseRate = if (purchasePrice.isBlank()) null else purchaseRate.parseDecimal(),
+        purchaseRate = if (purchasePrice.isBlank()) null else if (purchaseCurrency == Currency.RUB) BigDecimal.ONE else _state.value.orderRate.parseDecimal(),
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
-        deliveryRate = deliveryRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
+        deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
