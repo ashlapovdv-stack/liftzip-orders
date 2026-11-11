@@ -33,6 +33,7 @@ object OrderValidator {
             )
             line.costs.forEach { validateCost(it, "Позиция ${index + 1}") }
         }
+        command.orderRate?.let { if (it <= BigDecimal.ZERO) fail("Курс заказа должен быть положительным") }
         command.costs.forEach { validateCost(it, "Заказ") }
         command.manualDeliveryPrice?.let {
             if (it < BigDecimal.ZERO) fail("Цена доставки не может быть отрицательной")
@@ -43,40 +44,6 @@ object OrderValidator {
             fail("Для расчёта доставки укажите курс заказа")
         }
 
-    }
-
-    fun validateCost(cost: CostDraft, owner: String) {
-        if (cost.amount < BigDecimal.ZERO) fail("$owner: расход не может быть отрицательным")
-        if (cost.rate <= BigDecimal.ZERO) fail("$owner: курс должен быть положительным")
-        if (cost.currency == Currency.RUB && cost.rate.compareTo(BigDecimal.ONE) != 0) {
-            fail("$owner: для RUB курс равен 1")
-        }
-        Money.fromRubles(cost.amount.multiply(cost.rate))
-    }
-
-    private fun validatePurchase(index: Int, price: BigDecimal?, currency: Currency?, rate: BigDecimal?) {
-        val values = listOfNotNull(price, currency, rate)
-        if (values.isEmpty()) return
-        if (price == null || currency == null || rate == null) {
-            fail("Позиция ${index + 1}: заполните закупочную цену, валюту и курс или оставьте все поля пустыми")
-        }
-        if (price < BigDecimal.ZERO) fail("Позиция ${index + 1}: закупочная цена не может быть отрицательной")
-        if (rate <= BigDecimal.ZERO) fail("Позиция ${index + 1}: курс должен быть положительным")
-        if (currency == Currency.RUB && rate.compareTo(BigDecimal.ONE) != 0) {
-            fail("Позиция ${index + 1}: для RUB курс равен 1")
-        }
-        Money.fromRubles(price.multiply(rate))
-    }
-
-    private fun fail(message: String): Nothing = throw DomainValidationException(message)
-}
-
-fun normalizeArticle(article: String?): String? = article
-    ?.trim()
-    ?.takeIf { it.isNotEmpty() }
-    ?.let { Normalizer.normalize(it, Normalizer.Form.NFKC).uppercase().replace(WHITESPACE, "") }
-
-private val WHITESPACE = Regex("\\s+")        command.orderRate?.let { if (it <= BigDecimal.ZERO) fail("Курс заказа должен быть положительным") }
     }
 
     fun validateCost(cost: CostDraft, owner: String) {
