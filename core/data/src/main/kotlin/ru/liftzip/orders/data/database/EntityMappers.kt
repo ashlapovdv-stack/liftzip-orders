@@ -49,7 +49,6 @@ fun OrderEntity.toDomain(): Order = Order(
     createdAt = createdAt.instant(), updatedAt = updatedAt.instant(), revision = revision,
     manualDeliveryPrice = manualDeliveryPriceMinor?.let(::Money),
     orderRate = orderRate?.decimal(),
-    orderRate = orderRate?.decimal(),
 )
 
 fun OrderLineEntity.toDomain(): OrderLine = OrderLine(
