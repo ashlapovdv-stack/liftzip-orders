@@ -115,7 +115,10 @@ class OrderEditorViewModel(
                             payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
                             comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
                             manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
-                            purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.amount?.toPlainString().orEmpty(),
+                            purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.let { cost ->
+                                (if (cost.currency == Currency.CNY) cost.amount.multiply(cost.rate) else cost.amount)
+                                    .stripTrailingZeros().toPlainString()
+                            }.orEmpty(),
                             purchaseCurrency = Currency.RUB,
                             purchaseRate = "1",
                             orderRate = details.order.orderRate?.toPlainString() ?: details.lines.firstNotNullOfOrNull { it.deliveryRate }?.toPlainString().orEmpty(),
