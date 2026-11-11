@@ -85,7 +85,7 @@ class OrderCalculatorTest {
     private fun order(payment: String, costsConfirmed: Boolean) = Order(
         orderId, 1, LocalDate.parse("2026-11-11"), "Тест", groupId,
         Money.fromRubles(BigDecimal(payment)), "", costsConfirmed, CalculationState.INCOMPLETE,
-        Instant.EPOCH, Instant.EPOCH, 1,
+        Instant.EPOCH, Instant.EPOCH, 1, Money.ZERO,
     )
 
     private fun line(
