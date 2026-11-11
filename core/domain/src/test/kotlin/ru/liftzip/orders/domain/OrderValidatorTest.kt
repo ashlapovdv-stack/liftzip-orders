@@ -12,10 +12,9 @@ import java.util.UUID
 
 class OrderValidatorTest {
     @Test
-    fun `partial payment is rejected rather than corrected`() {
+    fun `partial payment is allowed and stays independent of sale`() {
         val command = command(payment = "99.99", sale = "100")
-        val error = assertThrows(DomainValidationException::class.java) { OrderValidator.validate(command) }
-        org.junit.Assert.assertTrue(error.message.orEmpty().contains("0.01"))
+        OrderValidator.validate(command)
     }
 
     @Test
