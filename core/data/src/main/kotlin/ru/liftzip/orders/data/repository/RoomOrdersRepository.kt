@@ -221,6 +221,7 @@ class RoomOrdersRepository(
                 createdAt = existing?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
                 revision = (existing?.revision ?: 0) + 1,
                 manualDeliveryPriceMinor = command.manualDeliveryPrice?.let { Money.fromRubles(it).minorUnits },
+                orderRate = command.orderRate?.canonical(),
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)
 
@@ -239,7 +240,7 @@ class RoomOrdersRepository(
                     createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
                     revision = (old?.revision ?: 0) + 1,
                     deliveryWeight = draft.deliveryWeight?.canonical(), deliveryTariff = draft.deliveryTariff?.canonical(),
-                    deliveryRate = draft.deliveryRate?.canonical(), deliveryPlanDate = draft.deliveryPlanDate?.toString(),
+                    deliveryRate = command.orderRate?.canonical(), deliveryPlanDate = draft.deliveryPlanDate?.toString(),
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.
