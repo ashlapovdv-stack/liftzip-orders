@@ -115,6 +115,7 @@ class OrderEditorViewModel(
                             payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
                             comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
                             manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
+                            orderRate = details.order.orderRate?.toPlainString() ?: details.lines.firstOrNull { it.deliveryRate != null }?.deliveryRate?.toPlainString().orEmpty(),
                             purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.let { cost ->
                                 (if (cost.currency == Currency.CNY) cost.amount.multiply(cost.rate) else cost.amount)
                                     .stripTrailingZeros().toPlainString()
@@ -214,6 +215,7 @@ class OrderEditorViewModel(
             updatedAt = Instant.EPOCH, revision = 0,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal()?.let(Money::fromRubles),
             orderRate = state.orderRate.parseDecimal(),
+            orderRate = state.orderRate.parseDecimal(),
         )
         val costs = buildList {
             state.lines.forEachIndexed { lineIndex, line ->
@@ -287,6 +289,7 @@ class OrderEditorViewModel(
             counterparty = state.counterparty.trim(), receivedPayment = payment,
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
+            orderRate = orderRate,
             orderRate = state.orderRate.parseDecimal(),
         )
         try {
@@ -360,7 +363,7 @@ class OrderEditorViewModel(
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
         purchaseRate = line.purchaseRate?.toPlainString() ?: "1",
         costs = emptyList(), deliveryWeight = line.deliveryWeight?.toPlainString().orEmpty(),
-        deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = line.deliveryRate?.toPlainString().orEmpty(),
+        deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = "",
         deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
     )
 
