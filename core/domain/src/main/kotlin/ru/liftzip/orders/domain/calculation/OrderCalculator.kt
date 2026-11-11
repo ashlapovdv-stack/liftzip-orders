@@ -46,13 +46,13 @@ object OrderCalculator {
         }
         val purchaseKnown = aggregatePurchases.size == 1
         val purchase = if (purchaseKnown) costInRub(aggregatePurchases.single()) else Money.ZERO
-        val complete = purchaseKnown && aggregatePurchases.single().isConfirmed
+        val complete = purchaseKnown && aggregatePurchases.single().isConfirmed && order.manualDeliveryPrice != null
         return OrderCalculation(
             sales = sales,
             knownPurchaseCosts = purchase,
-            knownAdditionalCosts = Money.ZERO,
-            knownCost = purchase,
-            preliminaryProfitWithoutGroupCosts = if (complete) sales - purchase else Money.ZERO,
+            knownAdditionalCosts = order.manualDeliveryPrice ?: Money.ZERO,
+            knownCost = purchase + (order.manualDeliveryPrice ?: Money.ZERO),
+            preliminaryProfitWithoutGroupCosts = if (complete) sales - purchase - order.manualDeliveryPrice!! else Money.ZERO,
             isComplete = complete,
         )
     }
