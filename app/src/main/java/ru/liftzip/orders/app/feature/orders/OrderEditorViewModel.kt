@@ -72,6 +72,7 @@ data class OrderEditorState(
     val payment: String = "",
     val comment: String = "",
     val costsConfirmed: Boolean = false,
+    val manualDeliveryPrice: String = "",
     val purchaseTotal: String = "",
     val purchaseCurrency: Currency = Currency.CNY,
     val purchaseRate: String = "",
@@ -112,6 +113,7 @@ class OrderEditorViewModel(
                             date = details.order.date, counterparty = details.order.counterparty,
                             payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
                             comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
+                            manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
                             purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.amount?.toPlainString().orEmpty(),
                             purchaseCurrency = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.currency ?: Currency.CNY,
                             purchaseRate = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.rate?.toPlainString().orEmpty(),
@@ -205,6 +207,7 @@ class OrderEditorViewModel(
             comment = state.comment, costsConfirmed = state.costsConfirmed,
             calculationState = CalculationState.INCOMPLETE, createdAt = Instant.EPOCH,
             updatedAt = Instant.EPOCH, revision = 0,
+            manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal()?.let(Money::fromRubles),
         )
         val costs = buildList {
             state.lines.forEachIndexed { lineIndex, line ->
@@ -257,6 +260,7 @@ class OrderEditorViewModel(
                 },
             )
         }
+        if (state.manualDeliveryPrice.isNotBlank() && (state.manualDeliveryPrice.parseDecimal() == null || state.manualDeliveryPrice.parseDecimal()!! < BigDecimal.ZERO)) errors["manualDeliveryPrice"] = "Укажите корректную цену доставки"
         val costs = state.costs.filter { it.kind != CostKind.PURCHASE }.mapIndexedNotNull { index, cost -> cost.toDomainOrNull(state.date, errors, "cost_$index") }.toMutableList()
         if (state.purchaseTotal.isNotBlank()) {
             val total = state.purchaseTotal.parseDecimal()
@@ -277,6 +281,7 @@ class OrderEditorViewModel(
             commandId = commandId, orderId = state.orderId, date = state.date,
             counterparty = state.counterparty.trim(), receivedPayment = payment!!,
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
+            manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
         )
         try {
             OrderValidator.validate(command)
