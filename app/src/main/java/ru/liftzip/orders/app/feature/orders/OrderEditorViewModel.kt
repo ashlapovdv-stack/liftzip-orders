@@ -233,8 +233,8 @@ class OrderEditorViewModel(
             if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
             }
-            if (listOf(line.deliveryWeight,line.deliveryTariff,line.deliveryRate).any { it.isNotBlank() }) {
-                if(line.deliveryWeight.parseDecimal()==null || line.deliveryTariff.parseDecimal()==null || line.deliveryRate.parseDecimal()==null) errors["line_${index}_delivery"]="Заполните вес, тариф и курс доставки либо очистите все три поля"
+            if (listOf(line.deliveryWeight, line.deliveryTariff, line.deliveryRate).any { it.isNotBlank() && it.parseDecimal() == null }) {
+                errors["line_${index}_delivery"] = "Проверьте числовые значения доставки"
             }
             val purchase = line.purchasePrice.parseDecimal()
             if (line.purchasePrice.isNotBlank() && purchase == null) {
