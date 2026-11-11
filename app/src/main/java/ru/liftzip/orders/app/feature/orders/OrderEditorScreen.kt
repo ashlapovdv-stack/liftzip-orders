@@ -131,6 +131,8 @@ fun OrderEditorScreen(
                     onClick = { showDatePicker = true }, enabled = !state.salesLocked,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) { Text("Дата заказа: ${state.date.formatDate()}") }
+                AppTextField(state.orderRate, { value -> model.update { it.copy(orderRate = value) } },
+                    "Курс, ₽/¥", error = state.errors["orderRate"], decimal = true)
                 state.groupNumber?.let {
                     Text("Группа №$it · ${if (state.groupState == GroupState.FORMING) "Формируется" else "На расчёте"}")
                 } ?: Text("При сохранении заказ попадёт в текущую формируемую группу")
@@ -168,28 +170,9 @@ fun OrderEditorScreen(
             item {
                 SectionTitle("Закупка всего заказа")
                 AppTextField(state.purchaseTotal, { value -> model.update { it.copy(purchaseTotal = value) } },
-                    "Общая закупочная стоимость заказа", error = state.errors["purchaseTotal"], decimal = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Currency.entries.forEach { currency ->
-                        FilterChip(selected = state.purchaseCurrency == currency,
-                            onClick = { model.update { it.copy(purchaseCurrency = currency, purchaseRate = if (currency == Currency.RUB) "1" else "") } },
-                            label = { Text(currency.name) })
-                    }
-                }
-                if (state.purchaseCurrency == Currency.CNY) {
-                    AppTextField(state.purchaseRate, { value -> model.update { it.copy(purchaseRate = value) } },
-                        "Курс ₽ за 1 ¥", error = state.errors["purchaseRate"], decimal = true)
-                }
+                    "Общая закупочная стоимость заказа, ₽", error = state.errors["purchaseTotal"], decimal = true)
                 Text("Закупочные цены отдельных позиций справочные. Дополнительные расходы учитываются только в комментарии.",
                     style = MaterialTheme.typography.bodySmall)
-            }
-            item {
-                AppTextField(
-                    state.payment, { value -> model.update { it.copy(payment = value) } },
-                    "Получено от Дениса, включая доставку, ₽", error = state.errors["payment"],
-                    enabled = !state.salesLocked, decimal = true,
-                )
-                Text("Цена для Дениса включает доставку; фактические платежи логисту учитываются отдельно", style=MaterialTheme.typography.bodySmall)
             }
             item {
                 AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2)
@@ -291,7 +274,7 @@ fun OrderEditorScreen(
                         SectionTitle("Закупочный расчёт")
                         AppTextField(
                             line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
-                            "Закупочная цена за единицу, ¥ (справочно)", error = state.errors["line_${index}_purchase"], decimal = true,
+                            "Закупочная цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"} (справочно)", error = state.errors["line_${index}_purchase"], decimal = true,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Currency.entries.forEach { currency ->
@@ -306,17 +289,10 @@ fun OrderEditorScreen(
                                 )
                             }
                         }
-                        AppTextField(
-                            line.purchaseRate, { value -> model.updateLine(index) { it.copy(purchaseRate = value) } },
-                            "Курс RUB за 1 CNY", error = state.errors["line_${index}_rate"],
-                            enabled = line.purchaseCurrency == Currency.CNY, decimal = true,
-                        )
-                        Text("Черновой расчёт — не факт оплаты поставщику", style = MaterialTheme.typography.bodySmall)
                         SectionTitle("Ориентир доставки · отдельно от товара")
                         AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight=value,deliveryPlanDate=LocalDate.now()) } }, "Вес одной единицы, кг", decimal=true)
                         AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff=value,deliveryPlanDate=LocalDate.now()) } }, "Тариф, CNY/кг", decimal=true)
-                        AppTextField(line.deliveryRate, { value -> model.updateLine(index) { it.copy(deliveryRate=value,deliveryPlanDate=LocalDate.now()) } }, "Курс прогноза, RUB за 1 CNY", decimal=true)
-                        Text("Прогноз от ${line.deliveryPlanDate.formatDate()}. Курс не обновляется автоматически.",style=MaterialTheme.typography.bodySmall)
+                        Text("Для доставки используется курс заказа.",style=MaterialTheme.typography.bodySmall)
                         state.errors["line_${index}_delivery"]?.let { Text(it,color=MaterialTheme.colorScheme.error) }
                         Text("Счёт логиста и оплаты — в отдельной карточке доставки после сохранения заказа.",style=MaterialTheme.typography.bodySmall)
 
