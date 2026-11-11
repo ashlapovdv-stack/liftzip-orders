@@ -2,6 +2,7 @@ package ru.liftzip.orders.domain.calculation
 
 import ru.liftzip.orders.domain.model.CostEntry
 import ru.liftzip.orders.domain.model.CostOwnerType
+import ru.liftzip.orders.domain.model.CostKind
 import ru.liftzip.orders.domain.model.Currency
 import ru.liftzip.orders.domain.model.GroupDetails
 import ru.liftzip.orders.domain.model.GroupSummary
@@ -38,18 +39,20 @@ object OrderCalculator {
                 (it.ownerType == CostOwnerType.LINE && it.ownerId in lineIds)
         }
         val sales = lines.fold(Money.ZERO) { total, line -> total + lineSale(line) }
-        val purchase = lines.fold(Money.ZERO) { total, line -> total + (linePurchase(line) ?: Money.ZERO) }
-        val additional = applicableCosts.fold(Money.ZERO) { total, cost -> total + costInRub(cost) }
-        val knownCost = purchase + additional
-        val complete = order.costsConfirmed &&
-            lines.all { it.isPurchaseComplete() } &&
-            applicableCosts.all { it.isConfirmed }
+        // Only the aggregate order purchase entry is a goods cost.
+        // Historical line purchases and extra expenses remain stored but never affect profit.
+        val aggregatePurchases = applicableCosts.filter {
+            it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE
+        }
+        val purchaseKnown = aggregatePurchases.size == 1
+        val purchase = if (purchaseKnown) costInRub(aggregatePurchases.single()) else Money.ZERO
+        val complete = purchaseKnown && aggregatePurchases.single().isConfirmed
         return OrderCalculation(
             sales = sales,
             knownPurchaseCosts = purchase,
-            knownAdditionalCosts = additional,
-            knownCost = knownCost,
-            preliminaryProfitWithoutGroupCosts = sales - knownCost,
+            knownAdditionalCosts = Money.ZERO,
+            knownCost = purchase,
+            preliminaryProfitWithoutGroupCosts = if (complete) sales - purchase else Money.ZERO,
             isComplete = complete,
         )
     }
@@ -63,12 +66,8 @@ object OrderCalculator {
         val sales = calculations.fold(Money.ZERO) { sum, item -> sum + item.sales }
         val payment = orders.fold(Money.ZERO) { sum, item -> sum + item.first.receivedPayment }
         val orderCosts = calculations.fold(Money.ZERO) { sum, item -> sum + item.knownCost }
-        val ownGroupCosts = groupCosts
-            .filter { it.ownerType == CostOwnerType.GROUP && it.ownerId == group.id }
-            .fold(Money.ZERO) { sum, cost -> sum + costInRub(cost) }
-        val knownCosts = orderCosts + ownGroupCosts
-        val complete = group.costsConfirmed && groupCosts.all { it.isConfirmed } &&
-            calculations.all { it.isComplete }
+        val knownCosts = orderCosts
+        val complete = calculations.all { it.isComplete }
         return GroupSummary(
             group = group,
             orderCount = orders.size,
@@ -76,7 +75,7 @@ object OrderCalculator {
             receivedPayment = payment,
             knownCosts = knownCosts,
             incompleteCount = calculations.count { !it.isComplete },
-            preliminaryProfit = sales - knownCosts,
+            preliminaryProfit = if (complete) sales - knownCosts else Money.ZERO,
             isComplete = complete,
         )
     }
