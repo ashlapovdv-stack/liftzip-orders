@@ -151,31 +151,23 @@ fun OrderEditorScreen(
             if (!state.salesLocked) {
                 item { OutlinedButton(onClick = { model.addLine(); editingLine=state.lines.size }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить позицию") } }
             }
-            if(state.costs.any { it.kind==ru.liftzip.orders.domain.model.CostKind.DELIVERY } || state.lines.any { l -> l.costs.any { it.kind==ru.liftzip.orders.domain.model.CostKind.DELIVERY } }) {
-                item { Text("Доставка из версии 0.1 сохранена как прежний расход товара. Проверьте эти записи вручную, прежде чем дублировать их в отдельной доставке.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error) }
-            }
-            item { TextButton(onClick={ showExtras=!showExtras }) { Text(if(showExtras) "Скрыть дополнительные расходы" else "Дополнительные расходы товара") } }
-            if(showExtras) {
             item {
-                CostsEditor(
-                    title = "Расходы заказа", costs = state.costs, errors = state.errors, errorPrefix = "cost",
-                    onAdd = model::addOrderCost,
-                    onChange = { index, transform -> model.updateOrderCost(index, transform) },
-                    onRemove = model::removeOrderCost,
-                )
-            }
-            }
-            item {
-                Row(Modifier.fillMaxWidth().clickable { model.update { it.copy(costsConfirmed = !it.costsConfirmed) } }) {
-                    Checkbox(
-                        checked = state.costsConfirmed,
-                        onCheckedChange = { checked -> model.update { it.copy(costsConfirmed = checked) } },
-                    )
-                    Text(
-                        "Закупка и расходы товара указаны полностью",
-                        Modifier.align(Alignment.CenterVertically),
-                    )
+                SectionTitle("Закупка всего заказа")
+                AppTextField(state.purchaseTotal, { value -> model.update { it.copy(purchaseTotal = value) } },
+                    "Общая закупочная стоимость заказа", error = state.errors["purchaseTotal"], decimal = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Currency.entries.forEach { currency ->
+                        FilterChip(selected = state.purchaseCurrency == currency,
+                            onClick = { model.update { it.copy(purchaseCurrency = currency, purchaseRate = if (currency == Currency.RUB) "1" else "") } },
+                            label = { Text(currency.name) })
+                    }
                 }
+                if (state.purchaseCurrency == Currency.CNY) {
+                    AppTextField(state.purchaseRate, { value -> model.update { it.copy(purchaseRate = value) } },
+                        "Курс ₽ за 1 ¥", error = state.errors["purchaseRate"], decimal = true)
+                }
+                Text("Закупочные цены отдельных позиций справочные. Дополнительные расходы учитываются только в комментарии.",
+                    style = MaterialTheme.typography.bodySmall)
             }
             item {
                 AppTextField(
@@ -197,10 +189,10 @@ fun OrderEditorScreen(
                             val delivery=model.deliveryPreview()
                             Text("Ориентир доставки: ${delivery?.format() ?: "не заполнен"}")
                             if(delivery!=null) Text("Предложение с доставкой ≈ ${(calculation.sales+delivery).format()}")
-                            Text("Известная себестоимость: ${calculation.knownCost.format()}")
+                            Text("Себестоимость заказа: ${if (calculation.isComplete) calculation.knownCost.format() else "не указана"}")
                             Text(
                                 "Предварительная прибыль без групповых расходов: " +
-                                    calculation.preliminaryProfitWithoutGroupCosts.format(),
+                                    (if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.format() else "не рассчитана"),
                                 fontWeight = FontWeight.SemiBold,
                             )
                             StatusBadge(
@@ -285,7 +277,7 @@ fun OrderEditorScreen(
                         SectionTitle("Закупочный расчёт")
                         AppTextField(
                             line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
-                            "Закупка за единицу (можно позже)", error = state.errors["line_${index}_purchase"], decimal = true,
+                            "Закупочная цена за единицу, ¥ (справочно)", error = state.errors["line_${index}_purchase"], decimal = true,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Currency.entries.forEach { currency ->
@@ -307,18 +299,13 @@ fun OrderEditorScreen(
                         )
                         Text("Черновой расчёт — не факт оплаты поставщику", style = MaterialTheme.typography.bodySmall)
                         SectionTitle("Ориентир доставки · отдельно от товара")
-                        AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight=value,deliveryPlanDate=LocalDate.now()) } }, "Вес всей позиции, кг", decimal=true)
+                        AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight=value,deliveryPlanDate=LocalDate.now()) } }, "Вес одной единицы, кг", decimal=true)
                         AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff=value,deliveryPlanDate=LocalDate.now()) } }, "Тариф, CNY/кг", decimal=true)
                         AppTextField(line.deliveryRate, { value -> model.updateLine(index) { it.copy(deliveryRate=value,deliveryPlanDate=LocalDate.now()) } }, "Курс прогноза, RUB за 1 CNY", decimal=true)
                         Text("Прогноз от ${line.deliveryPlanDate.formatDate()}. Курс не обновляется автоматически.",style=MaterialTheme.typography.bodySmall)
                         state.errors["line_${index}_delivery"]?.let { Text(it,color=MaterialTheme.colorScheme.error) }
                         Text("Счёт логиста и оплаты — в отдельной карточке доставки после сохранения заказа.",style=MaterialTheme.typography.bodySmall)
-                        CostsEditor(
-                            title = "Расходы позиции", costs = line.costs, errors = state.errors,
-                            errorPrefix = "line_${index}_cost", onAdd = { model.addLineCost(index) },
-                            onChange = { costIndex, transform -> model.updateLineCost(index, costIndex, transform) },
-                            onRemove = { model.removeLineCost(index, it) },
-                        )
+
                     }
                 }
                 }
