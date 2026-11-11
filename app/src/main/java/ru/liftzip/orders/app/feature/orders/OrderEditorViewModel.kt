@@ -72,6 +72,9 @@ data class OrderEditorState(
     val payment: String = "",
     val comment: String = "",
     val costsConfirmed: Boolean = false,
+    val purchaseTotal: String = "",
+    val purchaseCurrency: Currency = Currency.CNY,
+    val purchaseRate: String = "",
     val lines: List<EditorLineDraft> = listOf(EditorLineDraft()),
     val costs: List<EditorCostDraft> = emptyList(),
     val history: List<ChangeEvent> = emptyList(),
@@ -109,6 +112,9 @@ class OrderEditorViewModel(
                             date = details.order.date, counterparty = details.order.counterparty,
                             payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
                             comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
+                            purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.amount?.toPlainString().orEmpty(),
+                            purchaseCurrency = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.currency ?: Currency.CNY,
+                            purchaseRate = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.rate?.toPlainString().orEmpty(),
                             lines = details.lines.map { line ->
                                 toEditorLine(line).copy(
                                     costs = details.costs.filter {
@@ -204,7 +210,8 @@ class OrderEditorViewModel(
             state.lines.forEachIndexed { lineIndex, line ->
                 line.costs.forEach { cost -> add(cost.toDomain(CostOwnerType.LINE, lines[lineIndex].id, state.date)) }
             }
-            state.costs.forEach { add(it.toDomain(CostOwnerType.ORDER, calculationOrderId, state.date)) }
+            state.costs.filter { it.kind != CostKind.PURCHASE }.forEach { add(it.toDomain(CostOwnerType.ORDER, calculationOrderId, state.date)) }
+            state.aggregatePurchaseCost()?.let { add(it.toDomain(CostOwnerType.ORDER, calculationOrderId, state.date)) }
         }
         OrderCalculator.calculate(order, lines, costs)
     } catch (_: Exception) {
@@ -250,7 +257,18 @@ class OrderEditorViewModel(
                 },
             )
         }
-        val costs = state.costs.mapIndexedNotNull { index, cost -> cost.toDomainOrNull(state.date, errors, "cost_$index") }
+        val costs = state.costs.filter { it.kind != CostKind.PURCHASE }.mapIndexedNotNull { index, cost -> cost.toDomainOrNull(state.date, errors, "cost_$index") }.toMutableList()
+        if (state.purchaseTotal.isNotBlank()) {
+            val total = state.purchaseTotal.parseDecimal()
+            val rate = if (state.purchaseCurrency == Currency.RUB) BigDecimal.ONE else state.purchaseRate.parseDecimal()
+            if (total == null || total < BigDecimal.ZERO) errors["purchaseTotal"] = "Укажите сумму закупки заказа"
+            if (rate == null || rate <= BigDecimal.ZERO) errors["purchaseRate"] = "Укажите курс закупки"
+            if (total != null && total >= BigDecimal.ZERO && rate != null && rate > BigDecimal.ZERO) {
+                costs += CostDraft(id = state.costs.firstOrNull { it.kind == CostKind.PURCHASE && it.id != null }?.id,
+                    kind = CostKind.PURCHASE, amount = total, currency = state.purchaseCurrency,
+                    rate = rate, isConfirmed = true, date = state.date)
+            }
+        }
         if (errors.isNotEmpty()) {
             _state.update { it.copy(errors = errors, generalError = "Проверьте выделенные поля") }
             return null
@@ -273,6 +291,14 @@ class OrderEditorViewModel(
             return null
         }
         return command
+    }
+
+    private fun OrderEditorState.aggregatePurchaseCost(): EditorCostDraft? {
+        if (purchaseTotal.isBlank()) return null
+        val rate = if (purchaseCurrency == Currency.RUB) "1" else purchaseRate
+        return EditorCostDraft(id = costs.firstOrNull { it.kind == CostKind.PURCHASE }?.id,
+            kind = CostKind.PURCHASE, amount = purchaseTotal, currency = purchaseCurrency,
+            rate = rate, date = date)
     }
 
     private fun EditorCostDraft.toDomainOrNull(
