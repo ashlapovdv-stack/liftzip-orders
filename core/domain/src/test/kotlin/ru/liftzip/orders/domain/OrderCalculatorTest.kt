@@ -31,7 +31,7 @@ class OrderCalculatorTest {
             quantity = "2", saleUnitPrice = "2500", purchasePrice = "100",
             currency = Currency.CNY, rate = "13.25",
         )
-        val delivery = cost(CostOwnerType.ORDER, orderId, "350")
+        val delivery = cost(CostOwnerType.ORDER, orderId, "3000", CostKind.PURCHASE)
         val result = OrderCalculator.calculate(order("5000", true), listOf(line), listOf(delivery))
         assertEquals("3000.00", result.knownCost.toBigDecimal().toPlainString())
         assertEquals("2000.00", result.preliminaryProfitWithoutGroupCosts.toBigDecimal().toPlainString())
@@ -55,7 +55,7 @@ class OrderCalculatorTest {
         )
         assertFalse(result.isComplete)
         assertEquals(Money.ZERO, result.knownCost)
-        assertEquals(Money.fromRubles(BigDecimal("100.00")), result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(Money.ZERO, result.preliminaryProfitWithoutGroupCosts)
     }
 
     @Test
@@ -63,20 +63,21 @@ class OrderCalculatorTest {
         val order = order("1000", true)
         val line = line("1", "1000", "400", Currency.RUB, "1")
         val groupExpense = cost(CostOwnerType.GROUP, groupId, "100")
-        val orderCalculation = OrderCalculator.calculate(order, listOf(line), emptyList())
+        val purchase = cost(CostOwnerType.ORDER, orderId, "400", CostKind.PURCHASE)
+        val orderCalculation = OrderCalculator.calculate(order, listOf(line), listOf(purchase))
         assertEquals(Money.fromRubles(BigDecimal("600.00")), orderCalculation.preliminaryProfitWithoutGroupCosts)
         val group = SettlementGroup(
             groupId, 1, GroupState.CALCULATING, true, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH, 1,
         )
-        val summary = OrderCalculator.summarizeGroup(group, listOf(Triple(order, listOf(line), emptyList())), listOf(groupExpense))
-        assertEquals(Money.fromRubles(BigDecimal("500.00")), summary.preliminaryProfit)
-        assertEquals(Money.fromRubles(BigDecimal("500.00")), summary.knownCosts)
+        val summary = OrderCalculator.summarizeGroup(group, listOf(Triple(order, listOf(line), listOf(purchase))), listOf(groupExpense))
+        assertEquals(Money.fromRubles(BigDecimal("600.00")), summary.preliminaryProfit)
+        assertEquals(Money.fromRubles(BigDecimal("400.00")), summary.knownCosts)
     }
 
     @Test
     fun `negative preliminary profit remains visible`() {
         val result = OrderCalculator.calculate(
-            order("100", true), listOf(line("1", "100", "150", Currency.RUB, "1")), emptyList(),
+            order("100", true), listOf(line("1", "100", "150", Currency.RUB, "1")), listOf(cost(CostOwnerType.ORDER, orderId, "150", CostKind.PURCHASE)),
         )
         assertEquals(Money.fromRubles(BigDecimal("-50.00")), result.preliminaryProfitWithoutGroupCosts)
     }
@@ -99,8 +100,8 @@ class OrderCalculatorTest {
         rate?.let(::BigDecimal), Instant.EPOCH, Instant.EPOCH, 1,
     )
 
-    private fun cost(ownerType: CostOwnerType, ownerId: UUID, amount: String) = CostEntry(
-        UUID.randomUUID(), ownerType, ownerId, CostKind.DELIVERY, BigDecimal(amount), Currency.RUB,
+    private fun cost(ownerType: CostOwnerType, ownerId: UUID, amount: String, kind: CostKind = CostKind.DELIVERY) = CostEntry(
+        UUID.randomUUID(), ownerType, ownerId, kind, BigDecimal(amount), Currency.RUB,
         BigDecimal.ONE, true, LocalDate.parse("2026-11-11"), "", Instant.EPOCH, Instant.EPOCH, 1,
     )
 }
