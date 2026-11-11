@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupCommandEntity::class,
         AppMetadataEntity::class, DeliveryInvoiceEntity::class, DeliveryPaymentEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class OrdersDatabase : RoomDatabase() {
@@ -52,6 +52,13 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orders ADD COLUMN orderRate TEXT")
+                db.execSQL("UPDATE orders SET orderRate = (SELECT deliveryRate FROM order_lines WHERE order_lines.orderId = orders.id AND deliveryRate IS NOT NULL LIMIT 1)")
+            }
+        }
+
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN manualDeliveryPriceMinor INTEGER")
@@ -65,7 +72,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             DATABASE_NAME,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .addCallback(IntegrityCallback)
             .build()
         }
