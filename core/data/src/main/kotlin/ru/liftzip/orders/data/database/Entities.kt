@@ -62,6 +62,7 @@ data class OrderEntity(
     val updatedAt: Long,
     val revision: Long,
     val manualDeliveryPriceMinor: Long? = null,
+    val orderRate: String? = null,
 )
 
 @Serializable
