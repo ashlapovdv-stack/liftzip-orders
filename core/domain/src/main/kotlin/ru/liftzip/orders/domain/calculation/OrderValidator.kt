@@ -38,14 +38,11 @@ object OrderValidator {
             if (it < BigDecimal.ZERO) fail("Цена доставки не может быть отрицательной")
             Money.fromRubles(it)
         }
-        val sales = command.lines.fold(Money.ZERO) { sum, line ->
-            sum + Money.fromRubles(line.quantity.multiply(line.saleUnitPrice))
+        command.orderRate?.let { if (it <= BigDecimal.ZERO) fail("Курс заказа должен быть положительным") }
+        if (command.lines.any { it.deliveryWeight != null || it.deliveryTariff != null } && command.orderRate == null) {
+            fail("Для расчёта доставки укажите курс заказа")
         }
-        val payment = Money.fromRubles(command.receivedPayment)
-        if (sales != payment) {
-            val difference = payment.toBigDecimal().subtract(sales.toBigDecimal()).abs().setScale(2)
-            fail("Полученная оплата отличается от суммы продажи на $difference ₽. Исправьте ввод")
-        }
+
     }
 
     fun validateCost(cost: CostDraft, owner: String) {
