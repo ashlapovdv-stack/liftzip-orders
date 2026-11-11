@@ -220,6 +220,7 @@ class RoomOrdersRepository(
                 costsConfirmed = command.costsConfirmed, calculationState = CalculationState.INCOMPLETE.name,
                 createdAt = existing?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
                 revision = (existing?.revision ?: 0) + 1,
+                manualDeliveryPriceMinor = command.manualDeliveryPrice?.let { Money.fromRubles(it).minorUnits },
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)
 
