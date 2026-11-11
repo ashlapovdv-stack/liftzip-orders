@@ -47,6 +47,7 @@ fun OrderEntity.toDomain(): Order = Order(
     groupId = groupId.uuid(), receivedPayment = Money(receivedPaymentMinor), comment = comment,
     costsConfirmed = costsConfirmed, calculationState = CalculationState.valueOf(calculationState),
     createdAt = createdAt.instant(), updatedAt = updatedAt.instant(), revision = revision,
+    manualDeliveryPrice = manualDeliveryPriceMinor?.let(::Money),
 )
 
 fun OrderLineEntity.toDomain(): OrderLine = OrderLine(
