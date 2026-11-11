@@ -7,6 +7,12 @@ import androidx.room.Query
 
 @Dao
 interface BackupDao {
+    @Query("SELECT * FROM delivery_invoices") suspend fun allDeliveryInvoices(): List<DeliveryInvoiceEntity>
+    @Query("SELECT * FROM delivery_payments") suspend fun allDeliveryPayments(): List<DeliveryPaymentEntity>
+    @Insert suspend fun insertDeliveryInvoices(items:List<DeliveryInvoiceEntity>)
+    @Insert suspend fun insertDeliveryPayments(items:List<DeliveryPaymentEntity>)
+    @Query("DELETE FROM delivery_payments") suspend fun deleteDeliveryPayments()
+    @Query("DELETE FROM delivery_invoices") suspend fun deleteDeliveryInvoices()
     @Query("SELECT * FROM products") suspend fun allProducts(): List<ProductEntity>
     @Query("SELECT * FROM settlement_groups") suspend fun allGroups(): List<SettlementGroupEntity>
     @Query("SELECT * FROM orders") suspend fun allOrders(): List<OrderEntity>

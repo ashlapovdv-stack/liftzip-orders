@@ -15,6 +15,11 @@ import ru.liftzip.orders.domain.model.SaveOrderCommand
 import java.util.UUID
 
 interface OrdersRepository {
+    fun observeDelivery(orderId: UUID): Flow<ru.liftzip.orders.domain.delivery.DeliveryDetails?>
+    suspend fun saveDeliveryInvoice(invoice: ru.liftzip.orders.domain.delivery.DeliveryInvoice)
+    suspend fun addDeliveryPayment(payment: ru.liftzip.orders.domain.delivery.DeliveryPayment)
+    suspend fun reverseDeliveryPayment(id: UUID, commandId: UUID)
+
     fun observeOrders(query: String, filter: OrdersFilter, limit: Int): Flow<List<OrderSummary>>
     fun observeOrder(orderId: UUID): Flow<OrderDetails?>
     fun observeGroups(): Flow<List<GroupSummary>>

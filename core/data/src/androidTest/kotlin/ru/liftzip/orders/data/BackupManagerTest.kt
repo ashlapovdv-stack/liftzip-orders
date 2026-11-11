@@ -76,6 +76,23 @@ class BackupManagerTest {
         assertEquals(orderId, repository.observeOrders("", OrdersFilter.ALL, 50).first().single().order.id)
     }
 
+    @Test fun deliveryRoundtripPreservesLedgerAndDoesNotTouchGoods() = runTest {
+        val id=repository.saveOrder(orderCommand("Доставка"))
+        val day=LocalDate.parse("2026-11-11")
+        repository.saveDeliveryInvoice(ru.liftzip.orders.domain.delivery.DeliveryInvoice(id,ru.liftzip.orders.domain.model.Money(443750),day))
+        val payment=ru.liftzip.orders.domain.delivery.DeliveryPayment(UUID.randomUUID(),id,ru.liftzip.orders.domain.delivery.DeliveryParty.CLIENT,ru.liftzip.orders.domain.model.Money(200000),day,"test")
+        repository.addDeliveryPayment(payment)
+        repository.addDeliveryPayment(payment)
+        val file=File(context.cacheDir,"delivery-roundtrip.zip")
+        manager.exportTo(Uri.fromFile(file))
+        repository.reverseDeliveryPayment(payment.id,UUID.randomUUID())
+        manager.importFrom(Uri.fromFile(file))
+        val details=repository.observeDelivery(id).first()!!
+        assertEquals(1,details.payments.size)
+        assertEquals(243750L,details.clientBalance!!.minorUnits)
+        assertEquals(10000L,repository.observeOrder(id).first()!!.order.receivedPayment.minorUnits)
+    }
+
     private suspend fun assertRejected(file: File) {
         var rejected = false
         try { manager.importFrom(Uri.fromFile(file)) } catch (_: BackupException) { rejected = true }

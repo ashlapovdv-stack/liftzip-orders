@@ -37,4 +37,20 @@ class MigrationTest {
             }
         }
     }
+    @Test fun migration2To3PreservesOrderAndAddsEmptyLogistics() {
+        helper.createDatabase(databaseName,2).apply {
+            execSQL("INSERT INTO settlement_groups VALUES('g',1,'FORMING',0,1,NULL,1,1)")
+            execSQL("INSERT INTO products VALUES('p','Товар',NULL,NULL,NULL,'[]',1,1,1)")
+            execSQL("INSERT INTO orders VALUES('o',1,'2026-11-11','Денис','g',500000,'old',0,'INCOMPLETE',1,1,1)")
+            execSQL("INSERT INTO order_lines VALUES('l','o','p','Товар',NULL,'2',250000,'100','CNY','13.25',1,1,1)")
+            execSQL("CREATE UNIQUE INDEX index_settlement_groups_one_forming ON settlement_groups(state) WHERE state='FORMING'")
+            close()
+        }
+        helper.runMigrationsAndValidate(databaseName,3,true,OrdersDatabase.MIGRATION_2_3).use { db ->
+            db.query("SELECT receivedPaymentMinor FROM orders WHERE id='o'").use { c -> c.moveToFirst();assertEquals(500000L,c.getLong(0)) }
+            db.query("SELECT deliveryWeight FROM order_lines WHERE id='l'").use { c -> c.moveToFirst();assertEquals(true,c.isNull(0)) }
+            db.query("SELECT count(*) FROM delivery_payments").use { c -> c.moveToFirst();assertEquals(0,c.getInt(0)) }
+        }
+    }
+
 }

@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import androidx.room.withTransaction
 import kotlinx.serialization.json.Json
+import ru.liftzip.orders.domain.delivery.*
+import ru.liftzip.orders.data.database.DeliveryInvoiceEntity
+import ru.liftzip.orders.data.database.DeliveryPaymentEntity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,6 +67,49 @@ class RoomOrdersRepository(
     private val database: OrdersDatabase,
     private val dao: OrdersDao = database.ordersDao(),
 ) : OrdersRepository {
+
+    private val deliveryDao = database.deliveryDao()
+    private fun DeliveryInvoiceEntity.domain() = DeliveryInvoice(orderId.uuid(), amountMinor?.let(::Money), date?.let(java.time.LocalDate::parse), actualWeight?.decimal(), actualTariff?.decimal(), actualRate?.decimal(), note, revision)
+    private fun DeliveryPaymentEntity.domain() = DeliveryPayment(id.uuid(), orderId.uuid(), DeliveryParty.valueOf(party), Money(amountMinor), java.time.LocalDate.parse(date), note, reversalOf?.uuid())
+    override fun observeDelivery(orderId: UUID): Flow<DeliveryDetails?> = combine(
+        observeOrder(orderId), deliveryDao.observeInvoice(orderId.toString()), deliveryDao.observePayments(orderId.toString()),
+    ) { order, invoice, payments -> order?.let { DeliveryDetails(invoice?.domain() ?: DeliveryInvoice(orderId), payments.map { it.domain() }, it.lines) } }.flowOn(Dispatchers.IO)
+
+    override suspend fun saveDeliveryInvoice(invoice: DeliveryInvoice) = withContext(Dispatchers.IO) {
+        DeliveryCalculator.validateInvoice(invoice)
+        database.withTransaction {
+            val id=invoice.orderId.toString()
+            require(dao.getOrder(id) != null) { "Заказ не найден" }
+            val old=deliveryDao.invoice(id)
+            require((old?.revision ?: 0)==invoice.revision) { "Счёт изменился. Откройте доставку заново" }
+            val entity=DeliveryInvoiceEntity(id, invoice.amount?.minorUnits, invoice.date?.toString(), invoice.actualWeight?.canonical(), invoice.actualTariff?.canonical(), invoice.actualRate?.canonical(), invoice.note, invoice.revision+1)
+            deliveryDao.saveInvoice(entity)
+            dao.insertChangeEvent(ChangeEventEntity(UUID.randomUUID().toString(), "DELIVERY",id,"INVOICE_UPDATED",Instant.now().epoch(),"local",old?.let { Json.encodeToString(DeliveryInvoiceEntity.serializer(),it) },Json.encodeToString(DeliveryInvoiceEntity.serializer(),entity)))
+        }
+    }
+    override suspend fun addDeliveryPayment(payment: DeliveryPayment) = withContext(Dispatchers.IO) {
+        require(payment.amount > Money.ZERO && payment.reversalOf == null) { "Платёж должен быть больше нуля" }
+        database.withTransaction {
+            require(dao.getOrder(payment.orderId.toString()) != null) { "Заказ не найден" }
+            val entity=DeliveryPaymentEntity(payment.id.toString(), payment.orderId.toString(),payment.party.name,payment.amount.minorUnits,payment.date.toString(),payment.note,null)
+            val old=deliveryDao.payment(entity.id)
+            if(old != null) { require(old==entity) { "Идентификатор операции уже использован" }; return@withTransaction }
+            val total=DeliveryCalculator.sumPayments(deliveryDao.payments(entity.orderId).filter { it.party==entity.party }.map { Money(it.amountMinor) })
+            total+payment.amount // Reject an overflow before committing the payment.
+            deliveryDao.insertPayment(entity)
+            dao.insertChangeEvent(ChangeEventEntity(UUID.randomUUID().toString(),"DELIVERY",entity.orderId,"PAYMENT_RECORDED",Instant.now().epoch(),"local",null,Json.encodeToString(DeliveryPaymentEntity.serializer(),entity)))
+        }
+    }
+    override suspend fun reverseDeliveryPayment(id:UUID,commandId:UUID) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val old=deliveryDao.payment(id.toString()) ?: error("Запись не найдена")
+            require(old.reversalOf==null && old.amountMinor>0) { "Нельзя отменить сторно" }
+            if(deliveryDao.reversal(old.id)!=null) return@withTransaction
+            val reversal=old.copy(id=commandId.toString(),amountMinor=-old.amountMinor,reversalOf=old.id,note="Сторно: "+old.note,date=java.time.LocalDate.now().toString())
+            deliveryDao.insertPayment(reversal)
+            dao.insertChangeEvent(ChangeEventEntity(UUID.randomUUID().toString(),"DELIVERY",old.orderId,"PAYMENT_REVERSED",Instant.now().epoch(),"local",null,Json.encodeToString(DeliveryPaymentEntity.serializer(),reversal)))
+        }
+    }
 
     suspend fun initialize() = withContext(Dispatchers.IO) {
         database.withTransaction {
@@ -191,6 +237,8 @@ class RoomOrdersRepository(
                     purchaseCurrency = draft.purchaseCurrency?.name, purchaseRate = draft.purchaseRate?.canonical(),
                     createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
                     revision = (old?.revision ?: 0) + 1,
+                    deliveryWeight = draft.deliveryWeight?.canonical(), deliveryTariff = draft.deliveryTariff?.canonical(),
+                    deliveryRate = draft.deliveryRate?.canonical(), deliveryPlanDate = draft.deliveryPlanDate?.toString(),
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.

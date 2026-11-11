@@ -63,6 +63,7 @@ class BackupManager(
                 lines = backupDao.allLines(), costs = backupDao.allCosts(), priceRecords = backupDao.allPriceRecords(),
                 changeEvents = backupDao.allChangeEvents(), orderCommands = backupDao.allOrderCommands(),
                 groupCommands = backupDao.allGroupCommands(), metadata = backupDao.allMetadata(),
+                deliveryInvoices = backupDao.allDeliveryInvoices(), deliveryPayments = backupDao.allDeliveryPayments(),
             )
         }
         val data = json.encodeToString(BackupPayload.serializer(), payload).toByteArray(Charsets.UTF_8)
@@ -97,7 +98,7 @@ class BackupManager(
         if (manifest.format != FORMAT || manifest.formatVersion != FORMAT_VERSION) {
             throw BackupException("Неподдерживаемый формат резервной копии")
         }
-        if (manifest.schemaVersion != OrdersDatabase.SCHEMA_VERSION) {
+        if (manifest.schemaVersion !in 2..OrdersDatabase.SCHEMA_VERSION) {
             val reason = if (manifest.schemaVersion > OrdersDatabase.SCHEMA_VERSION) "более новая" else "другая"
             throw BackupException("Архив содержит $reason версию схемы: ${manifest.schemaVersion}")
         }
@@ -109,7 +110,8 @@ class BackupManager(
         } catch (error: Exception) {
             throw BackupException("Повреждены данные резервной копии", error)
         }
-        if (payload.counts() != manifest.counts) throw BackupException("Количество записей не совпадает с manifest.json")
+        if ((if (manifest.schemaVersion == 2) payload.counts().filterKeys { it !in setOf("deliveryInvoices", "deliveryPayments") } else payload.counts()) != manifest.counts) throw BackupException("Количество записей не совпадает с manifest.json")
+        if (manifest.schemaVersion == 2 && (payload.deliveryInvoices.isNotEmpty() || payload.deliveryPayments.isNotEmpty())) throw BackupException("Данные доставки не соответствуют версии архива")
         validatePayload(payload)
         return payload to BackupInspection(manifest.createdAt, manifest.schemaVersion, manifest.counts)
     }
@@ -142,6 +144,8 @@ class BackupManager(
 
     private suspend fun replaceDatabase(payload: BackupPayload) {
         database.withTransaction {
+            backupDao.deleteDeliveryPayments()
+            backupDao.deleteDeliveryInvoices()
             backupDao.deleteOrderCommands()
             backupDao.deleteGroupCommands()
             backupDao.deleteChangeEvents()
@@ -162,6 +166,8 @@ class BackupManager(
             backupDao.insertOrderCommands(payload.orderCommands)
             backupDao.insertGroupCommands(payload.groupCommands)
             backupDao.insertMetadata(payload.metadata)
+            backupDao.insertDeliveryInvoices(payload.deliveryInvoices)
+            backupDao.insertDeliveryPayments(payload.deliveryPayments)
         }
     }
 
@@ -171,6 +177,7 @@ class BackupManager(
             val groups = payload.groups.uniqueBy { it.id }
             val orders = payload.orders.uniqueBy { it.id }
             val lines = payload.lines.uniqueBy { it.id }
+            validateDeliveryBackup(payload)
             val costs = payload.costs.uniqueBy { it.id }
             val records = payload.priceRecords.uniqueBy { it.id }
             payload.changeEvents.uniqueBy { it.id }
@@ -182,6 +189,9 @@ class BackupManager(
             if (groups.values.map { it.number }.distinct().size != groups.size ||
                 orders.values.map { it.number }.distinct().size != orders.size
             ) throw BackupException("Нарушена уникальность номеров")
+            payload.lines.forEach {
+                ru.liftzip.orders.domain.delivery.DeliveryCalculator.validatePlan(it.deliveryWeight?.toBigDecimal(), it.deliveryTariff?.toBigDecimal(), it.deliveryRate?.toBigDecimal(), it.deliveryPlanDate?.let(java.time.LocalDate::parse))
+            }
             payload.products.forEach { it.toDomain() }
             payload.groups.forEach { it.toDomain() }
             payload.orders.forEach { order ->
@@ -278,7 +288,7 @@ class BackupManager(
         "products" to products.size, "groups" to groups.size, "orders" to orders.size,
         "lines" to lines.size, "costs" to costs.size, "priceRecords" to priceRecords.size,
         "changeEvents" to changeEvents.size, "orderCommands" to orderCommands.size,
-        "groupCommands" to groupCommands.size, "metadata" to metadata.size,
+        "groupCommands" to groupCommands.size, "metadata" to metadata.size, "deliveryInvoices" to deliveryInvoices.size, "deliveryPayments" to deliveryPayments.size,
     )
 
     private fun sha256(data: ByteArray): String = MessageDigest.getInstance("SHA-256")
@@ -291,3 +301,27 @@ class BackupManager(
 }
 
 class BackupException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+private fun validateDeliveryBackup(payload: BackupPayload) {
+    val orders=payload.orders.map { it.id }.toSet()
+    require(payload.deliveryInvoices.map { it.orderId }.distinct().size == payload.deliveryInvoices.size)
+    val payments=payload.deliveryPayments.associateBy { it.id }
+    require(payments.size == payload.deliveryPayments.size)
+    val reversals=mutableSetOf<String>()
+    payload.deliveryInvoices.forEach {
+        require(it.orderId in orders && it.revision>0)
+        ru.liftzip.orders.domain.delivery.DeliveryCalculator.validateInvoice(ru.liftzip.orders.domain.delivery.DeliveryInvoice(java.util.UUID.fromString(it.orderId),it.amountMinor?.let { amount -> ru.liftzip.orders.domain.model.Money(amount) },it.date?.let(java.time.LocalDate::parse),it.actualWeight?.toBigDecimal(),it.actualTariff?.toBigDecimal(),it.actualRate?.toBigDecimal(),it.note,it.revision))
+    }
+    payments.values.groupBy { it.orderId to it.party }.values.forEach { records ->
+        ru.liftzip.orders.domain.delivery.DeliveryCalculator.sumPayments(records.map { ru.liftzip.orders.domain.model.Money(it.amountMinor) })
+    }
+    payments.values.forEach {
+        require(it.orderId in orders); java.util.UUID.fromString(it.id);java.time.LocalDate.parse(it.date)
+        ru.liftzip.orders.domain.delivery.DeliveryParty.valueOf(it.party)
+        val original=it.reversalOf
+        if(original==null) require(it.amountMinor>0) else {
+            val first=payments[original] ?: error("Сторно без исходного платежа")
+            require(reversals.add(original) && first.reversalOf==null && first.amountMinor>0 && first.orderId==it.orderId && first.party==it.party && it.amountMinor == -first.amountMinor)
+        }
+    }
+}

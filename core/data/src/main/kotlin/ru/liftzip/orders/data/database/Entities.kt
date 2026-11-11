@@ -96,6 +96,10 @@ data class OrderLineEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val revision: Long,
+    val deliveryWeight: String? = null,
+    val deliveryTariff: String? = null,
+    val deliveryRate: String? = null,
+    val deliveryPlanDate: String? = null,
 )
 
 @Serializable

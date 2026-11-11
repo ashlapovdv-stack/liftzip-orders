@@ -94,7 +94,7 @@ fun OrdersApp(container: AppContainer) {
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
             val id = UUID.fromString(entry.arguments?.getString("id"))
-            OrderEditorScreen(container.repository, id, onBack = { nav.popBackStack() })
+            OrderEditorScreen(container.repository, id, onBack = { nav.popBackStack() }, onDelivery = { nav.navigate("delivery/$it") })
         }
         composable(
             "group/{id}",
@@ -115,6 +115,9 @@ fun OrdersApp(container: AppContainer) {
                 container.repository, id, onBack = { nav.popBackStack() },
                 onOpenOrder = { nav.navigate("order/$it") },
             )
+        }
+        composable("delivery/{id}", arguments=listOf(navArgument("id") { type=NavType.StringType })) { entry ->
+            ru.liftzip.orders.app.feature.delivery.DeliveryScreen(container.repository,UUID.fromString(entry.arguments?.getString("id")), onBack={nav.popBackStack()})
         }
         composable("settings") {
             SettingsScreen(container.backup, container.settings, onBack = { nav.popBackStack() })

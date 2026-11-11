@@ -87,6 +87,10 @@ data class OrderLine(
     val createdAt: Instant,
     val updatedAt: Instant,
     val revision: Long,
+    val deliveryWeight: BigDecimal? = null,
+    val deliveryTariff: BigDecimal? = null,
+    val deliveryRate: BigDecimal? = null,
+    val deliveryPlanDate: LocalDate? = null,
 )
 
 data class CostEntry(
@@ -212,6 +216,10 @@ data class OrderLineDraft(
     val purchaseCurrency: Currency? = null,
     val purchaseRate: BigDecimal? = null,
     val costs: List<CostDraft> = emptyList(),
+    val deliveryWeight: BigDecimal? = null,
+    val deliveryTariff: BigDecimal? = null,
+    val deliveryRate: BigDecimal? = null,
+    val deliveryPlanDate: LocalDate? = null,
 )
 
 data class SaveOrderCommand(

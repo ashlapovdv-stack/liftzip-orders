@@ -54,6 +54,10 @@ data class EditorLineDraft(
     val purchaseCurrency: Currency = Currency.RUB,
     val purchaseRate: String = "1",
     val costs: List<EditorCostDraft> = emptyList(),
+    val deliveryWeight: String = "",
+    val deliveryTariff: String = "",
+    val deliveryRate: String = "",
+    val deliveryPlanDate: LocalDate = LocalDate.now(),
 )
 
 data class OrderEditorState(
@@ -222,6 +226,9 @@ class OrderEditorViewModel(
             if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
             }
+            if (listOf(line.deliveryWeight,line.deliveryTariff,line.deliveryRate).any { it.isNotBlank() }) {
+                if(line.deliveryWeight.parseDecimal()==null || line.deliveryTariff.parseDecimal()==null || line.deliveryRate.parseDecimal()==null) errors["line_${index}_delivery"]="Заполните вес, тариф и курс доставки либо очистите все три поля"
+            }
             val purchase = line.purchasePrice.parseDecimal()
             if (line.purchasePrice.isNotBlank() && purchase == null) {
                 errors["line_${index}_purchase"] = "Некорректная закупочная цена"
@@ -236,6 +243,8 @@ class OrderEditorViewModel(
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
                 purchaseRate = if (purchase == null) null else rate,
+                deliveryWeight = line.deliveryWeight.parseDecimal(), deliveryTariff = line.deliveryTariff.parseDecimal(),
+                deliveryRate = line.deliveryRate.parseDecimal(), deliveryPlanDate = if (line.deliveryWeight.isBlank() && line.deliveryTariff.isBlank() && line.deliveryRate.isBlank()) null else line.deliveryPlanDate,
                 costs = line.costs.mapIndexedNotNull { costIndex, cost ->
                     cost.toDomainOrNull(state.date, errors, "line_${index}_cost_$costIndex")
                 },
@@ -302,6 +311,8 @@ class OrderEditorViewModel(
         purchaseCurrency = if (purchasePrice.isBlank()) null else purchaseCurrency,
         purchaseRate = if (purchasePrice.isBlank()) null else purchaseRate.parseDecimal(),
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
+        deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
+        deliveryRate = deliveryRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
@@ -311,8 +322,15 @@ class OrderEditorViewModel(
         purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
         purchaseRate = line.purchaseRate?.toPlainString() ?: "1",
-        costs = emptyList(),
+        costs = emptyList(), deliveryWeight = line.deliveryWeight?.toPlainString().orEmpty(),
+        deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = line.deliveryRate?.toPlainString().orEmpty(),
+        deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
     )
+
+    fun deliveryPreview(): Money? = try {
+        val state=_state.value
+        ru.liftzip.orders.domain.delivery.DeliveryCalculator.totalPlan(state.lines.mapIndexed { i,l -> l.toDomain(calculationOrderId,i) })
+    } catch (_:Exception) { null }
 
     private fun toEditorCost(cost: CostEntry) = EditorCostDraft(
         id = cost.id, kind = cost.kind, amount = cost.amount.toPlainString(), currency = cost.currency,

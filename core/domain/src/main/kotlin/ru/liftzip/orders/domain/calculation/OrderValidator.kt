@@ -24,6 +24,7 @@ object OrderValidator {
             }
             if (line.saleUnitPrice.stripTrailingZeros().scale() > 2) fail("Позиция ${index + 1}: цена продажи задаётся с точностью до копеек")
             Money.fromRubles(line.saleUnitPrice)
+            ru.liftzip.orders.domain.delivery.DeliveryCalculator.validatePlan(line.deliveryWeight, line.deliveryTariff, line.deliveryRate, line.deliveryPlanDate)
             validatePurchase(
                 index = index,
                 price = line.purchaseUnitPrice,

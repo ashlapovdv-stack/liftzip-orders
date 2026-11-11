@@ -6,11 +6,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -68,12 +75,15 @@ fun OrderEditorScreen(
     repository: OrdersRepository,
     orderId: UUID?,
     onBack: () -> Unit,
+    onDelivery: (UUID) -> Unit = {},
 ) {
     val model = viewModel<OrderEditorViewModel>(
         key = "order-${orderId ?: "new"}",
         factory = viewModelFactory { initializer { OrderEditorViewModel(repository, orderId) } },
     )
     val state by model.state.collectAsState()
+    var editingLine by remember { mutableStateOf<Int?>(null) }
+    var showExtras by remember { mutableStateOf(false) }
     var catalogLine by remember { mutableStateOf<Int?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
@@ -89,21 +99,18 @@ fun OrderEditorScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
                     }
                 },
-                actions = { if (state.saving) Text("Сохранение…", Modifier.padding(16.dp)) },
+                actions = {
+                    TextButton(onClick={ model.save { onBack() } }, enabled=state.loaded && !state.saving) {
+                        Text(if(state.saving) "Сохраняю…" else "Сохранить", fontWeight=FontWeight.SemiBold)
+                    }
+                },
             )
-        },
-        bottomBar = {
-            Button(
-                onClick = { model.save { onBack() } },
-                enabled = state.loaded && !state.saving,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
-            ) { Text("Сохранить заказ") }
         },
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (!state.loaded) item { Text("Загрузка…") }
             state.generalError?.let { error ->
@@ -128,7 +135,110 @@ fun OrderEditorScreen(
                     Text("Группа №$it · ${if (state.groupState == GroupState.FORMING) "Формируется" else "На расчёте"}")
                 } ?: Text("При сохранении заказ попадёт в текущую формируемую группу")
             }
+            item { SectionTitle("Товары · ${state.lines.size}") }
             items(state.lines.size) { index ->
+                val line=state.lines[index]
+                Card(Modifier.fillMaxWidth().clickable { editingLine=index }) {
+                    Column(Modifier.padding(12.dp), verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                        Text(line.name.ifBlank { "Новая позиция · нажмите для заполнения" }, fontWeight=FontWeight.SemiBold)
+                        if(line.article.isNotBlank()) Text(line.article, style=MaterialTheme.typography.bodySmall)
+                        Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽ · без доставки")
+                        Text(if(line.purchasePrice.isBlank()) "Указать закупку и доставку →" else "Закупка ${line.purchasePrice} ${line.purchaseCurrency.name} · изменить →",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
+                        if(state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции",color=MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (!state.salesLocked) {
+                item { OutlinedButton(onClick = { model.addLine(); editingLine=state.lines.size }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить позицию") } }
+            }
+            if(state.costs.any { it.kind==ru.liftzip.orders.domain.model.CostKind.DELIVERY } || state.lines.any { l -> l.costs.any { it.kind==ru.liftzip.orders.domain.model.CostKind.DELIVERY } }) {
+                item { Text("Доставка из версии 0.1 сохранена как прежний расход товара. Проверьте эти записи вручную, прежде чем дублировать их в отдельной доставке.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error) }
+            }
+            item { TextButton(onClick={ showExtras=!showExtras }) { Text(if(showExtras) "Скрыть дополнительные расходы" else "Дополнительные расходы товара") } }
+            if(showExtras) {
+            item {
+                CostsEditor(
+                    title = "Расходы заказа", costs = state.costs, errors = state.errors, errorPrefix = "cost",
+                    onAdd = model::addOrderCost,
+                    onChange = { index, transform -> model.updateOrderCost(index, transform) },
+                    onRemove = model::removeOrderCost,
+                )
+            }
+            }
+            item {
+                Row(Modifier.fillMaxWidth().clickable { model.update { it.copy(costsConfirmed = !it.costsConfirmed) } }) {
+                    Checkbox(
+                        checked = state.costsConfirmed,
+                        onCheckedChange = { checked -> model.update { it.copy(costsConfirmed = checked) } },
+                    )
+                    Text(
+                        "Закупка и расходы товара указаны полностью",
+                        Modifier.align(Alignment.CenterVertically),
+                    )
+                }
+            }
+            item {
+                AppTextField(
+                    state.payment, { value -> model.update { it.copy(payment = value) } },
+                    "Получено за товар, без доставки, ₽", error = state.errors["payment"],
+                    enabled = !state.salesLocked, decimal = true,
+                )
+                Text("Доставку клиент оплачивает отдельно по факту", style=MaterialTheme.typography.bodySmall)
+            }
+            item {
+                AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2)
+            }
+            model.preview()?.let { calculation ->
+                item {
+                    Card {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SectionTitle("Расчёт товара")
+                            Text("Товар без доставки: ${calculation.sales.format()}")
+                            val delivery=model.deliveryPreview()
+                            Text("Ориентир доставки: ${delivery?.format() ?: "не заполнен"}")
+                            if(delivery!=null) Text("Предложение с доставкой ≈ ${(calculation.sales+delivery).format()}")
+                            Text("Известная себестоимость: ${calculation.knownCost.format()}")
+                            Text(
+                                "Предварительная прибыль без групповых расходов: " +
+                                    calculation.preliminaryProfitWithoutGroupCosts.format(),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            StatusBadge(
+                                if (calculation.isComplete) "Все затраты указаны; расчёт предварительный"
+                                else "Расчёт неполный — неизвестное не считается нулём",
+                                isWarning = !calculation.isComplete,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                OutlinedButton(onClick={ state.orderId?.let(onDelivery) }, enabled=state.orderId!=null && !state.dirty, modifier=Modifier.fillMaxWidth()) { Text("Доставка · счёт и оплаты") }
+                if(state.orderId==null || state.dirty) Text("Сохраните заказ перед учётом фактической доставки",style=MaterialTheme.typography.bodySmall)
+            }
+            if (state.history.isNotEmpty()) {
+                item {
+                    OutlinedButton(onClick = { historyExpanded = !historyExpanded }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (historyExpanded) "Скрыть историю изменений" else "История изменений (${state.history.size})")
+                    }
+                    if (historyExpanded) {
+                        state.history.forEach { event ->
+                            Text("${event.eventAt.formatDateTime()} · ${event.changeType}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    editingLine?.takeIf { it in state.lines.indices }?.let { index ->
+        ModalBottomSheet(onDismissRequest={ editingLine=null }, sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true), modifier=Modifier.imePadding()) {
+            Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal=16.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                    Text("Позиция ${index+1}",style=MaterialTheme.typography.titleLarge)
+                    TextButton(onClick={editingLine=null}) { Text("Готово") }
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 val line = state.lines[index]
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -136,7 +246,7 @@ fun OrderEditorScreen(
                             SectionTitle("Позиция ${index + 1}")
                             Box(Modifier.weight(1f))
                             if (!state.salesLocked && state.lines.size > 1) {
-                                TextButton(onClick = { model.removeLine(index) }) { Text("Удалить") }
+                                TextButton(onClick = { model.removeLine(index); editingLine=null }) { Text("Удалить") }
                             }
                         }
                         OutlinedButton(
@@ -158,7 +268,7 @@ fun OrderEditorScreen(
                         )
                         AppTextField(
                             line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
-                            "Продажа за единицу, ₽", error = state.errors["line_${index}_sale"],
+                            "Товар без доставки, ₽/шт", error = state.errors["line_${index}_sale"],
                             enabled = !state.salesLocked, decimal = true,
                         )
                         state.errors["line_${index}_zero"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -196,6 +306,13 @@ fun OrderEditorScreen(
                             enabled = line.purchaseCurrency == Currency.CNY, decimal = true,
                         )
                         Text("Черновой расчёт — не факт оплаты поставщику", style = MaterialTheme.typography.bodySmall)
+                        SectionTitle("Ориентир доставки · отдельно от товара")
+                        AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight=value,deliveryPlanDate=LocalDate.now()) } }, "Вес всей позиции, кг", decimal=true)
+                        AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff=value,deliveryPlanDate=LocalDate.now()) } }, "Тариф, CNY/кг", decimal=true)
+                        AppTextField(line.deliveryRate, { value -> model.updateLine(index) { it.copy(deliveryRate=value,deliveryPlanDate=LocalDate.now()) } }, "Курс прогноза, RUB за 1 CNY", decimal=true)
+                        Text("Прогноз от ${line.deliveryPlanDate.formatDate()}. Курс не обновляется автоматически.",style=MaterialTheme.typography.bodySmall)
+                        state.errors["line_${index}_delivery"]?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                        Text("Счёт логиста и оплаты — в отдельной карточке доставки после сохранения заказа.",style=MaterialTheme.typography.bodySmall)
                         CostsEditor(
                             title = "Расходы позиции", costs = line.costs, errors = state.errors,
                             errorPrefix = "line_${index}_cost", onAdd = { model.addLineCost(index) },
@@ -204,72 +321,6 @@ fun OrderEditorScreen(
                         )
                     }
                 }
-            }
-            if (!state.salesLocked) {
-                item { OutlinedButton(onClick = model::addLine, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить позицию") } }
-            }
-            item {
-                CostsEditor(
-                    title = "Расходы заказа", costs = state.costs, errors = state.errors, errorPrefix = "cost",
-                    onAdd = model::addOrderCost,
-                    onChange = { index, transform -> model.updateOrderCost(index, transform) },
-                    onRemove = model::removeOrderCost,
-                )
-            }
-            item {
-                Row(Modifier.fillMaxWidth().clickable { model.update { it.copy(costsConfirmed = !it.costsConfirmed) } }) {
-                    Checkbox(
-                        checked = state.costsConfirmed,
-                        onCheckedChange = { checked -> model.update { it.copy(costsConfirmed = checked) } },
-                    )
-                    Text(
-                        "Все обязательные затраты указаны, включая известные нулевые",
-                        Modifier.align(Alignment.CenterVertically),
-                    )
-                }
-            }
-            item {
-                AppTextField(
-                    state.payment, { value -> model.update { it.copy(payment = value) } },
-                    "Полученная оплата, ₽", error = state.errors["payment"],
-                    enabled = !state.salesLocked, decimal = true,
-                )
-                Text("Частичная оплата не принимается: сумма должна совпадать с продажами")
-            }
-            item {
-                AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2)
-            }
-            model.preview()?.let { calculation ->
-                item {
-                    Card {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            SectionTitle("Итоги")
-                            Text("Продажи: ${calculation.sales.format()}")
-                            Text("Известная себестоимость: ${calculation.knownCost.format()}")
-                            Text(
-                                "Предварительная прибыль без групповых расходов: " +
-                                    calculation.preliminaryProfitWithoutGroupCosts.format(),
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            StatusBadge(
-                                if (calculation.isComplete) "Все затраты указаны; расчёт предварительный"
-                                else "Расчёт неполный — неизвестное не считается нулём",
-                                isWarning = !calculation.isComplete,
-                            )
-                        }
-                    }
-                }
-            }
-            if (state.history.isNotEmpty()) {
-                item {
-                    OutlinedButton(onClick = { historyExpanded = !historyExpanded }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (historyExpanded) "Скрыть историю изменений" else "История изменений (${state.history.size})")
-                    }
-                    if (historyExpanded) {
-                        state.history.forEach { event ->
-                            Text("${event.eventAt.formatDateTime()} · ${event.changeType}", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
                 }
             }
         }

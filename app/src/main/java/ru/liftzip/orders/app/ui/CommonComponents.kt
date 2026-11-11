@@ -104,7 +104,7 @@ fun CostsEditor(
                         Text(cost.kind.russian())
                     }
                     DropdownMenu(expanded = kindExpanded, onDismissRequest = { kindExpanded = false }) {
-                        CostKind.entries.forEach { kind ->
+                        CostKind.entries.filter { it != CostKind.DELIVERY }.forEach { kind ->
                             DropdownMenuItem(text = { Text(kind.russian()) }, onClick = {
                                 onChange(index) { it.copy(kind = kind) }; kindExpanded = false
                             })
@@ -144,7 +144,7 @@ fun CostsEditor(
 
 fun CostKind.russian(): String = when (this) {
     CostKind.PURCHASE -> "Закупка"
-    CostKind.DELIVERY -> "Доставка"
+    CostKind.DELIVERY -> "Доставка · старая запись"
     CostKind.COMMISSION -> "Комиссия"
     CostKind.OTHER -> "Прочее"
 }

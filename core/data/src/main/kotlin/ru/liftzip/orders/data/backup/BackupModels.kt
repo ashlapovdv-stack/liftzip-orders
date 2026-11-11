@@ -24,6 +24,8 @@ data class BackupPayload(
     val orderCommands: List<OrderCommandEntity>,
     val groupCommands: List<GroupCommandEntity>,
     val metadata: List<AppMetadataEntity>,
+    val deliveryInvoices: List<ru.liftzip.orders.data.database.DeliveryInvoiceEntity> = emptyList(),
+    val deliveryPayments: List<ru.liftzip.orders.data.database.DeliveryPaymentEntity> = emptyList(),
 )
 
 @Serializable
