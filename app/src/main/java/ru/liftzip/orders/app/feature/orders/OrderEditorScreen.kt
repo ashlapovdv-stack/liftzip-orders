@@ -142,7 +142,7 @@ fun OrderEditorScreen(
                     Column(Modifier.padding(12.dp), verticalArrangement=Arrangement.spacedBy(3.dp)) {
                         Text(line.name.ifBlank { "Новая позиция · нажмите для заполнения" }, fontWeight=FontWeight.SemiBold)
                         if(line.article.isNotBlank()) Text(line.article, style=MaterialTheme.typography.bodySmall)
-                        Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽ · без доставки")
+                        Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽ · цена для Дениса")
                         Text(if(line.purchasePrice.isBlank()) "Указать закупку и доставку →" else "Закупка ${line.purchasePrice} ${line.purchaseCurrency.name} · изменить →",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
                         if(state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции",color=MaterialTheme.colorScheme.error)
                     }
@@ -150,6 +150,20 @@ fun OrderEditorScreen(
             }
             if (!state.salesLocked) {
                 item { OutlinedButton(onClick = { model.addLine(); editingLine=state.lines.size }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить позицию") } }
+            }
+            item {
+                SectionTitle("Стоимость заказа для Дениса")
+                Text("Общая цена для Дениса: ${model.preview()?.sales?.format() ?: "не рассчитана"}")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        AppTextField(state.manualDeliveryPrice, { value -> model.update { it.copy(manualDeliveryPrice = value) } },
+                            "Цена доставки заказа, ₽", error = state.errors["manualDeliveryPrice"], decimal = true)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        Text("Расчётная доставка:\n${model.deliveryPreview()?.format() ?: "нет данных"}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text("Расчётная доставка только для ориентира. Цена доставки вводится вручную.", style = MaterialTheme.typography.bodySmall)
             }
             item {
                 SectionTitle("Закупка всего заказа")
@@ -172,10 +186,10 @@ fun OrderEditorScreen(
             item {
                 AppTextField(
                     state.payment, { value -> model.update { it.copy(payment = value) } },
-                    "Получено за товар, без доставки, ₽", error = state.errors["payment"],
+                    "Получено от Дениса, включая доставку, ₽", error = state.errors["payment"],
                     enabled = !state.salesLocked, decimal = true,
                 )
-                Text("Доставку клиент оплачивает отдельно по факту", style=MaterialTheme.typography.bodySmall)
+                Text("Цена для Дениса включает доставку; фактические платежи логисту учитываются отдельно", style=MaterialTheme.typography.bodySmall)
             }
             item {
                 AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2)
@@ -185,13 +199,13 @@ fun OrderEditorScreen(
                     Card {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             SectionTitle("Расчёт товара")
-                            Text("Товар без доставки: ${calculation.sales.format()}")
+                            Text("Общая цена для Дениса: ${calculation.sales.format()}")
                             val delivery=model.deliveryPreview()
                             Text("Ориентир доставки: ${delivery?.format() ?: "не заполнен"}")
-                            if(delivery!=null) Text("Предложение с доставкой ≈ ${(calculation.sales+delivery).format()}")
-                            Text("Себестоимость заказа: ${if (calculation.isComplete) calculation.knownCost.format() else "не указана"}")
+                            Text("Цена доставки заказа: ${state.manualDeliveryPrice.ifBlank { "не указана" }} ₽")
+                            Text("Закупка и доставка: ${if (calculation.isComplete) calculation.knownCost.format() else "неполные данные"}")
                             Text(
-                                "Предварительная прибыль без групповых расходов: " +
+                                "Предварительная прибыль: " +
                                     (if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.format() else "не рассчитана"),
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -260,7 +274,7 @@ fun OrderEditorScreen(
                         )
                         AppTextField(
                             line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
-                            "Товар без доставки, ₽/шт", error = state.errors["line_${index}_sale"],
+                            "Цена для Дениса, ₽/шт (включая доставку)", error = state.errors["line_${index}_sale"],
                             enabled = !state.salesLocked, decimal = true,
                         )
                         state.errors["line_${index}_zero"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
