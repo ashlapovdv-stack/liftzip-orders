@@ -19,9 +19,9 @@ class DeliveryCalculatorTest {
     )
     @Test fun forecastAndActualUseIndependentRates() {
         val d=DeliveryDetails(DeliveryInvoice(order,Money(443750),day,BigDecimal("12.5"),BigDecimal("25"),BigDecimal("14.2")),emptyList(),listOf(line()))
-        assertEquals(Money(390000),d.planned);assertEquals(Money(53750),d.difference)
+        assertEquals(Money(780000),d.planned);assertEquals(Money(-336250),d.difference)
         assertEquals(Money(443750),DeliveryCalculator.amount(BigDecimal("12.5"),BigDecimal("25"),BigDecimal("14.2")))
-        assertEquals(Money(390000),d.planned)
+        assertEquals(Money(780000),d.planned)
     }
     @Test fun paymentsRemainSeparateAndPartial() {
         val client=DeliveryPayment(UUID.randomUUID(),order,DeliveryParty.CLIENT,Money(200000),day,"")
@@ -39,15 +39,15 @@ class DeliveryCalculatorTest {
         assertNull(d.clientBalance);assertNull(d.logisticsBalance);assertNull(d.difference)
     }
     @Test fun missingWeightIsUnknownRatherThanZero() { assertNull(DeliveryCalculator.totalPlan(listOf(line(w=null,t=null,r=null)))) }
-    @Test fun weightIsForWholePositionNotMultipliedByQuantity() { assertEquals(Money(390000),DeliveryCalculator.totalPlan(listOf(line()))) }
-    @Test fun invalidOrPartialPlanIsRejected() {
-        assertThrows(IllegalArgumentException::class.java){DeliveryCalculator.validatePlan(BigDecimal.ONE,null,BigDecimal.ONE,day)}
+    @Test fun unitWeightIsMultipliedByQuantity() { assertEquals(Money(780000),DeliveryCalculator.totalPlan(listOf(line()))) }
+    @Test fun invalidPlanIsRejectedButPartialIsAllowed() {
+        DeliveryCalculator.validatePlan(BigDecimal.ONE,null,BigDecimal.ONE,day)
         assertThrows(IllegalArgumentException::class.java){DeliveryCalculator.validatePlan(BigDecimal.ONE,BigDecimal.ONE,BigDecimal.ZERO,day)}
     }
     @Test fun logisticsDoesNotChangeGoodsProfit() {
         val o=Order(order,1,day,"Денис",UUID.randomUUID(),Money(500000),"",true,CalculationState.PRELIMINARY,Instant.EPOCH,Instant.EPOCH,1)
         val result=OrderCalculator.calculate(o,listOf(line()),emptyList())
-        assertEquals(Money(265000),result.knownCost);assertEquals(Money(235000),result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(Money.ZERO,result.knownCost);assertEquals(Money.ZERO,result.preliminaryProfitWithoutGroupCosts);assertFalse(result.isComplete)
     }
     @Test fun invoiceDoesNotRequireGuessedWeightOrRate() { DeliveryCalculator.validateInvoice(DeliveryInvoice(order,Money(443750),day)) }
     @Test fun netSumDoesNotDependOnJournalDateOrder() {
