@@ -222,6 +222,7 @@ class RoomOrdersRepository(
                 revision = (existing?.revision ?: 0) + 1,
                 manualDeliveryPriceMinor = command.manualDeliveryPrice?.let { Money.fromRubles(it).minorUnits },
                 orderRate = command.orderRate?.canonical(),
+                orderRate = command.orderRate?.canonical(),
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)
 
