@@ -35,9 +35,11 @@ object DeliveryCalculator {
     fun validatePlan(weight: BigDecimal?, tariff: BigDecimal?, rate: BigDecimal?, date: LocalDate?) {
         val values = listOfNotNull(weight,tariff,rate)
         if(values.isEmpty() && date == null) return
-        require(values.size == 3 && date != null) { "Для прогноза доставки нужны вес всей позиции, тариф, курс и дата" }
-        require(weight!! >= BigDecimal.ZERO && tariff!! >= BigDecimal.ZERO && rate!! > BigDecimal.ZERO) { "Вес и тариф неотрицательные, курс больше нуля" }
-        amount(weight,tariff,rate)
+        require(date != null) { "Укажите дату прогноза доставки" }
+        require(weight == null || weight >= BigDecimal.ZERO) { "Вес не может быть отрицательным" }
+        require(tariff == null || tariff >= BigDecimal.ZERO) { "Тариф не может быть отрицательным" }
+        require(rate == null || rate > BigDecimal.ZERO) { "Курс должен быть положительным" }
+        if (values.size == 3) amount(weight!!,tariff!!,rate!!)
     }
     fun amount(weight: BigDecimal, tariff: BigDecimal, rate: BigDecimal): Money {
         require(weight >= BigDecimal.ZERO && tariff >= BigDecimal.ZERO && rate > BigDecimal.ZERO)
@@ -50,7 +52,7 @@ object DeliveryCalculator {
             val w=line.deliveryWeight ?: return null
             val t=line.deliveryTariff ?: return null
             val r=line.deliveryRate ?: return null
-            total += amount(w,t,r)
+            total += amount(line.quantity.multiply(w),t,r)
         }
         return total
     }
