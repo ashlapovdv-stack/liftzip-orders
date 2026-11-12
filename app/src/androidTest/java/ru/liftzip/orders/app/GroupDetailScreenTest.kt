@@ -95,8 +95,8 @@ class GroupDetailScreenTest {
                 title.substring(text.getLineStart(it), text.getLineEnd(it)).contains(word)
             })
         }
-        assertFiveColumnActions()
         capture("group-table.png")
+        assertFiveColumnActions()
         orderIds.forEachIndexed { index, id ->
             for ((action, description) in listOf(
                 OrderAction.WITHDRAWN to "Получены деньги от Дениса",
@@ -136,17 +136,17 @@ class GroupDetailScreenTest {
 
     @Test fun largerFontKeepsTableAndActionsWithinScreen() {
         showScreen(1.3f, 320f)
+        capture("group-large-font.png")
         assertFiveColumnActions()
         assertLongTitleAndValuesFit()
-        capture("group-large-font.png")
     }
 
     @Test fun phoneWidthKeepsFiveColumnsAndFullLongTitle() {
         showScreen(1.3f, 393f)
         compose.onNodeWithText("Действия").assertIsDisplayed()
+        capture("group-inline-large-font.png")
         assertFiveColumnActions()
         assertLongTitleAndValuesFit()
-        capture("group-inline-large-font.png")
     }
 
     private fun assertFiveColumnActions() {
@@ -163,7 +163,8 @@ class GroupDetailScreenTest {
             val layout = mutableListOf<TextLayoutResult>()
             caption.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
             assertEquals(1, layout.single().lineCount)
-            org.junit.Assert.assertFalse(layout.single().hasVisualOverflow)
+            val result = layout.single()
+            org.junit.Assert.assertFalse("$tag: bounds=$bounds size=${result.size}, widthOverflow=${result.didOverflowWidth}, heightOverflow=${result.didOverflowHeight}, paragraph=${result.multiParagraph.width}x${result.multiParagraph.height}, intrinsic=${result.multiParagraph.maxIntrinsicWidth}, style=${result.layoutInput.style}", result.hasVisualOverflow)
             org.junit.Assert.assertTrue(square.left >= profit.right)
             square
         }
