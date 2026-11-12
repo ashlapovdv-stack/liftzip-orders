@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -43,7 +44,7 @@ class GroupDetailScreenTest {
     private lateinit var groupId: UUID
     private var openedOrder: UUID? = null
 
-    @Before fun setUp() = runBlocking {
+    @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
         repository = RoomOrdersRepository(database)
         repository.initialize()
@@ -72,7 +73,7 @@ class GroupDetailScreenTest {
             OrderAction.TRANSFERRED to "Деньги за товар переданы посреднику",
             OrderAction.RECEIVED to "Товар получен",
         )) {
-            compose.onNodeWithContentDescription("Заказ №1: $description").performClick()
+            clickAction(description)
             compose.waitUntil(10_000) {
                 runBlocking {
                     val p = repository.observeOrder(orderId).first()!!.order.fulfillment
@@ -87,7 +88,7 @@ class GroupDetailScreenTest {
         }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Выполнена").fetchSemanticsNodes().isNotEmpty() }
         capture("group-completed.png")
-        compose.onNodeWithContentDescription("Заказ №1: Товар получен").performClick()
+        clickAction("Товар получен")
         compose.waitUntil(10_000) { compose.onAllNodesWithText("На расчёте").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Заказ №1").performClick()
         assertEquals(orderId, openedOrder)
@@ -125,5 +126,11 @@ class GroupDetailScreenTest {
         File(context.filesDir, name).outputStream().use {
             compose.onNodeWithTag("group-screen").captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
         }
+    }
+
+    private fun clickAction(description: String) {
+        val node = compose.onNodeWithContentDescription("Заказ №1: $description")
+        compose.waitUntil(10_000) { !node.fetchSemanticsNode().config.contains(SemanticsProperties.Disabled) }
+        node.performClick()
     }
 }
