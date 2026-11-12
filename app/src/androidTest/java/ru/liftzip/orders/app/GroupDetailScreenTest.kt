@@ -319,7 +319,7 @@ class GroupDetailScreenTest {
         org.junit.Assert.assertTrue(openedOrder in orderIds)
     }
 
-    @Test fun formingOrderKeepsFulfillmentDisabled() {
+    @Test fun formingOrderActionsCanBeUsedWithoutClosingFormation() {
         orderId = runBlocking {
             repository.saveOrder(SaveOrderCommand(
                 commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = longTitle,
@@ -332,7 +332,15 @@ class GroupDetailScreenTest {
         }
         showOrder = true
         showScreen(1f)
-        OrderAction.entries.forEach { compose.onNodeWithTag("order-4-$it", useUnmergedTree = true).assertIsNotEnabled().assertIsOff() }
+        val formingId = runBlocking { repository.observeOrder(orderId).first()!!.group.id }
+        OrderAction.entries.forEach { action ->
+            val node = compose.onNodeWithTag("order-4-$action", useUnmergedTree = true)
+            node.assertIsEnabled().assertIsOff()
+            compose.onNodeWithTag("order-4-$action-square", useUnmergedTree = true).performTouchInput { click(center) }
+            compose.waitUntil(10_000) { node.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] == androidx.compose.ui.state.ToggleableState.On }
+        }
+        assertEquals(OrderFulfillment(true, true, true), runBlocking { repository.observeOrder(orderId).first()!!.order.fulfillment })
+        assertEquals(GroupState.FORMING, runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state })
     }
 
     private fun scrollToEditorField(text: String) {
@@ -477,6 +485,12 @@ class GroupDetailScreenTest {
     private fun clickAction(description: String, orderNumber: Int = 1) {
         val node = compose.onNodeWithContentDescription("Заказ №$orderNumber: $description")
         compose.waitUntil(10_000) { !node.fetchSemanticsNode().config.contains(SemanticsProperties.Disabled) }
-        node.performScrollTo().performClick()
+        node.performScrollTo()
+        val action = when (description) {
+            "Получены деньги от Дениса" -> OrderAction.WITHDRAWN
+            "Деньги за товар переданы посреднику" -> OrderAction.TRANSFERRED
+            else -> OrderAction.RECEIVED
+        }
+        compose.onNodeWithTag("order-$orderNumber-$action-square", useUnmergedTree = true).performTouchInput { click(center) }
     }
 }
