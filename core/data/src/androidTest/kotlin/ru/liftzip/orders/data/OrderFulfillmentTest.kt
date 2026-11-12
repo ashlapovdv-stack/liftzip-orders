@@ -74,13 +74,21 @@ class OrderFulfillmentTest {
         assertEquals(0, saved.order.orderRate!!.compareTo(BigDecimal("13.25")))
     }
 
-    @Test fun formingGroupDoesNotAcceptFulfillmentMarks() = runBlocking {
-        val id = repository.saveOrder(command())
-        var rejected = false
-        try { repository.setOrderAction(id, OrderAction.WITHDRAWN, true) }
-        catch (_: DomainValidationException) { rejected = true }
-        assertTrue(rejected)
-        assertFalse(repository.observeOrder(id).first()!!.order.fulfillment.isComplete)
+    @Test fun formingGroupAcceptsMarksAndFinishingUsesTheirActualState() = runBlocking {
+        val id = repository.saveOrder(command().copy(initialFulfillment = OrderFulfillment(true, false, false)))
+        val groupId = repository.observeOrder(id).first()!!.group.id
+        assertTrue(repository.observeOrder(id).first()!!.order.fulfillment.withdrawn)
+        repository.setOrderAction(id, OrderAction.TRANSFERRED, true)
+        repository.setOrderAction(id, OrderAction.RECEIVED, true)
+        assertEquals(GroupState.FORMING, repository.observeOrder(id).first()!!.group.state)
+        assertEquals(1, repository.observeGroups().first().size)
+        val finish = FinishGroupCommand(UUID.randomUUID(), groupId)
+        val result = repository.finishGroup(finish)
+        assertEquals(GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
+        assertEquals(result.nextGroupId, repository.finishGroup(finish).nextGroupId)
+        assertEquals(1, repository.observeGroups().first().count { it.group.state == GroupState.FORMING })
+        repository.setOrderAction(id, OrderAction.RECEIVED, false)
+        assertEquals(GroupState.CALCULATING, repository.observeOrder(id).first()!!.group.state)
     }
 
     private fun command() = SaveOrderCommand(

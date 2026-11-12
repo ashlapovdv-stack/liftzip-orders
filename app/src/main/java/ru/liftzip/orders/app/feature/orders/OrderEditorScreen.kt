@@ -13,6 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.CardDefaults
 import ru.liftzip.orders.app.ui.CompactTopBar
 import androidx.compose.foundation.layout.Row
@@ -110,10 +113,7 @@ fun OrderEditorScreen(
                 TextButton(onClick = { model.save { onBack() } }, enabled = state.loaded && !state.saving && !state.actionsSaving) {
                     Text(if (state.saving) "Сохраняю…" else "Сохранить", fontWeight = FontWeight.SemiBold)
                 }
-                if (state.orderId != null) IconButton(onClick = { confirmDeleteOrder = true },
-                    enabled = state.loaded && !state.saving && !state.actionsSaving, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Delete, "Удалить заказ", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
-                }
+
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -133,7 +133,7 @@ fun OrderEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             OrderFulfillmentActions(state.orderNumber, state.fulfillment,
-                                enabled = state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
+                                enabled = state.loaded && !state.saving && !state.actionsSaving,
                                 captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp),
                                 onAction = model::setAction)
                         }
@@ -210,6 +210,15 @@ fun OrderEditorScreen(
                 TextButton(onClick = { historyExpanded = !historyExpanded }) { Text(if (historyExpanded) "Скрыть изменения" else "История изменений (${state.history.size})") }
                 if (historyExpanded) state.history.forEach { event ->
                     Text("${event.eventAt.formatDateTime()} · ${event.changeType}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (state.orderId != null) item {
+                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && !state.saving && !state.actionsSaving,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics { contentDescription = "Удалить заказ" },
+                    shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
+                    Icon(Icons.Default.Delete, null, Modifier.size(20.dp))
+                    Text("Удалить заказ", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 }
             }
         }

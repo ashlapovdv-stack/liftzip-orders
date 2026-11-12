@@ -261,6 +261,7 @@ data class SaveOrderCommand(
     val costs: List<CostDraft>,
     val manualDeliveryPrice: BigDecimal? = null,
     val orderRate: BigDecimal? = null,
+    val initialFulfillment: OrderFulfillment = OrderFulfillment(),
 )
 
 data class SaveGroupCostsCommand(

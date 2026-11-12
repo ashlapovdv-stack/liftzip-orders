@@ -152,8 +152,12 @@ class OrderEditorViewModel(
 
     fun setAction(action: OrderAction, checked: Boolean) {
         val current = _state.value
-        val id = current.orderId ?: return
-        if (!current.loaded || current.groupState == GroupState.FORMING || current.saving || current.actionsSaving) return
+        if (!current.loaded || current.saving || current.actionsSaving) return
+        val id = current.orderId
+        if (id == null) {
+            _state.update { it.copy(fulfillment = it.fulfillment.withAction(action, checked), dirty = true, generalError = null) }
+            return
+        }
         _state.update { it.copy(actionsSaving = true, generalError = null) }
         viewModelScope.launch {
             try {
@@ -340,6 +344,7 @@ class OrderEditorViewModel(
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
             orderRate = state.orderRate.parseDecimal(),
+            initialFulfillment = state.fulfillment,
         )
         try {
             OrderValidator.validate(command)

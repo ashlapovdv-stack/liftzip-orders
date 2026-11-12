@@ -154,6 +154,19 @@ class BackupManagerTest {
         assertEquals(2L, repository.observeOrder(next).first()!!.order.number)
     }
 
+    @Test fun formingGroupFulfillmentSurvivesBackupRestore() = runTest {
+        val id = repository.saveOrder(orderCommand("Отметки").copy(
+            initialFulfillment = ru.liftzip.orders.domain.model.OrderFulfillment(true, true, true)))
+        val uri = Uri.fromFile(File(context.cacheDir, "forming-flags.zip"))
+        manager.exportTo(uri)
+        manager.importFrom(uri)
+        val saved = repository.observeOrder(id).first()!!
+        assertTrue(saved.order.fulfillment.isComplete)
+        assertEquals(ru.liftzip.orders.domain.model.GroupState.FORMING, saved.group.state)
+        repository.finishGroup(ru.liftzip.orders.domain.model.FinishGroupCommand(UUID.randomUUID(), saved.group.id))
+        assertEquals(ru.liftzip.orders.domain.model.GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
+    }
+
     private fun orderCommand(counterparty: String) = SaveOrderCommand(
         commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = counterparty,
         receivedPayment = BigDecimal("100"), costsConfirmed = false,

@@ -339,7 +339,7 @@ private fun GroupOrdersTable(
                         amountStyles = amountStyles,
                         profitColor = if (summary.calculation.preliminaryProfitWithoutGroupCosts < Money.ZERO) MaterialTheme.colorScheme.error else Positive,
                         onOpen = { onOpenOrder(summary.order.id) },
-                        actions = { OrderActions(summary, !busy && details.summary.group.state != GroupState.FORMING, actionStyle, onAction) },
+                        actions = { OrderActions(summary, !busy, actionStyle, onAction) },
                     )
                 }
                 if (orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(12.dp))

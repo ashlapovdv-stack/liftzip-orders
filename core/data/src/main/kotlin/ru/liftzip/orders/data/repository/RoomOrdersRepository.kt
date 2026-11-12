@@ -205,9 +205,6 @@ class RoomOrdersRepository(
         database.withTransaction {
             val old = dao.getOrder(orderId.toString()) ?: throw DomainValidationException("Заказ не найден")
             val group = dao.getGroup(old.groupId) ?: throw DomainValidationException("Группа не найдена")
-            if (group.state == GroupState.FORMING.name) {
-                throw DomainValidationException("Сначала завершите формирование группы")
-            }
             val progress = old.toDomain().fulfillment.withAction(action, checked)
             if (progress == old.toDomain().fulfillment) return@withTransaction
             val now = Instant.now()
@@ -217,8 +214,9 @@ class RoomOrdersRepository(
             )
             dao.updateOrder(updated)
             val orders = dao.getGroupOrders(group.id)
-            val state = if (orders.isNotEmpty() && orders.all { it.toDomain().fulfillment.isComplete })
-                GroupState.COMPLETED else GroupState.CALCULATING
+            val state = if (group.state == GroupState.FORMING.name) GroupState.FORMING
+                else if (orders.isNotEmpty() && orders.all { it.toDomain().fulfillment.isComplete }) GroupState.COMPLETED
+                else GroupState.CALCULATING
             if (state.name != group.state) dao.updateGroup(group.copy(
                 state = state.name, updatedAt = now.epoch(), revision = group.revision + 1,
             ))
@@ -288,9 +286,9 @@ class RoomOrdersRepository(
                 revision = (existing?.revision ?: 0) + 1,
                 manualDeliveryPriceMinor = command.manualDeliveryPrice?.let { Money.fromRubles(it).minorUnits },
                 orderRate = command.orderRate?.canonical(),
-                withdrawn = existing?.withdrawn ?: false,
-                transferred = existing?.transferred ?: false,
-                received = existing?.received ?: false,
+                withdrawn = existing?.withdrawn ?: command.initialFulfillment.withdrawn,
+                transferred = existing?.transferred ?: command.initialFulfillment.transferred,
+                received = existing?.received ?: command.initialFulfillment.received,
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)
 
@@ -386,7 +384,8 @@ class RoomOrdersRepository(
             }
             val now = Instant.now()
             dao.updateGroup(group.copy(
-                state = GroupState.CALCULATING.name, completedAt = now.epoch(), updatedAt = now.epoch(),
+                state = if (dao.getGroupOrders(group.id).all { it.toDomain().fulfillment.isComplete }) GroupState.COMPLETED.name else GroupState.CALCULATING.name,
+                completedAt = now.epoch(), updatedAt = now.epoch(),
                 revision = group.revision + 1,
             ))
             val next = SettlementGroupEntity(

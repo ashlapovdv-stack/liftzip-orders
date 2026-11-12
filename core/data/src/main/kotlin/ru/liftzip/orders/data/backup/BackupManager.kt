@@ -200,9 +200,6 @@ class BackupManager(
                 if ((group.state == GroupState.COMPLETED.name) != (group.state != GroupState.FORMING.name && allDone)) {
                     throw BackupException("Статус группы не соответствует отметкам заказов")
                 }
-                if (group.state == GroupState.FORMING.name && groupOrders.any { it.withdrawn || it.transferred || it.received }) {
-                    throw BackupException("Отметки выполнения в формируемой группе")
-                }
             }
             payload.orders.forEach { order ->
                 if (order.groupId !in groups) throw BackupException("Заказ ссылается на отсутствующую группу")
