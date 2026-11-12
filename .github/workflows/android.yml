@@ -30,6 +30,12 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Restore permanent test signing key
+        if: github.event_name != 'pull_request'
+        env:
+          ORDERS_DEBUG_KEYSTORE_BASE64: ${{ secrets.ORDERS_DEBUG_KEYSTORE_BASE64 }}
+        run: python3 scripts/prepare_ci_signing.py
+
       - name: Install Android platform
         run: |
           set -euo pipefail
@@ -63,13 +69,28 @@ jobs:
       - name: Build APK and Android test APK
         run: ./gradlew :app:assembleDebug :core:data:assembleDebugAndroidTest --no-daemon
 
+      - name: Verify installable APK signing certificate
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          APK_SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APK_SIGNER" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > "$RUNNER_TEMP/orders-signature.txt"
+          cat "$RUNNER_TEMP/orders-signature.txt"
+          CERTIFICATE="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/orders-signature.txt")"
+          test "$CERTIFICATE" = "82a94fb920b5eb7ef1afe9ab250b0f59d3fecf52ec789fad9734b83eb7a73200"
+
       - name: Upload installable APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: Orders-debug-apk-${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Remove restored signing key
+        if: always() && github.event_name != 'pull_request'
+        run: rm -f "$RUNNER_TEMP/orders-debug.keystore"
 
       - name: Upload build reports on failure
         if: failure()

@@ -12,10 +12,22 @@ android {
         applicationId = "ru.liftzip.orders"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
+            ?.toIntOrNull()?.coerceAtLeast(3) ?: 3
+        versionName = "0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            providers.environmentVariable("ORDERS_KEYSTORE_PATH").orNull?.let { path ->
+                storeFile = file(path)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
