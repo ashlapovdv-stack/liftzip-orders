@@ -10,13 +10,14 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val moneyFormat = NumberFormat.getNumberInstance(Locale("ru", "RU")).apply {
-    minimumFractionDigits = 2
+    minimumFractionDigits = 0
     maximumFractionDigits = 2
 }
 private val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
 
-fun Money.format(): String = "${moneyFormat.format(toBigDecimal())} ₽"
+fun Money.formatAmount(): String = moneyFormat.format(toBigDecimal())
+fun Money.format(): String = "${formatAmount()} ₽"
 fun BigDecimal.formatDecimal(): String = stripTrailingZeros().toPlainString()
 fun LocalDate.formatDate(): String = format(dateFormatter)
 fun Instant.formatDateTime(): String = atZone(ZoneId.systemDefault()).format(dateTimeFormatter)

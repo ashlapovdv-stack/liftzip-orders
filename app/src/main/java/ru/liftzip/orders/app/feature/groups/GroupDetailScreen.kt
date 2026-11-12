@@ -1,19 +1,23 @@
 package ru.liftzip.orders.app.feature.groups
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -36,6 +40,9 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,17 +51,16 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.launch
 import ru.liftzip.orders.app.feature.orders.EditorCostDraft
 import ru.liftzip.orders.app.ui.CostsEditor
-import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.GroupDetailViewModel
-import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.format
-import ru.liftzip.orders.app.ui.formatDate
+import ru.liftzip.orders.app.ui.formatAmount
 import ru.liftzip.orders.app.ui.parseDecimal
 import ru.liftzip.orders.domain.model.CostDraft
 import ru.liftzip.orders.domain.model.CostKind
 import ru.liftzip.orders.domain.model.Currency
 import ru.liftzip.orders.domain.model.GroupState
+import ru.liftzip.orders.domain.model.GroupDetails
 import ru.liftzip.orders.domain.model.SaveGroupCostsCommand
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.math.BigDecimal
@@ -126,10 +132,8 @@ fun GroupDetailScreen(
                 item {
                     StatusBadge(if (current.summary.group.state == GroupState.FORMING) "Формируется" else "На расчёте")
                     Text("Заказов: ${current.summary.orderCount}")
-                    Text("Продажи: ${current.summary.sales.format()}")
+                    GroupOrdersTable(current, onOpenOrder)
                     Text("Полученная оплата: ${current.summary.receivedPayment.format()}")
-                    Text("Известные расходы: ${current.summary.knownCosts.format()}")
-                    Text("Предварительная прибыль: ${current.summary.preliminaryProfit.format()}", fontWeight = FontWeight.SemiBold)
                     if (!current.summary.isComplete) {
                         Text("Расчёт неполный; неизвестные затраты не заменены нулём", color = MaterialTheme.colorScheme.error)
                     }
@@ -142,19 +146,6 @@ fun GroupDetailScreen(
                             enabled = current.summary.orderCount > 0 && !busy,
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                         ) { Text("Завершить формирование") }
-                    }
-                }
-                item { SectionTitle("Заказы группы") }
-                if (current.orders.isEmpty()) item { EmptyState("В группе пока нет заказов") }
-                items(current.orders.size) { index ->
-                    val summary = current.orders[index]
-                    Card(Modifier.fillMaxWidth().clickable { onOpenOrder(summary.order.id) }) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text("Заказ №${summary.order.number} · ${summary.order.counterparty}", fontWeight = FontWeight.SemiBold)
-                            Text("${summary.order.date.formatDate()} · ${summary.sales.format()}")
-                            Text(if (summary.calculation.isComplete) "Предварительный расчёт" else "Расчёт неполный")
-                            Text("Прибыль без групповых расходов: ${summary.calculation.preliminaryProfitWithoutGroupCosts.format()}")
-                        }
                     }
                 }
                 item {
@@ -219,5 +210,65 @@ fun GroupDetailScreen(
             text = { Text(text) },
             confirmButton = { TextButton(onClick = { model.clearMessage(); localMessage = null }) { Text("Понятно") } },
         )
+    }
+}
+
+@Composable
+private fun GroupOrdersTable(details: GroupDetails, onOpenOrder: (UUID) -> Unit) {
+    Text("Суммы в ₽", style = MaterialTheme.typography.bodySmall)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val tableWidth = maxOf(maxWidth, 360.dp)
+        Column(Modifier.horizontalScroll(rememberScrollState())) {
+            Column(Modifier.width(tableWidth)) {
+                GroupOrdersTableRow("Заказ", "Д", "К", "∆", emphasized = true)
+                HorizontalDivider()
+                details.orders.forEach { summary ->
+                    val calculation = summary.calculation
+                    GroupOrdersTableRow(
+                        name = summary.order.counterparty.ifBlank { "Заказ №${summary.order.number}" },
+                        income = summary.sales.formatAmount(),
+                        costs = calculation.knownCost.formatAmount(),
+                        profit = if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.formatAmount() else "—",
+                        modifier = Modifier.clickable { onOpenOrder(summary.order.id) },
+                    )
+                    HorizontalDivider()
+                }
+                if (details.orders.isEmpty()) {
+                    Text("В группе пока нет заказов", Modifier.padding(vertical = 12.dp))
+                }
+                GroupOrdersTableRow(
+                    name = "Итого",
+                    income = details.summary.sales.formatAmount(),
+                    costs = details.summary.knownCosts.formatAmount(),
+                    profit = if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—",
+                    emphasized = true,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupOrdersTableRow(
+    name: String,
+    income: String,
+    costs: String,
+    profit: String,
+    modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
+) {
+    val weight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal
+    Row(modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(name, Modifier.weight(1.6f).padding(end = 8.dp), style = MaterialTheme.typography.bodySmall, fontWeight = weight)
+        listOf("Доход" to income, "Известные расходы" to costs, "Предварительная прибыль" to profit).forEach { (label, value) ->
+            Text(
+                value,
+                Modifier.weight(1f).padding(horizontal = 4.dp).semantics { contentDescription = "$label: $value" },
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = weight,
+                textAlign = TextAlign.End,
+                softWrap = false,
+            )
+        }
     }
 }
