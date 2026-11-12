@@ -82,6 +82,32 @@ class OrderCalculatorTest {
         assertEquals(Money.fromRubles(BigDecimal("-50.00")), result.preliminaryProfitWithoutGroupCosts)
     }
 
+    @Test fun `approved D K delta formula uses manual delivery and aggregate purchase only`() {
+        val line = line("1", "13000", "800", Currency.CNY, "13.3").copy(
+            deliveryWeight = BigDecimal("0.2"), deliveryTariff = BigDecimal("55"), deliveryRate = BigDecimal("13.3"))
+        val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = Money(20000)),
+            listOf(line), listOf(cost(CostOwnerType.ORDER, orderId, "8000", CostKind.PURCHASE)))
+        assertEquals(Money(1280000), result.sales)
+        assertEquals(Money(800000), result.knownCost)
+        assertEquals(Money(480000), result.preliminaryProfitWithoutGroupCosts)
+    }
+
+    @Test fun `missing purchase is unknown despite specified delivery`() {
+        val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = Money(20000)),
+            listOf(line("1", "13000", null, null, null)), emptyList())
+        assertEquals(Money(1280000), result.sales)
+        assertEquals(null, result.knownPurchaseCosts)
+        assertEquals(null, result.preliminaryProfitWithoutGroupCosts)
+    }
+
+    @Test fun `missing manual delivery does not assume free delivery`() {
+        val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = null),
+            listOf(line("1", "13000", null, null, null)), listOf(cost(CostOwnerType.ORDER, orderId, "8000", CostKind.PURCHASE)))
+        assertEquals(null, result.sales)
+        assertEquals(Money(800000), result.knownPurchaseCosts)
+        assertEquals(null, result.preliminaryProfitWithoutGroupCosts)
+    }
+
     private fun order(payment: String, costsConfirmed: Boolean) = Order(
         orderId, 1, LocalDate.parse("2026-11-11"), "Тест", groupId,
         Money.fromRubles(BigDecimal(payment)), "", costsConfirmed, CalculationState.INCOMPLETE,
