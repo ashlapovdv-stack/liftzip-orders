@@ -1,0 +1,4 @@
+interface:
+  display_name: "Расчёты Заказов"
+  short_description: "Проверенная методика: Расчёты Заказов"
+  default_prompt: "Применить $financial-ledger к текущей задаче проекта."
