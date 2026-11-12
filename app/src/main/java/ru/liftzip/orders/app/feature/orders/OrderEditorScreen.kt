@@ -214,7 +214,7 @@ fun OrderEditorScreen(
                 }
             }
             if (state.orderId != null) item {
-                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
+                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && !state.saving && !state.actionsSaving,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics { contentDescription = "Удалить заказ" },
                     shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {

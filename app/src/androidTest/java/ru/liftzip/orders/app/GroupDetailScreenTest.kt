@@ -378,6 +378,8 @@ class GroupDetailScreenTest {
             node.assertIsOff()
         }
         assertEquals(OrderFulfillment(), runBlocking { repository.observeOrder(orderId).first()!!.order.fulfillment })
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasContentDescription("Удалить заказ"))
+        compose.onNodeWithContentDescription("Удалить заказ").assertIsEnabled()
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Группа №2 →").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Группа №2 →").performScrollTo().performClick()
