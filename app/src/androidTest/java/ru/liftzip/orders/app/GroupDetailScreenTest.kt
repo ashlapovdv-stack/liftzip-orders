@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -79,12 +82,16 @@ class GroupDetailScreenTest {
             Triple(longTitle, "240000", "120000"),
             Triple("Заказ 11.11 электроника", "180000", "90000"),
             Triple("Заказ 12.11 комплектующие", "120000", "60000"),
-        ).map { (title, sale, purchase) ->
+        ).mapIndexed { index, (title, sale, purchase) ->
             repository.saveOrder(SaveOrderCommand(
                 commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = title,
                 receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
                 lines = listOf(OrderLineDraft(productName = "Тестовая позиция", quantity = BigDecimal.ONE,
-                    saleUnitPrice = BigDecimal(sale), zeroSalePriceConfirmed = true)),
+                    saleUnitPrice = BigDecimal(sale), zeroSalePriceConfirmed = true,
+                    deliveryWeight = if (index == 2) BigDecimal("0.2") else null,
+                    deliveryTariff = if (index == 2) BigDecimal("55") else null,
+                    deliveryPlanDate = if (index == 2) LocalDate.parse("2026-11-11") else null)),
+                orderRate = BigDecimal("10"),
                 costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal(purchase),
                     date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
             ))
@@ -95,8 +102,13 @@ class GroupDetailScreenTest {
     }
 
     @After fun tearDown() {
-        // Cancel screen ViewModels before closing the in-memory database.
+        // Activity destruction cancels ViewModels; await Room observer cleanup too.
+        val jobs = compose.runOnIdle {
+            val store = compose.activity.viewModelStore
+            store.keys().mapNotNull { store[it]?.viewModelScope?.coroutineContext?.get(Job) }
+        }
         compose.activityRule.scenario.close()
+        runBlocking { jobs.joinAll() }
         database.close()
     }
 
@@ -323,7 +335,11 @@ class GroupDetailScreenTest {
         showScreen(1f)
         compose.onNodeWithText("Тестовая позиция").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Записи из заказов").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Вес единицы: 0.2 кг"))
+        compose.onAllNodesWithText("Вес единицы: 0.2 кг").onFirst().assertIsDisplayed()
         capture("price-history.png")
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Вес единицы: не указан"))
+        compose.onAllNodesWithText("Вес единицы: не указан").onFirst().assertIsDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Записи из заказов"))
         compose.onAllNodes(hasText("Заказ №", substring = true)).onFirst().performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Название заказа").fetchSemanticsNodes().isNotEmpty() }
@@ -378,8 +394,8 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
         compose.onNodeWithText("Вес единицы, кг").performScrollTo().performTextReplacement("0.2")
         compose.onNodeWithText("Тариф, ¥/кг").performTextReplacement("55")
-        compose.onNodeWithText("Денису, ₽/шт").performScrollTo()
         androidx.test.espresso.Espresso.closeSoftKeyboard()
+        compose.onNodeWithText("Название товара").performScrollTo()
         captureSheet("position-editor.png")
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()

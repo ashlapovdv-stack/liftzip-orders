@@ -182,15 +182,17 @@ class RoomOrdersRepository(
     override fun observeProductHistory(productId: UUID): Flow<ProductPriceHistory?> = combine(
         dao.observeProduct(productId.toString()),
         dao.observePriceRecords(productId.toString()),
-    ) { product, records ->
+        dao.observeProductLines(productId.toString()),
+    ) { product, records, lines ->
         if (product == null) null else {
+            val linesById = lines.associateBy { it.id }
             val orderIds = records.map { it.orderId }.distinct()
             val orders = if (orderIds.isEmpty()) emptyList() else dao.getOrdersByIds(orderIds)
             ProductPriceHistory(
                 product = product.toDomain(),
                 records = records.mapNotNull { record ->
                     orders.firstOrNull { it.id == record.orderId }?.let {
-                        PriceRecordView(record.toDomain(), it.number)
+                        PriceRecordView(record.toDomain(), it.number, linesById[record.sourceLineId]?.deliveryWeight?.decimal())
                     }
                 },
             )

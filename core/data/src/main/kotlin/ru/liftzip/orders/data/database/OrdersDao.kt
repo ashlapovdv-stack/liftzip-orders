@@ -54,6 +54,9 @@ interface OrdersDao {
     @Query("SELECT * FROM price_records WHERE productId = :productId ORDER BY eventAt DESC, updatedAt DESC")
     fun observePriceRecords(productId: String): Flow<List<PriceRecordEntity>>
 
+    @Query("SELECT * FROM order_lines WHERE productId = :productId")
+    fun observeProductLines(productId: String): Flow<List<OrderLineEntity>>
+
     @Query("SELECT * FROM products WHERE id = :id")
     fun observeProduct(id: String): Flow<ProductEntity?>
 
