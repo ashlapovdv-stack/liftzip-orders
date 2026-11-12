@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
@@ -32,6 +35,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
 import ru.liftzip.orders.app.ui.OrdersTheme
 import ru.liftzip.orders.data.database.OrdersDatabase
@@ -52,6 +56,7 @@ class GroupDetailScreenTest {
     private lateinit var orderId: UUID
     private lateinit var groupId: UUID
     private var openedOrder: UUID? = null
+    private var showGroups by mutableStateOf(false)
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -132,6 +137,23 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
         compose.onNodeWithText("Добавить расход").performScrollTo().performClick()
         compose.onNodeWithText("Сумма расхода").assertExists()
+        // Reuse this fixture for a visual preview of all three lifecycle colors.
+        runBlocking {
+            repository.setOrderAction(orderId, OrderAction.RECEIVED, true)
+            val secondOrder = repository.saveOrder(SaveOrderCommand(
+                commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = "Пример заказа",
+                receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+                lines = listOf(OrderLineDraft(productName = "Позиция", quantity = BigDecimal.ONE,
+                    saleUnitPrice = BigDecimal("1220000"), zeroSalePriceConfirmed = true)),
+                costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal("8500"),
+                    date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
+            ))
+            val secondGroup = repository.observeOrder(secondOrder).first()!!.group.id
+            repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), secondGroup))
+        }
+        compose.runOnIdle { showGroups = true }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Группа №3").fetchSemanticsNodes().isNotEmpty() }
+        capture("groups-list.png")
     }
 
     @Test fun largerFontKeepsTableAndActionsWithinScreen() {
@@ -206,7 +228,8 @@ class GroupDetailScreenTest {
                 CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
                     OrdersTheme {
                         Box(Modifier.width(width.dp).testTag("group-screen")) {
-                            GroupDetailScreen(repository, groupId, onBack = {}, onOpenOrder = { openedOrder = it })
+                            if (showGroups) GroupsScreen(repository, onOpenGroup = {})
+                            else GroupDetailScreen(repository, groupId, onBack = {}, onOpenOrder = { openedOrder = it })
                         }
                     }
                 }

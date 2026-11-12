@@ -76,7 +76,7 @@ import kotlinx.coroutines.launch
 import ru.liftzip.orders.app.feature.orders.EditorCostDraft
 import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.GroupDetailViewModel
-import ru.liftzip.orders.app.ui.StatusBadge
+import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.app.ui.label
 import ru.liftzip.orders.app.ui.formatAmount
@@ -164,7 +164,7 @@ fun GroupDetailScreen(
             } else {
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        StatusBadge(current.summary.group.state.label())
+                        GroupStatusBadge(current.summary.group.state)
                         Text("${current.orders.count { it.order.fulfillment.isComplete }} / ${current.summary.orderCount} выполнено", style = MaterialTheme.typography.bodySmall)
                     }
                     GroupTotals(current)

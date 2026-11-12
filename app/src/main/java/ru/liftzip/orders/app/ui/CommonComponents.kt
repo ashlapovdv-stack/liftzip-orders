@@ -27,6 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import ru.liftzip.orders.domain.model.GroupState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -70,6 +73,22 @@ fun StatusBadge(text: String, isWarning: Boolean = false) {
             text, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             style = MaterialTheme.typography.labelMedium,
         )
+    }
+}
+
+/** Group lifecycle colors are shared by the list and the detail screen. */
+@Composable
+fun GroupStatusBadge(state: GroupState) {
+    val (background, foreground) = when (state) {
+        GroupState.FORMING -> Color(0xFFE6EFFC) to Color(0xFF184D8D)
+        GroupState.CALCULATING -> Color(0xFFFFF0CE) to Color(0xFF805600)
+        GroupState.COMPLETED -> Color(0xFFD9F0E3) to Color(0xFF17613B)
+    }
+    Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(
+        containerColor = background, contentColor = foreground,
+    )) {
+        Text(state.label(), Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelMedium)
     }
 }
 
