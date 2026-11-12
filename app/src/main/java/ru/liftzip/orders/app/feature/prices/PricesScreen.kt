@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,12 +36,11 @@ fun PricesScreen(repository: OrdersRepository, onOpenProduct: (UUID) -> Unit) {
     val products by model.products.collectAsState()
     val query by model.currentQuery.collectAsState()
     LazyColumn(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            AppTextField(query, model::search, "Поиск по названию, артикулу и вариантам")
-            Text("Записи появляются из сохранённых заказов; предложения без заказа появятся в версии 0.4", style = MaterialTheme.typography.bodySmall)
+            ru.liftzip.orders.app.ui.CompactSearchField(query, model::search, "Поиск товара", "Поиск по названию, артикулу и вариантам", "prices-search")
         }
         if (products.isEmpty()) item { EmptyState("Товары появятся после сохранения заказа") }
         items(products, key = { it.id }) { product -> ProductCard(product) { onOpenProduct(product.id) } }
@@ -47,12 +50,12 @@ fun PricesScreen(repository: OrdersRepository, onOpenProduct: (UUID) -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProductCard(product: Product, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            product.article?.let { Text("Артикул: $it") }
-            product.brand?.takeIf { it.isNotBlank() }?.let { Text("Бренд: $it") }
-            if (product.aliases.isNotEmpty()) Text("Варианты: ${product.aliases.joinToString()}")
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            product.article?.let { Text("Артикул: $it", style = MaterialTheme.typography.bodySmall) }
+            product.brand?.takeIf { it.isNotBlank() }?.let { Text("Бренд: $it", style = MaterialTheme.typography.bodySmall) }
+            if (product.aliases.isNotEmpty()) Text("Варианты: ${product.aliases.joinToString()}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -82,7 +82,7 @@ fun OrdersApp(container: AppContainer) {
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
             val id = UUID.fromString(entry.arguments?.getString("id"))
-            OrderEditorScreen(container.repository, id, onBack = { nav.popBackStack() }, onDelivery = { nav.navigate("delivery/$it") })
+            OrderEditorScreen(container.repository, id, onBack = { nav.popBackStack() })
         }
         composable(
             "group/{id}",
@@ -104,9 +104,6 @@ fun OrdersApp(container: AppContainer) {
                 onOpenOrder = { nav.navigate("order/$it") },
             )
         }
-        composable("delivery/{id}", arguments=listOf(navArgument("id") { type=NavType.StringType })) { entry ->
-            ru.liftzip.orders.app.feature.delivery.DeliveryScreen(container.repository,UUID.fromString(entry.arguments?.getString("id")), onBack={nav.popBackStack()})
-        }
         composable("settings") {
             SettingsScreen(container.backup, container.settings, onBack = { nav.popBackStack() })
         }
@@ -121,7 +118,7 @@ internal fun MainScreenScaffold(
     onSettings: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    Scaffold(containerColor = MaterialTheme.colorScheme.background,
+    Scaffold(modifier = Modifier.navigationBarsPadding(), containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Surface(color = MaterialTheme.colorScheme.background) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 12.dp),
@@ -137,9 +134,9 @@ internal fun MainScreenScaffold(
         },
         bottomBar = {
             Surface(color = Color.White) {
-                Column(Modifier.navigationBarsPadding()) {
+                Column(Modifier.testTag("main-bottom-bar")) {
                     HorizontalDivider(color = Color(0xFFE1E8E5))
-                    Row(Modifier.fillMaxWidth().height(56.dp)) {
+                    Row(Modifier.fillMaxWidth().height(44.dp)) {
                         tabTitles.forEachIndexed { index, title ->
                             val selected = selectedTab == index
                             val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant

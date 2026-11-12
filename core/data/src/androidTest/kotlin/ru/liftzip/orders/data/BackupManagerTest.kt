@@ -141,6 +141,19 @@ class BackupManagerTest {
         return target
     }
 
+    @Test fun deletedOrderNumberAndAuditSurviveBackupRestore() = runTest {
+        val id = repository.saveOrder(orderCommand("Удаляемый"))
+        repository.deleteOrder(id)
+        val file = File(context.cacheDir, "deleted-order.zip")
+        val uri = Uri.fromFile(file)
+        manager.exportTo(uri)
+        manager.importFrom(uri)
+        assertTrue(repository.observeOrders("", OrdersFilter.ALL, 50).first().isEmpty())
+        assertTrue(database.ordersDao().getOrderHistory(id.toString()).any { it.changeType == "DELETED" })
+        val next = repository.saveOrder(orderCommand("Следующий"))
+        assertEquals(2L, repository.observeOrder(next).first()!!.order.number)
+    }
+
     private fun orderCommand(counterparty: String) = SaveOrderCommand(
         commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = counterparty,
         receivedPayment = BigDecimal("100"), costsConfirmed = false,

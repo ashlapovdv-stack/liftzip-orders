@@ -78,7 +78,7 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                CompactOrderSearch(query, model::search)
+                ru.liftzip.orders.app.ui.CompactSearchField(query, model::search, "Поиск заказов", "Поиск: номер, клиент, товар, артикул", "orders-search")
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -136,30 +136,4 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
             }
         }
     }
-}
-
-@Composable
-private fun CompactOrderSearch(value: String, onChange: (String) -> Unit) {
-    val keyboard = LocalSoftwareKeyboardController.current
-    BasicTextField(value, onChange, singleLine = true,
-        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-        modifier = Modifier.fillMaxWidth().height(44.dp).testTag("orders-search")
-            .semantics { contentDescription = "Поиск: номер, клиент, товар, артикул" }
-            .background(Color.White, RoundedCornerShape(10.dp))
-            .border(1.dp, Color(0xFFD8E1E5), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp),
-        decorationBox = { input ->
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Box(Modifier.weight(1f)) {
-                    if (value.isEmpty()) Text("Поиск заказов", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    input()
-                }
-                if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, "Очистить поиск", Modifier.size(16.dp))
-                }
-            }
-        })
 }

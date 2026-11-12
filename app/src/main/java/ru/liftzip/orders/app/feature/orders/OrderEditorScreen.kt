@@ -5,6 +5,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.CardDefaults
+import ru.liftzip.orders.app.ui.CompactTopBar
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -78,7 +89,6 @@ fun OrderEditorScreen(
     repository: OrdersRepository,
     orderId: UUID?,
     onBack: () -> Unit,
-    onDelivery: (UUID) -> Unit = {},
 ) {
     val model = viewModel<OrderEditorViewModel>(
         key = "order-${orderId ?: "new"}",
@@ -86,153 +96,136 @@ fun OrderEditorScreen(
     )
     val state by model.state.collectAsState()
     var editingLine by remember { mutableStateOf<Int?>(null) }
-    var showExtras by remember { mutableStateOf(false) }
     var catalogLine by remember { mutableStateOf<Int?>(null) }
-    var showDatePicker by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
+    var confirmDeleteOrder by remember { mutableStateOf(false) }
+    var deleteLineIndex by remember { mutableStateOf<Int?>(null) }
 
     BackHandler { if (model.requestBack()) onBack() }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(state.orderNumber?.let { "Заказ №$it" } ?: "Новый заказ") },
-                navigationIcon = {
-                    IconButton(onClick = { if (model.requestBack()) onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
-                    }
-                },
-                actions = {
-                    TextButton(onClick={ model.save { onBack() } }, enabled=state.loaded && !state.saving && !state.actionsSaving) {
-                        Text(if(state.saving) "Сохраняю…" else "Сохранить", fontWeight=FontWeight.SemiBold)
-                    }
-                },
-            )
+            CompactTopBar(state.orderNumber?.let { "Заказ №$it" } ?: "Новый заказ",
+                onBack = { if (model.requestBack()) onBack() }) {
+                TextButton(onClick = { model.save { onBack() } }, enabled = state.loaded && !state.saving && !state.actionsSaving) {
+                    Text(if (state.saving) "Сохраняю…" else "Сохранить", fontWeight = FontWeight.SemiBold)
+                }
+                if (state.orderId != null) IconButton(onClick = { confirmDeleteOrder = true },
+                    enabled = state.loaded && !state.saving && !state.actionsSaving, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Delete, "Удалить заказ", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                }
+            }
         },
+        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!state.loaded) item { Text("Загрузка…") }
-            state.generalError?.let { error ->
-                item { Text(error, color = MaterialTheme.colorScheme.error) }
-            }
-            if (state.loaded && state.orderId != null && state.orderNumber != null) {
-                item {
-                    SectionTitle("Действия по заказу")
-                    OrderFulfillmentActions(state.orderNumber!!, state.fulfillment,
-                        enabled = state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
-                        onAction = model::setAction)
-                    if (state.groupState == GroupState.FORMING) Text("Отметки доступны после завершения формирования группы",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            if (state.salesLocked) {
-                item {
-                    StatusBadge("Набор завершён: состав и выручка заблокированы", isWarning = true)
-                }
+            state.generalError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
+            item {
+                AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
+                    "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
             }
             item {
-                SectionTitle("Основное")
-                AppTextField(
-                    state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
-                    "Клиент или менеджер", error = state.errors["counterparty"], enabled = !state.salesLocked,
-                )
-                OutlinedButton(
-                    onClick = { showDatePicker = true }, enabled = !state.salesLocked,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                ) { Text("Дата заказа: ${state.date.formatDate()}") }
-                AppTextField(state.orderRate, { value -> model.update { it.copy(orderRate = value) } }, "Курс, ₽/¥", error = state.errors["orderRate"], decimal = true)
-                state.groupNumber?.let {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Группа №$it")
-                        GroupStatusBadge(state.groupState)
+                OrderSection {
+                    Row(Modifier.fillMaxWidth().testTag("order-actions"), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f)) {
+                            OrderFulfillmentActions(state.orderNumber, state.fulfillment,
+                                enabled = state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
+                                captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp),
+                                onAction = model::setAction)
+                        }
+                        AppTextField(state.orderRate, { value -> model.update { it.copy(orderRate = value) } },
+                            "Курс, ₽/¥", modifier = Modifier.width(96.dp), error = state.errors["orderRate"], decimal = true)
                     }
-                } ?: Text("При сохранении заказ попадёт в текущую формируемую группу")
+                    state.groupNumber?.let { number ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Группа №$number", style = MaterialTheme.typography.bodySmall)
+                            GroupStatusBadge(state.groupState)
+                        }
+                    }
+                }
             }
             item { SectionTitle("Товары · ${state.lines.size}") }
             items(state.lines.size) { index ->
-                val line=state.lines[index]
-                Card(Modifier.fillMaxWidth().clickable { editingLine=index }) {
-                    Column(Modifier.padding(12.dp), verticalArrangement=Arrangement.spacedBy(3.dp)) {
-                        Text(line.name.ifBlank { "Новая позиция · нажмите для заполнения" }, fontWeight=FontWeight.SemiBold)
-                        if(line.article.isNotBlank()) Text(line.article, style=MaterialTheme.typography.bodySmall)
-                        Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽ · цена для Дениса")
-                        Text(if(line.purchasePrice.isBlank()) "Указать закупку и доставку →" else "Закупка ${line.purchasePrice} ${line.purchaseCurrency.name} · изменить →",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
-                        if(state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции",color=MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-            if (!state.salesLocked) {
-                item { OutlinedButton(onClick = { model.addLine(); editingLine=state.lines.size }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить позицию") } }
-            }
-            item {
-                SectionTitle("Стоимость заказа для Дениса")
-                Text("Общая цена для Дениса: ${model.preview()?.sales?.format() ?: "не рассчитана"}")
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) {
-                        AppTextField(state.manualDeliveryPrice, { value -> model.update { it.copy(manualDeliveryPrice = value) } },
-                            "Цена доставки заказа, ₽", error = state.errors["manualDeliveryPrice"], decimal = true)
-                    }
-                    Box(Modifier.weight(1f)) {
-                        Text("Расчётная доставка:\n${model.deliveryPreview()?.format() ?: "нет данных"}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                Text("Расчётная доставка только для ориентира. Цена доставки вводится вручную.", style = MaterialTheme.typography.bodySmall)
-            }
-            item {
-                SectionTitle("Закупка всего заказа")
-                AppTextField(state.purchaseTotal, { value -> model.update { it.copy(purchaseTotal = value) } },
-                    "Общая закупочная стоимость, ₽", error = state.errors["purchaseTotal"], decimal = true)
-                Text("Закупочные цены отдельных позиций справочные. Дополнительные расходы учитываются только в комментарии.",
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            item {
-                AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2)
-            }
-            model.preview()?.let { calculation ->
-                item {
-                    Card {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            SectionTitle("Расчёт товара")
-                            Text("Общая цена для Дениса: ${calculation.sales.format()}")
-                            val delivery=model.deliveryPreview()
-                            Text("Ориентир доставки: ${delivery?.format() ?: "не заполнен"}")
-                            Text("Цена доставки заказа: ${state.manualDeliveryPrice.ifBlank { "не указана" }} ₽")
-                            Text("Закупка и доставка: ${if (calculation.isComplete) calculation.knownCost.format() else "неполные данные"}")
-                            Text(
-                                "Предварительная прибыль: " +
-                                    (if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.format() else "не рассчитана"),
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            StatusBadge(
-                                if (calculation.isComplete) "Все затраты указаны; расчёт предварительный"
-                                else "Расчёт неполный — неизвестное не считается нулём",
-                                isWarning = !calculation.isComplete,
-                            )
+                val line = state.lines[index]
+                Card(Modifier.fillMaxWidth().clickable { editingLine = index }, shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+                    Row(Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(line.name.ifBlank { "Новая позиция" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            if (line.article.isNotBlank()) Text(line.article, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽", style = MaterialTheme.typography.bodySmall)
+                            if (state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции", color = MaterialTheme.colorScheme.error)
+                        }
+                        IconButton(onClick = { deleteLineIndex = index }, enabled = !state.saving, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Default.Delete, "Удалить позицию ${index + 1}", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
             }
-            item {
-                OutlinedButton(onClick={ state.orderId?.let(onDelivery) }, enabled=state.orderId!=null && !state.dirty, modifier=Modifier.fillMaxWidth()) { Text("Доставка · счёт и оплаты") }
-                if(state.orderId==null || state.dirty) Text("Сохраните заказ перед учётом фактической доставки",style=MaterialTheme.typography.bodySmall)
+            if (!state.salesLocked) item {
+                OutlinedButton(onClick = { model.addLine(); editingLine = state.lines.size }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Добавить позицию") }
             }
-            if (state.history.isNotEmpty()) {
-                item {
-                    OutlinedButton(onClick = { historyExpanded = !historyExpanded }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (historyExpanded) "Скрыть историю изменений" else "История изменений (${state.history.size})")
-                    }
-                    if (historyExpanded) {
-                        state.history.forEach { event ->
-                            Text("${event.eventAt.formatDateTime()} · ${event.changeType}", style = MaterialTheme.typography.bodySmall)
+            item {
+                OrderSection {
+                    Text("Доставка", style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1.2f)) {
+                            AppTextField(state.manualDeliveryPrice, { value -> model.update { it.copy(manualDeliveryPrice = value) } },
+                                "Цена доставки, ₽", error = state.errors["manualDeliveryPrice"], decimal = true)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Расчётная", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(model.deliveryPreview()?.format() ?: "Нет данных", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                         }
                     }
+                }
+            }
+            item { AppTextField(state.purchaseTotal, { value -> model.update { it.copy(purchaseTotal = value) } },
+                "Закупка заказа, ₽", error = state.errors["purchaseTotal"], decimal = true) }
+            item { AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2) }
+            model.preview()?.let { calculation -> item {
+                OrderSection {
+                    Text("Итого", style = MaterialTheme.typography.titleSmall)
+                    listOf("Цена для Дениса" to calculation.sales.format(),
+                        "Закупка и доставка" to (if (calculation.isComplete) calculation.knownCost.format() else "Неполные данные"),
+                        "Прибыль" to (if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.format() else "Не рассчитана"))
+                        .forEachIndexed { index, (label, value) ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = if (index == 2) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (index == 2 && calculation.preliminaryProfitWithoutGroupCosts < ru.liftzip.orders.domain.model.Money.ZERO) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    if (!calculation.isComplete) Text("Расчёт неполный", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+            } }
+            if (state.createdAt != null) item {
+                Text("Создан: ${state.createdAt!!.formatDateTime()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (state.history.isNotEmpty()) item {
+                TextButton(onClick = { historyExpanded = !historyExpanded }) { Text(if (historyExpanded) "Скрыть изменения" else "История изменений (${state.history.size})") }
+                if (historyExpanded) state.history.forEach { event ->
+                    Text("${event.eventAt.formatDateTime()} · ${event.changeType}", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+    }
+
+    if (confirmDeleteOrder) AlertDialog(onDismissRequest = { confirmDeleteOrder = false },
+        title = { Text("Удалить заказ?") }, text = { Text("Заказ, его позиции и цены исчезнут из списков и расчётов. Запись об удалении сохранится в истории.") },
+        confirmButton = { TextButton(onClick = { confirmDeleteOrder = false; model.delete(onBack) }) { Text("Удалить") } },
+        dismissButton = { TextButton(onClick = { confirmDeleteOrder = false }) { Text("Отмена") } })
+    deleteLineIndex?.takeIf { it in state.lines.indices }?.let { index ->
+        val lastSavedLine = state.lines.size == 1 && state.orderId != null
+        AlertDialog(onDismissRequest = { deleteLineIndex = null },
+            title = { Text(if (lastSavedLine) "Удалить последнюю позицию и заказ?" else "Удалить позицию?") },
+            text = { Text(state.lines[index].name.ifBlank { "Новая позиция" }) },
+            confirmButton = { TextButton(onClick = { deleteLineIndex = null; if (lastSavedLine) model.delete(onBack) else model.removeLine(index) }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { deleteLineIndex = null }) { Text("Отмена") } })
     }
 
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
@@ -249,8 +242,8 @@ fun OrderEditorScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SectionTitle("Позиция ${index + 1}")
                             Box(Modifier.weight(1f))
-                            if (!state.salesLocked && state.lines.size > 1) {
-                                TextButton(onClick = { model.removeLine(index); editingLine=null }) { Text("Удалить") }
+                            if (state.lines.isNotEmpty()) {
+                                TextButton(onClick = { deleteLineIndex = index; editingLine = null }) { Text("Удалить") }
                             }
                         }
                         OutlinedButton(
@@ -309,7 +302,6 @@ fun OrderEditorScreen(
                         AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff=value,deliveryPlanDate=LocalDate.now()) } }, "Тариф, CNY/кг", decimal=true)
                         Text("Расчёт по курсу заказа.",style=MaterialTheme.typography.bodySmall)
                         state.errors["line_${index}_delivery"]?.let { Text(it,color=MaterialTheme.colorScheme.error) }
-                        Text("Счёт логиста и оплаты — в отдельной карточке доставки после сохранения заказа.",style=MaterialTheme.typography.bodySmall)
 
                     }
                 }
@@ -339,24 +331,7 @@ fun OrderEditorScreen(
         })
     }
 
-    if (showDatePicker) {
-        val picker = rememberDatePickerState(
-            initialSelectedDateMillis = state.date.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
-        )
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    picker.selectedDateMillis?.let { millis ->
-                        val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                        model.update { it.copy(date = date) }
-                    }
-                    showDatePicker = false
-                }) { Text("Выбрать") }
-            },
-            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Отмена") } },
-        ) { DatePicker(state = picker) }
-    }
+
 }
 
 @Composable
@@ -389,4 +364,12 @@ private fun ProductCatalogDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
     )
+}
+
+@Composable
+private fun OrderSection(content: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
+    }
 }

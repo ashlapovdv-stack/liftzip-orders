@@ -14,8 +14,10 @@ import ru.liftzip.orders.domain.delivery.*
 import ru.liftzip.orders.data.database.DeliveryInvoiceEntity
 import ru.liftzip.orders.data.database.DeliveryPaymentEntity
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import ru.liftzip.orders.data.database.AppMetadataEntity
 import ru.liftzip.orders.data.database.ChangeEventEntity
 import ru.liftzip.orders.data.database.CostEntryEntity
 import ru.liftzip.orders.data.database.GroupCommandEntity
@@ -226,6 +228,36 @@ class RoomOrdersRepository(
                 beforeJson = Json.encodeToString(OrderEntity.serializer(), old),
                 afterJson = Json.encodeToString(OrderEntity.serializer(), updated),
             ))
+        }
+    }
+
+    override suspend fun deleteOrder(orderId: UUID) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val old = dao.getOrder(orderId.toString()) ?: return@withTransaction
+            val invoice = deliveryDao.invoice(old.id)
+            if (invoice?.amountMinor != null || deliveryDao.payments(old.id).isNotEmpty()) {
+                throw DomainValidationException("У заказа есть счёт или оплаты доставки. Удаление не должно стирать финансовые записи")
+            }
+            val group = dao.getGroup(old.groupId) ?: throw DomainValidationException("Группа не найдена")
+            val lines = dao.getOrderLines(old.id)
+            val costs = dao.getOrderCosts(old.id)
+            val now = Instant.now()
+            val before = JsonObject(mapOf(
+                "orderData" to Json.parseToJsonElement(auditJson(old, lines, costs)),
+                "deliveryDraft" to Json.encodeToJsonElement(DeliveryInvoiceEntity.serializer().nullable, invoice),
+            ))
+            // Preserve numbering even when the highest numbered order is removed.
+            dao.putMetadata(AppMetadataEntity("order_number_high_water", (dao.nextOrderNumber() - 1).toString()))
+            dao.insertChangeEvent(ChangeEventEntity(UUID.randomUUID().toString(), "ORDER", old.id,
+                "DELETED", now.epoch(), "local", before.toString(), null))
+            dao.deleteOrderCosts(old.id)
+            dao.deleteOrder(old.id)
+            if (group.state != GroupState.FORMING.name) {
+                val remaining = dao.getGroupOrders(group.id)
+                val state = if (remaining.isNotEmpty() && remaining.all { it.toDomain().fulfillment.isComplete })
+                    GroupState.COMPLETED else GroupState.CALCULATING
+                dao.updateGroup(group.copy(state = state.name, updatedAt = now.epoch(), revision = group.revision + 1))
+            }
         }
     }
 
@@ -507,7 +539,8 @@ class RoomOrdersRepository(
     private suspend fun assertOnlyPurchaseAndCostsChanged(existing: OrderEntity, command: SaveOrderCommand) {
         val oldLines = dao.getOrderLines(existing.id).sortedBy { it.id }
         val newLines = command.lines.sortedBy { it.id.toString() }
-        val sameLines = oldLines.size == newLines.size && oldLines.zip(newLines).all { (old, new) ->
+        val sameLines = newLines.isNotEmpty() && newLines.all { new ->
+            val old = oldLines.firstOrNull { it.id == new.id?.toString() } ?: return@all false
             old.id == new.id?.toString() && old.productId == new.productId?.toString() &&
                 old.productNameSnapshot == new.productName.trim() &&
                 old.articleSnapshot == new.article?.trim()?.ifEmpty { null } &&

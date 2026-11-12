@@ -91,7 +91,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          for name in ('group-table.png', 'group-completed.png', 'group-large-font.png', 'group-inline-large-font.png', 'groups-list.png', 'orders-list.png', 'orders-compact-large-font.png', 'order-editor-flags.png'):
+          for name in ('group-table.png', 'group-completed.png', 'group-large-font.png', 'group-inline-large-font.png', 'groups-list.png', 'orders-list.png', 'orders-compact-large-font.png', 'order-editor-flags.png', 'order-editor-compact.png', 'order-editor-summary.png', 'price-history.png'):
               data = (Path('artifacts') / name).read_bytes()
               assert data.startswith(b'\x89PNG\r\n\x1a\n') and len(data) > 1000, name
           PY

@@ -71,6 +71,7 @@ data class OrderEditorState(
     val groupState: GroupState = GroupState.FORMING,
     val fulfillment: OrderFulfillment = OrderFulfillment(),
     val actionsSaving: Boolean = false,
+    val createdAt: Instant? = null,
     val date: LocalDate = LocalDate.now(),
     val counterparty: String = "",
     val payment: String = "",
@@ -121,7 +122,7 @@ class OrderEditorViewModel(
                                 loaded = true, orderId = details.order.id, orderNumber = details.order.number,
                                 groupId = details.group.id, groupNumber = details.group.number, groupState = details.group.state,
                                 fulfillment = details.order.fulfillment,
-                                date = details.order.date, counterparty = details.order.counterparty,
+                                createdAt = details.order.createdAt, date = details.order.date, counterparty = details.order.counterparty,
                                 payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
                                 comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
                                 manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
@@ -177,7 +178,7 @@ class OrderEditorViewModel(
 
     fun addLine() = update { it.copy(lines = it.lines + EditorLineDraft()) }
     fun removeLine(index: Int) = update { state ->
-        if (state.lines.size <= 1) state else state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
+        state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
     }
 
     fun selectProduct(index: Int, product: Product) = updateLine(index) {
@@ -231,6 +232,24 @@ class OrderEditorViewModel(
         }
     }
 
+    fun delete(onDeleted: () -> Unit) {
+        val current = _state.value
+        val id = current.orderId ?: return
+        if (current.saving || current.actionsSaving) return
+        _state.update { it.copy(saving = true, generalError = null) }
+        viewModelScope.launch {
+            try {
+                repository.deleteOrder(id)
+                _state.update { it.copy(saving = false, dirty = false) }
+                onDeleted()
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update { it.copy(saving = false, generalError = error.message ?: "Не удалось удалить заказ") }
+            }
+        }
+    }
+
     fun preview(): OrderCalculation? = try {
         val state = _state.value
         val lines = state.lines.mapIndexed { index, line -> line.toDomain(calculationOrderId, index) }
@@ -258,7 +277,11 @@ class OrderEditorViewModel(
 
     private fun buildCommand(state: OrderEditorState): SaveOrderCommand? {
         val errors = mutableMapOf<String, String>()
-        if (state.counterparty.isBlank()) errors["counterparty"] = "Укажите клиента или менеджера"
+        if (state.lines.isEmpty()) {
+            _state.update { it.copy(generalError = "Добавьте хотя бы одну позицию или удалите заказ") }
+            return null
+        }
+        if (state.counterparty.isBlank()) errors["counterparty"] = "Укажите название заказа"
         val payment = state.payment.parseDecimal() ?: BigDecimal.ZERO
         val lines = state.lines.mapIndexed { index, line ->
             val name = line.name.trim()

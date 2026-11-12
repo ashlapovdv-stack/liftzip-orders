@@ -153,6 +153,65 @@ class RoomOrdersRepositoryTest {
         assertTrue(audit.afterJson.orEmpty().contains("450"))
     }
 
+    @Test fun deletingOrderCleansDependentsKeepsAuditAndRecomputesGroup() = runTest {
+        val first = repository.saveOrder(orderCommand())
+        val second = repository.saveOrder(orderCommand().copy(commandId = UUID.randomUUID(),
+            costs = listOf(ru.liftzip.orders.domain.model.CostDraft(kind = ru.liftzip.orders.domain.model.CostKind.OTHER,
+                amount = BigDecimal("7"), date = LocalDate.parse("2026-11-11")))))
+        val groupId = repository.observeOrder(first).first()!!.group.id
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), groupId))
+        ru.liftzip.orders.domain.model.OrderAction.entries.forEach { repository.setOrderAction(first, it, true) }
+        val removed = repository.observeOrder(second).first()!!
+        repository.deleteOrder(second)
+        repository.deleteOrder(second)
+        assertEquals(null, repository.observeOrder(second).first())
+        val group = repository.observeGroup(groupId).first()!!
+        assertEquals(1, group.orders.size)
+        assertEquals(GroupState.COMPLETED, group.summary.group.state)
+        assertTrue(database.backupDao().allPriceRecords().none { it.orderId == second.toString() })
+        assertTrue(database.backupDao().allCosts().none { it.ownerId == second.toString() || it.ownerId in removed.lines.map { line -> line.id.toString() } })
+        val audit = database.ordersDao().getOrderHistory(second.toString())
+        assertEquals(1, audit.count { it.changeType == "DELETED" })
+        assertTrue(audit.single { it.changeType == "DELETED" }.beforeJson!!.contains("Тест"))
+        val next = repository.saveOrder(orderCommand())
+        assertEquals(3L, repository.observeOrder(next).first()!!.order.number)
+        repository.deleteOrder(first)
+        assertEquals(GroupState.CALCULATING, repository.observeGroup(groupId).first()!!.summary.group.state)
+        database.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+    }
+
+    @Test fun removingPositionFromFormedOrderKeepsRemainingPriceAndCosts() = runTest {
+        val draft = orderCommand().copy(lines = listOf(
+            OrderLineDraft(productName = "Первый", quantity = BigDecimal.ONE, saleUnitPrice = BigDecimal("100"), zeroSalePriceConfirmed = true,
+                costs = listOf(ru.liftzip.orders.domain.model.CostDraft(kind = ru.liftzip.orders.domain.model.CostKind.OTHER,
+                    amount = BigDecimal("5"), date = LocalDate.parse("2026-11-11")))),
+            OrderLineDraft(productName = "Второй", quantity = BigDecimal.ONE, saleUnitPrice = BigDecimal("50"), zeroSalePriceConfirmed = true),
+        ))
+        val id = repository.saveOrder(draft)
+        val before = repository.observeOrder(id).first()!!
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), before.group.id))
+        val remaining = before.lines.single { it.productNameSnapshot == "Второй" }
+        repository.saveOrder(draft.copy(commandId = UUID.randomUUID(), orderId = id,
+            lines = listOf(draft.lines[1].copy(id = remaining.id, productId = remaining.productId))))
+        val after = repository.observeOrder(id).first()!!
+        assertEquals(listOf(remaining.id), after.lines.map { it.id })
+        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.summary.sales.minorUnits)
+        assertTrue(after.costs.isEmpty())
+        assertEquals(1, database.backupDao().allPriceRecords().count { it.orderId == id.toString() })
+        assertTrue(after.history.any { it.changeType == "UPDATED" && it.beforeJson!!.contains("Первый") })
+    }
+
+    @Test fun deletingOrderWithDeliveryFinancialRecordsIsRejectedAtomically() = runTest {
+        val id = repository.saveOrder(orderCommand())
+        database.deliveryDao().insertPayment(ru.liftzip.orders.data.database.DeliveryPaymentEntity(
+            UUID.randomUUID().toString(), id.toString(), "CLIENT", 100L, "2026-11-11", "Оплата", null))
+        try { repository.deleteOrder(id); throw AssertionError("Financial record must survive") }
+        catch (_: ru.liftzip.orders.domain.model.DomainValidationException) { }
+        assertTrue(repository.observeOrder(id).first() != null)
+        assertEquals(1, database.deliveryDao().payments(id.toString()).size)
+        assertTrue(database.ordersDao().getOrderHistory(id.toString()).none { it.changeType == "DELETED" })
+    }
+
     private fun orderCommand() = SaveOrderCommand(
         commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = "Тест",
         receivedPayment = BigDecimal("100"), costsConfirmed = false,

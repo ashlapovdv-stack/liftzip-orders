@@ -10,6 +10,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import ru.liftzip.orders.app.ui.CompactTopBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,21 +58,19 @@ fun ProductDetailScreen(
     val history by model.history.collectAsState()
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(history?.product?.name ?: "История цен") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-            )
+            CompactTopBar("История цен", onBack)
         },
     ) { padding ->
         val current = history
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (current == null) item { Text("Загрузка…") }
             else {
                 item {
+                    Text(current.product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     current.product.article?.let { Text("Артикул: $it") }
                     SectionTitle("Последние известные цены")
                     Text("Продажа: ${current.latestSale?.priceText() ?: "нет данных"}")
@@ -80,17 +83,17 @@ fun ProductDetailScreen(
                 if (current.records.isEmpty()) item { EmptyState("Записей пока нет") }
                 items(current.records.size) { index ->
                     val item = current.records[index]
-                    Card(Modifier.fillMaxWidth().clickable { onOpenOrder(item.record.orderId) }) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Card(Modifier.fillMaxWidth().clickable { onOpenOrder(item.record.orderId) }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             StatusBadge(
-                                if (item.record.type == PriceEventType.SALE) "Фактическая продажа"
-                                else "Черновой закупочный расчёт",
+                                if (item.record.type == PriceEventType.SALE) "Продажа"
+                                else "Закупка",
                                 isWarning = item.record.preliminary,
                             )
                             Text(item.priceText(), fontWeight = FontWeight.SemiBold)
-                            Text("Количество: ${item.record.quantity.formatDecimal()}")
-                            Text("Заказ №${item.orderNumber} · ${item.record.eventAt.formatDateTime()}")
-                            if (item.record.type == PriceEventType.PURCHASE) {
+                            Text("Количество: ${item.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
+                            Text("Заказ №${item.orderNumber} · ${item.record.eventAt.formatDateTime()}", style = MaterialTheme.typography.bodySmall)
+                            if (item.record.type == PriceEventType.PURCHASE && item.record.currency == Currency.CNY) {
                                 Text("Сохранённый курс: ${item.record.rate.formatDecimal()} RUB/CNY", style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -102,4 +105,4 @@ fun ProductDetailScreen(
 }
 
 private fun PriceRecordView.priceText(): String =
-    "${record.price.formatDecimal()} ${record.currency}" + if (record.currency == Currency.RUB) " (₽)" else ""
+    "${record.price.formatDecimal()} ${if (record.currency == Currency.RUB) "₽" else "¥"}"

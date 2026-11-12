@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import ru.liftzip.orders.domain.model.GroupState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import ru.liftzip.orders.app.feature.orders.EditorCostDraft
 import ru.liftzip.orders.domain.model.CostKind
@@ -54,10 +55,12 @@ fun AppTextField(
     minLines: Int = 1,
 ) {
     OutlinedTextField(
-        value = value, onValueChange = onValueChange, label = { Text(label) }, modifier = modifier,
+        value = value, onValueChange = onValueChange, label = { Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, modifier = modifier,
         enabled = enabled, isError = error != null, minLines = minLines,
-        supportingText = { if (error != null) Text(error) },
-        keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
+        textStyle = MaterialTheme.typography.bodyMedium, shape = RoundedCornerShape(10.dp),
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, focusedContainerColor = Color.White),
+        supportingText = if (error != null) ({ Text(error) }) else null,
+        keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
     )
 }
 

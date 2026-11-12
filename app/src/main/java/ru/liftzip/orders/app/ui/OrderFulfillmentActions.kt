@@ -31,7 +31,7 @@ import ru.liftzip.orders.domain.model.OrderFulfillment
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OrderFulfillmentActions(
-    orderNumber: Long,
+    orderNumber: Long?,
     progress: OrderFulfillment,
     enabled: Boolean = true,
     compact: Boolean = false,
@@ -50,7 +50,7 @@ fun OrderFulfillmentActions(
                 OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
                 OrderAction.RECEIVED -> "Товар получен"
             }
-            val tag = "order-$orderNumber-$step"
+            val tag = "order-${orderNumber ?: "new"}-$step"
             val interaction = if (onAction != null) Modifier.toggleable(
                 value = checked, enabled = enabled, role = Role.Checkbox,
                 onValueChange = { onAction(step, it) },
@@ -58,7 +58,7 @@ fun OrderFulfillmentActions(
                 role = Role.Checkbox
                 toggleableState = ToggleableState(checked)
             }
-            val cell = layout.then(interaction).testTag(tag).semantics { contentDescription = "Заказ №$orderNumber: $description" }
+            val cell = layout.then(interaction).testTag(tag).semantics { contentDescription = "${orderNumber?.let { "Заказ №$it" } ?: "Новый заказ"}: $description" }
             val square: @Composable () -> Unit = {
                 Box(Modifier.size(if (compact) 12.dp else 16.dp).testTag("$tag-square")
                     .background(if (checked) green else Color.Transparent, RoundedCornerShape(3.dp))

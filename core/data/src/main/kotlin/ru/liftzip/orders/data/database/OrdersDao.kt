@@ -93,7 +93,7 @@ interface OrdersDao {
     @Query("SELECT COUNT(*) FROM orders WHERE groupId = :groupId")
     suspend fun countOrdersInGroup(groupId: String): Int
 
-    @Query("SELECT COALESCE(MAX(number), 0) + 1 FROM orders")
+    @Query("SELECT MAX(COALESCE((SELECT MAX(number) FROM orders), 0), CAST(COALESCE((SELECT value FROM app_metadata WHERE `key` = 'order_number_high_water'), '0') AS INTEGER)) + 1")
     suspend fun nextOrderNumber(): Long
 
     @Query("SELECT COALESCE(MAX(number), 0) + 1 FROM settlement_groups")
@@ -150,6 +150,12 @@ interface OrdersDao {
 
     @Update
     suspend fun updatePriceRecord(record: PriceRecordEntity)
+
+    @Query("DELETE FROM orders WHERE id = :id")
+    suspend fun deleteOrder(id: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putMetadata(item: AppMetadataEntity)
 
     @Query("DELETE FROM order_lines WHERE orderId = :orderId AND id NOT IN (:ids)")
     suspend fun deleteRemovedLines(orderId: String, ids: List<String>)

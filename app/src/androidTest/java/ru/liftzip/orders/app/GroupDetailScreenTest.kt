@@ -35,6 +35,8 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import ru.liftzip.orders.app.feature.prices.PricesScreen
+import ru.liftzip.orders.app.feature.prices.ProductDetailScreen
 import ru.liftzip.orders.app.feature.orders.OrdersScreen
 import ru.liftzip.orders.app.feature.orders.OrderEditorScreen
 import ru.liftzip.orders.app.feature.groups.GroupsScreen
@@ -64,6 +66,8 @@ class GroupDetailScreenTest {
     private var showOrders by mutableStateOf(false)
     private var openedGroup: UUID? = null
     private var previewTab by mutableStateOf(0)
+    private var showPrices by mutableStateOf(false)
+    private var openedProduct by mutableStateOf<UUID?>(null)
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -177,12 +181,12 @@ class GroupDetailScreenTest {
             orderIds.drop(1).forEach { id -> OrderAction.entries.forEach { repository.setOrderAction(id, it, true) } }
             repository.setOrderAction(orderId, OrderAction.RECEIVED, true)
         }
-        scrollToEditorField("Действия по заказу")
+        scrollToEditorField("order-actions")
         waitAction(OrderAction.RECEIVED, true)
         actionNode(OrderAction.TRANSFERRED).assertIsOn()
         scrollToEditorField("Комментарий")
         compose.onNodeWithText(draft).assertExists()
-        scrollToEditorField("Действия по заказу")
+        scrollToEditorField("order-actions")
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Выполнена").fetchSemanticsNodes().isNotEmpty() }
         actionNode(OrderAction.WITHDRAWN).performScrollTo()
         capture("order-editor-flags.png")
@@ -206,11 +210,11 @@ class GroupDetailScreenTest {
         waitAction(OrderAction.WITHDRAWN, true)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithText(longTitle).performScrollTo().performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Действия по заказу").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-actions").fetchSemanticsNodes().isNotEmpty() }
         OrderAction.entries.forEach { actionNode(it).assertIsOn() }
         scrollToEditorField("Комментарий")
         compose.onNodeWithText(draft).assertExists()
-        scrollToEditorField("Действия по заказу")
+        scrollToEditorField("order-actions")
     }
 
     @Test fun orderTilesUseTheirOwnNextActionStatus() {
@@ -235,6 +239,9 @@ class GroupDetailScreenTest {
             }
         }
         compose.onNodeWithText("Тестовая позиция").assertDoesNotExist()
+        val bar = compose.onNodeWithTag("main-bottom-bar").fetchSemanticsNode().boundsInRoot
+        val viewport = compose.onNodeWithTag("group-screen").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(bar.height <= 46f * viewport.width / 320f)
         capture("orders-compact-large-font.png")
         runBlocking { repository.setOrderAction(orderId, OrderAction.RECEIVED, true) }
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("order-card-1"))
@@ -260,9 +267,56 @@ class GroupDetailScreenTest {
     }
 
     @Test fun compactOrderEditorSupportsDeletion() {
+        orderId = runBlocking {
+            val id = repository.saveOrder(SaveOrderCommand(UUID.randomUUID(), date = LocalDate.parse("2026-11-11"),
+                counterparty = longTitle, receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+                lines = listOf("Контактор" to "1000", "Датчик" to "500").map { (name, amount) ->
+                    OrderLineDraft(productName = name, quantity = BigDecimal.ONE, saleUnitPrice = BigDecimal(amount), zeroSalePriceConfirmed = true)
+                }, costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal("700"), date = LocalDate.parse("2026-11-11"))),
+                manualDeliveryPrice = BigDecimal.ZERO, orderRate = BigDecimal("10")))
+            repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), repository.observeOrder(id).first()!!.group.id))
+            id
+        }
+        val originalDate = runBlocking { repository.observeOrder(orderId).first()!!.order.date }
         showOrder = true
         showScreen(1f)
         compose.onNodeWithText("Название заказа").assertExists()
+        capture("order-editor-compact.png")
+        compose.onNodeWithContentDescription("Удалить позицию 1").performScrollTo().performClick()
+        compose.onNodeWithText("Отмена").performClick()
+        compose.onNodeWithText("Товары · 2").assertExists()
+        compose.onNodeWithContentDescription("Удалить позицию 1").performClick()
+        compose.onNodeWithText("Удалить", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Товары · 1").assertExists()
+        scrollToEditorField("Итого")
+        capture("order-editor-summary.png")
+        compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-card-4").fetchSemanticsNodes().isNotEmpty() }
+        val saved = runBlocking { repository.observeOrder(orderId).first()!! }
+        assertEquals(1, saved.lines.size)
+        assertEquals(originalDate, saved.order.date)
+        assertEquals(BigDecimal("10"), saved.order.orderRate)
+        compose.onNodeWithTag("order-card-4").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Удалить заказ").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Удалить заказ").performClick()
+        compose.onNodeWithText("Отмена").performClick()
+        org.junit.Assert.assertNotNull(runBlocking { repository.observeOrder(orderId).first() })
+        compose.onNodeWithContentDescription("Удалить заказ").performClick()
+        compose.onNodeWithText("Удалить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) { runBlocking { repository.observeOrder(orderId).first() == null } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-card-4").fetchSemanticsNodes().isEmpty() }
+    }
+
+    @Test fun compactPriceHistoryOpensItsSourceOrder() {
+        showPrices = true
+        showScreen(1f)
+        compose.onNodeWithText("Тестовая позиция").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Записи из заказов").fetchSemanticsNodes().isNotEmpty() }
+        capture("price-history.png")
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Записи из заказов"))
+        compose.onAllNodes(hasText("Заказ №", substring = true)).onFirst().performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Название заказа").fetchSemanticsNodes().isNotEmpty() }
+        org.junit.Assert.assertTrue(openedOrder in orderIds)
     }
 
     @Test fun formingOrderKeepsFulfillmentDisabled() {
@@ -282,7 +336,7 @@ class GroupDetailScreenTest {
     }
 
     private fun scrollToEditorField(text: String) {
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text))
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(if (text == "order-actions") hasTestTag(text) else hasText(text))
     }
 
     private fun actionNode(action: OrderAction) = compose.onNodeWithTag("order-1-$action", useUnmergedTree = true)
@@ -373,7 +427,10 @@ class GroupDetailScreenTest {
                 CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
                     OrdersTheme {
                         Box(Modifier.width(width.dp).testTag("group-screen")) {
-                            if (showOrder) OrderEditorScreen(repository, orderId, onBack = { showOrder = false; showOrders = true })
+                            if (openedProduct != null) ProductDetailScreen(repository, openedProduct!!,
+                                onBack = { openedProduct = null }, onOpenOrder = { openedOrder = it; orderId = it; openedProduct = null; showPrices = false; showOrder = true })
+                            else if (showPrices) PricesScreen(repository, onOpenProduct = { openedProduct = it })
+                            else if (showOrder) OrderEditorScreen(repository, orderId, onBack = { showOrder = false; showOrders = true })
                             else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
                                 OrdersScreen(repository,
                                     onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},
@@ -388,7 +445,8 @@ class GroupDetailScreenTest {
         }
         try {
             compose.waitUntil(10_000) {
-                if (showOrders) compose.onAllNodesWithTag("order-card-3").fetchSemanticsNodes().isNotEmpty()
+                if (showPrices) compose.onAllNodesWithText("Тестовая позиция").fetchSemanticsNodes().isNotEmpty()
+                else if (showOrders) compose.onAllNodesWithTag("order-card-3").fetchSemanticsNodes().isNotEmpty()
                 else compose.onAllNodesWithText(longTitle).fetchSemanticsNodes().isNotEmpty()
             }
         } catch (error: ComposeTimeoutException) {
