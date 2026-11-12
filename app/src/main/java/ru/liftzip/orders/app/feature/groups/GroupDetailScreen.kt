@@ -1,7 +1,6 @@
 package ru.liftzip.orders.app.feature.groups
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -17,12 +16,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -59,7 +56,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +72,7 @@ import kotlinx.coroutines.launch
 import ru.liftzip.orders.app.feature.orders.EditorCostDraft
 import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.GroupDetailViewModel
+import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.app.ui.label
@@ -401,32 +398,7 @@ private fun FinancialRow(
 
 @Composable
 private fun OrderActions(summary: OrderSummary, enabled: Boolean, captionStyle: TextStyle, onAction: (UUID, OrderAction, Boolean) -> Unit) {
-    val progress = summary.order.fulfillment
-    val entries = listOf(
-        Triple(OrderAction.WITHDRAWN, "Снял", progress.withdrawn),
-        Triple(OrderAction.TRANSFERRED, "Передал", progress.transferred),
-        Triple(OrderAction.RECEIVED, "Получено", progress.received),
-    )
-    Row(Modifier.fillMaxWidth()) {
-        entries.forEach { (step, label, checked) ->
-            val description = when (step) {
-                OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
-                OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
-                OrderAction.RECEIVED -> "Товар получен"
-            }
-            val tag = "order-${summary.order.number}-$step"
-            Column(Modifier.weight(1f).heightIn(min = 44.dp)
-                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onAction(summary.order.id, step, it) })
-                .semantics { contentDescription = "Заказ №${summary.order.number}: $description" },
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Box(Modifier.size(16.dp).testTag("$tag-square")
-                    .background(if (checked) Positive else Color.Transparent, RoundedCornerShape(3.dp))
-                    .border(1.dp, if (checked) Positive else Color(0xFF9AA3AD), RoundedCornerShape(3.dp)),
-                    contentAlignment = Alignment.Center) {
-                    if (checked) Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                }
-                Text(label, Modifier.fillMaxWidth().padding(top = 3.dp).testTag("$tag-caption"), style = captionStyle, textAlign = TextAlign.Center)
-            }
-        }
+    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, enabled, captionStyle) { action, checked ->
+        onAction(summary.order.id, action, checked)
     }
 }

@@ -35,6 +35,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import ru.liftzip.orders.app.feature.orders.OrdersScreen
 import ru.liftzip.orders.app.feature.orders.OrderEditorScreen
 import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
@@ -59,6 +60,8 @@ class GroupDetailScreenTest {
     private var openedOrder: UUID? = null
     private var showGroups by mutableStateOf(false)
     private var showOrder by mutableStateOf(false)
+    private var showOrders by mutableStateOf(false)
+    private var openedGroup: UUID? = null
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -161,7 +164,87 @@ class GroupDetailScreenTest {
     @Test fun orderEditorUsesTheSameFulfillmentAsGroup() {
         showOrder = true
         showScreen(1f)
-        compose.onNodeWithContentDescription("Заказ №1: Получены деньги от Дениса").assertIsOff()
+        actionNode(OrderAction.WITHDRAWN).assertIsOff()
+        clickAction("Получены деньги от Дениса")
+        waitAction(OrderAction.WITHDRAWN, true)
+        val draft = "Комментарий не должен исчезнуть при обновлении отметок"
+        scrollToEditorField("Комментарий")
+        compose.onNodeWithText("Комментарий").performTextReplacement(draft)
+        runBlocking {
+            repository.setOrderAction(orderId, OrderAction.TRANSFERRED, true)
+            orderIds.drop(1).forEach { id -> OrderAction.entries.forEach { repository.setOrderAction(id, it, true) } }
+            repository.setOrderAction(orderId, OrderAction.RECEIVED, true)
+        }
+        scrollToEditorField("Действия по заказу")
+        waitAction(OrderAction.RECEIVED, true)
+        actionNode(OrderAction.TRANSFERRED).assertIsOn()
+        scrollToEditorField("Комментарий")
+        compose.onNodeWithText(draft).assertExists()
+        scrollToEditorField("Действия по заказу")
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Выполнена").fetchSemanticsNodes().isNotEmpty() }
+        actionNode(OrderAction.WITHDRAWN).performScrollTo()
+        capture("order-editor-flags.png")
+        clickAction("Получены деньги от Дениса")
+        waitAction(OrderAction.WITHDRAWN, false)
+        compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Группа №1 →").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(draft, runBlocking { repository.observeOrder(orderId).first()!!.order.comment })
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(longTitle))
+        actionNode(OrderAction.WITHDRAWN).assertIsOff()
+        actionNode(OrderAction.TRANSFERRED).assertIsOn()
+        actionNode(OrderAction.RECEIVED).assertIsOn()
+        org.junit.Assert.assertFalse(actionNode(OrderAction.WITHDRAWN).fetchSemanticsNode().config.contains(SemanticsActions.OnClick))
+        capture("orders-list.png")
+        compose.onAllNodesWithText("Группа №1 →").onFirst().performScrollTo().performClick()
+        assertEquals(groupId, openedGroup)
+        compose.onNodeWithText("Группа №1").assertExists()
+        actionNode(OrderAction.WITHDRAWN).assertIsOff()
+        actionNode(OrderAction.TRANSFERRED).assertIsOn()
+        clickAction("Получены деньги от Дениса")
+        waitAction(OrderAction.WITHDRAWN, true)
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithText(longTitle).performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Действия по заказу").fetchSemanticsNodes().isNotEmpty() }
+        OrderAction.entries.forEach { actionNode(it).assertIsOn() }
+        scrollToEditorField("Комментарий")
+        compose.onNodeWithText(draft).assertExists()
+        scrollToEditorField("Действия по заказу")
+    }
+
+    @Test fun formingOrderKeepsFulfillmentDisabled() {
+        orderId = runBlocking {
+            repository.saveOrder(SaveOrderCommand(
+                commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = longTitle,
+                receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+                lines = listOf(OrderLineDraft(productName = "Позиция", quantity = BigDecimal.ONE,
+                    saleUnitPrice = BigDecimal("1000"), zeroSalePriceConfirmed = true)),
+                costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal("500"),
+                    date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
+            ))
+        }
+        showOrder = true
+        showScreen(1f)
+        OrderAction.entries.forEach { compose.onNodeWithTag("order-4-$it", useUnmergedTree = true).assertIsNotEnabled().assertIsOff() }
+    }
+
+    private fun scrollToEditorField(text: String) {
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text))
+    }
+
+    private fun actionNode(action: OrderAction) = compose.onNodeWithTag("order-1-$action", useUnmergedTree = true)
+
+    private fun waitAction(action: OrderAction, checked: Boolean) {
+        compose.waitUntil(10_000) {
+            runBlocking {
+                val progress = repository.observeOrder(orderId).first()!!.order.fulfillment
+                when (action) {
+                    OrderAction.WITHDRAWN -> progress.withdrawn
+                    OrderAction.TRANSFERRED -> progress.transferred
+                    OrderAction.RECEIVED -> progress.received
+                } == checked
+            } && actionNode(action).fetchSemanticsNode().config[SemanticsProperties.ToggleableState] ==
+                androidx.compose.ui.state.ToggleableState(checked)
+        }
     }
 
     @Test fun largerFontKeepsTableAndActionsWithinScreen() {
@@ -236,9 +319,12 @@ class GroupDetailScreenTest {
                 CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
                     OrdersTheme {
                         Box(Modifier.width(width.dp).testTag("group-screen")) {
-                            if (showOrder) OrderEditorScreen(repository, orderId, onBack = {})
+                            if (showOrder) OrderEditorScreen(repository, orderId, onBack = { showOrder = false; showOrders = true })
+                            else if (showOrders) OrdersScreen(repository,
+                                onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},
+                                onOpenGroup = { openedGroup = it; showOrders = false })
                             else if (showGroups) GroupsScreen(repository, onOpenGroup = {})
-                            else GroupDetailScreen(repository, groupId, onBack = {}, onOpenOrder = { openedOrder = it })
+                            else GroupDetailScreen(repository, groupId, onBack = { showOrders = true }, onOpenOrder = { openedOrder = it })
                         }
                     }
                 }

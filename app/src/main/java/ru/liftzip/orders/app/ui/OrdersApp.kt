@@ -79,6 +79,7 @@ fun OrdersApp(container: AppContainer) {
                             container.repository,
                             onOpenOrder = { nav.navigate("order/$it") },
                             onNewOrder = { nav.navigate("order/new") },
+                            onOpenGroup = { nav.navigate("group/$it") },
                         )
                         1 -> GroupsScreen(container.repository) { nav.navigate("group/$it") }
                         else -> PricesScreen(container.repository) { nav.navigate("product/$it") }

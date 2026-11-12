@@ -56,6 +56,8 @@ import ru.liftzip.orders.app.ui.AppTextField
 import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.PriceSearchViewModel
+import ru.liftzip.orders.app.ui.OrderFulfillmentActions
+import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.format
@@ -101,7 +103,7 @@ fun OrderEditorScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick={ model.save { onBack() } }, enabled=state.loaded && !state.saving) {
+                    TextButton(onClick={ model.save { onBack() } }, enabled=state.loaded && !state.saving && !state.actionsSaving) {
                         Text(if(state.saving) "Сохраняю…" else "Сохранить", fontWeight=FontWeight.SemiBold)
                     }
                 },
@@ -116,6 +118,16 @@ fun OrderEditorScreen(
             if (!state.loaded) item { Text("Загрузка…") }
             state.generalError?.let { error ->
                 item { Text(error, color = MaterialTheme.colorScheme.error) }
+            }
+            if (state.loaded && state.orderId != null && state.orderNumber != null) {
+                item {
+                    SectionTitle("Действия по заказу")
+                    OrderFulfillmentActions(state.orderNumber!!, state.fulfillment,
+                        enabled = state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
+                        onAction = model::setAction)
+                    if (state.groupState == GroupState.FORMING) Text("Отметки доступны после завершения формирования группы",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (state.salesLocked) {
                 item {
@@ -134,7 +146,10 @@ fun OrderEditorScreen(
                 ) { Text("Дата заказа: ${state.date.formatDate()}") }
                 AppTextField(state.orderRate, { value -> model.update { it.copy(orderRate = value) } }, "Курс, ₽/¥", error = state.errors["orderRate"], decimal = true)
                 state.groupNumber?.let {
-                    Text("Группа №$it · ${state.groupState.label()}")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Группа №$it")
+                        GroupStatusBadge(state.groupState)
+                    }
                 } ?: Text("При сохранении заказ попадёт в текущую формируемую группу")
             }
             item { SectionTitle("Товары · ${state.lines.size}") }

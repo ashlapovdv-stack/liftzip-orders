@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.liftzip.orders.app.ui.parseDecimal
@@ -20,6 +20,8 @@ import ru.liftzip.orders.domain.model.Currency
 import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.Money
 import ru.liftzip.orders.domain.model.Order
+import ru.liftzip.orders.domain.model.OrderAction
+import ru.liftzip.orders.domain.model.OrderFulfillment
 import ru.liftzip.orders.domain.model.OrderCalculation
 import ru.liftzip.orders.domain.model.OrderLine
 import ru.liftzip.orders.domain.model.OrderLineDraft
@@ -67,6 +69,8 @@ data class OrderEditorState(
     val groupId: UUID? = null,
     val groupNumber: Long? = null,
     val groupState: GroupState = GroupState.FORMING,
+    val fulfillment: OrderFulfillment = OrderFulfillment(),
+    val actionsSaving: Boolean = false,
     val date: LocalDate = LocalDate.now(),
     val counterparty: String = "",
     val payment: String = "",
@@ -103,37 +107,62 @@ class OrderEditorViewModel(
             _state.update { it.copy(loaded = true) }
         } else {
             viewModelScope.launch {
-                val details = repository.observeOrder(existingOrderId).first()
-                if (details == null) {
-                    _state.update { it.copy(loaded = true, generalError = "Заказ не найден") }
-                } else {
-                    _state.update {
-                        OrderEditorState(
-                            loaded = true, orderId = details.order.id, orderNumber = details.order.number,
-                            groupId = details.group.id, groupNumber = details.group.number, groupState = details.group.state,
-                            date = details.order.date, counterparty = details.order.counterparty,
-                            payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
-                            comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
-                            manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
-                            purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.let { cost ->
-                                (if (cost.currency == Currency.CNY) cost.amount.multiply(cost.rate) else cost.amount)
-                                    .stripTrailingZeros().toPlainString()
-                            }.orEmpty(),
-                            purchaseCurrency = Currency.RUB,
-                            purchaseRate = "1",
-                            orderRate = details.order.orderRate?.toPlainString() ?: details.lines.firstNotNullOfOrNull { it.deliveryRate }?.toPlainString().orEmpty(),
-                            lines = details.lines.map { line ->
-                                toEditorLine(line).copy(
-                                    costs = details.costs.filter {
-                                        it.ownerType == CostOwnerType.LINE && it.ownerId == line.id
-                                    }.map(::toEditorCost),
-                                )
-                            },
-                            costs = details.costs.filter { it.ownerType == CostOwnerType.ORDER }.map(::toEditorCost),
-                            history = details.history,
-                        )
+                repository.observeOrder(existingOrderId).collect { details ->
+                    if (details == null) {
+                        _state.update { it.copy(loaded = true, generalError = "Заказ не найден") }
+                    } else if (_state.value.loaded) {
+                        // Live flags, lifecycle and history never replace the editor's draft.
+                        _state.update { it.copy(fulfillment = details.order.fulfillment,
+                            groupId = details.group.id, groupNumber = details.group.number,
+                            groupState = details.group.state, history = details.history) }
+                    } else {
+                        _state.update {
+                            OrderEditorState(
+                                loaded = true, orderId = details.order.id, orderNumber = details.order.number,
+                                groupId = details.group.id, groupNumber = details.group.number, groupState = details.group.state,
+                                fulfillment = details.order.fulfillment,
+                                date = details.order.date, counterparty = details.order.counterparty,
+                                payment = details.order.receivedPayment.toBigDecimal().toPlainString(),
+                                comment = details.order.comment, costsConfirmed = details.order.costsConfirmed,
+                                manualDeliveryPrice = details.order.manualDeliveryPrice?.toBigDecimal()?.toPlainString().orEmpty(),
+                                purchaseTotal = details.costs.singleOrNull { it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE }?.let { cost ->
+                                    (if (cost.currency == Currency.CNY) cost.amount.multiply(cost.rate) else cost.amount)
+                                        .stripTrailingZeros().toPlainString()
+                                }.orEmpty(),
+                                purchaseCurrency = Currency.RUB,
+                                purchaseRate = "1",
+                                orderRate = details.order.orderRate?.toPlainString() ?: details.lines.firstNotNullOfOrNull { it.deliveryRate }?.toPlainString().orEmpty(),
+                                lines = details.lines.map { line ->
+                                    toEditorLine(line).copy(
+                                        costs = details.costs.filter {
+                                            it.ownerType == CostOwnerType.LINE && it.ownerId == line.id
+                                        }.map(::toEditorCost),
+                                    )
+                                },
+                                costs = details.costs.filter { it.ownerType == CostOwnerType.ORDER }.map(::toEditorCost),
+                                history = details.history,
+                            )
+                        }
                     }
                 }
+            }
+        }
+    }
+
+    fun setAction(action: OrderAction, checked: Boolean) {
+        val current = _state.value
+        val id = current.orderId ?: return
+        if (!current.loaded || current.groupState == GroupState.FORMING || current.saving || current.actionsSaving) return
+        _state.update { it.copy(actionsSaving = true, generalError = null) }
+        viewModelScope.launch {
+            try {
+                repository.setOrderAction(id, action, checked)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update { it.copy(generalError = error.message ?: "Не удалось сохранить отметку") }
+            } finally {
+                _state.update { it.copy(actionsSaving = false) }
             }
         }
     }
@@ -180,7 +209,7 @@ class OrderEditorViewModel(
 
     fun save(onSaved: (UUID) -> Unit) {
         val snapshot = _state.value
-        if (snapshot.saving) return
+        if (snapshot.saving || snapshot.actionsSaving) return
         val command = buildCommand(snapshot) ?: return
         _state.update { it.copy(saving = true, generalError = null, errors = emptyMap()) }
         viewModelScope.launch {
