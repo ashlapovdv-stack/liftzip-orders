@@ -28,6 +28,7 @@ import ru.liftzip.orders.domain.model.OrderAction
 import ru.liftzip.orders.domain.model.OrderFulfillment
 
 /** All three screens render the same persisted order flags. Null callback means an indicator. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OrderFulfillmentActions(
     orderNumber: Long,
@@ -43,8 +44,7 @@ fun OrderFulfillmentActions(
         Triple(OrderAction.TRANSFERRED, "Передал", progress.transferred),
         Triple(OrderAction.RECEIVED, "Получено", progress.received),
     )
-    Row(if (compact) Modifier else Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 0.dp)) {
-        entries.forEach { (step, label, checked) ->
+    val render: @Composable (Triple<OrderAction, String, Boolean>, Modifier) -> Unit = { (step, label, checked), layout ->
             val description = when (step) {
                 OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
                 OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
@@ -58,7 +58,7 @@ fun OrderFulfillmentActions(
                 role = Role.Checkbox
                 toggleableState = ToggleableState(checked)
             }
-            val cell = interaction.testTag(tag).semantics { contentDescription = "Заказ №$orderNumber: $description" }
+            val cell = layout.then(interaction).testTag(tag).semantics { contentDescription = "Заказ №$orderNumber: $description" }
             val square: @Composable () -> Unit = {
                 Box(Modifier.size(if (compact) 12.dp else 16.dp).testTag("$tag-square")
                     .background(if (checked) green else Color.Transparent, RoundedCornerShape(3.dp))
@@ -70,16 +70,23 @@ fun OrderFulfillmentActions(
             if (compact) {
                 Row(cell.heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     square()
-                    Text(label, Modifier.testTag("$tag-caption"), style = captionStyle)
+                    Text(label, Modifier.testTag("$tag-caption"), style = captionStyle, maxLines = 1, softWrap = false)
                 }
             } else {
-                Column(Modifier.weight(1f).heightIn(min = 44.dp).then(cell),
+                Column(cell.heightIn(min = 44.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     square()
                     Text(label, Modifier.fillMaxWidth().padding(top = 3.dp).testTag("$tag-caption"),
                         style = captionStyle, textAlign = TextAlign.Center)
                 }
             }
+    }
+    if (compact) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            entries.forEach { render(it, Modifier) }
         }
+    } else Row(Modifier.fillMaxWidth()) {
+        entries.forEach { render(it, Modifier.weight(1f)) }
     }
 }

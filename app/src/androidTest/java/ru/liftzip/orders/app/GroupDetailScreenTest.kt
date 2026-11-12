@@ -224,6 +224,15 @@ class GroupDetailScreenTest {
         listOf(1 to "Доставка", 2 to "На оплате", 3 to "Принят").forEach { (number, stage) ->
             compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("order-card-$number"))
             compose.onNodeWithText(stage).assertExists()
+            OrderAction.entries.forEach { action ->
+                val layouts = mutableListOf<TextLayoutResult>()
+                compose.onNodeWithTag("order-$number-$action-caption", useUnmergedTree = true)
+                    .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                val text = layouts.single()
+                assertEquals(1, text.lineCount)
+                org.junit.Assert.assertFalse(text.isLineEllipsized(0))
+                org.junit.Assert.assertTrue(text.getLineRight(0) <= text.size.width + 1)
+            }
         }
         compose.onNodeWithText("Тестовая позиция").assertDoesNotExist()
         capture("orders-compact-large-font.png")
