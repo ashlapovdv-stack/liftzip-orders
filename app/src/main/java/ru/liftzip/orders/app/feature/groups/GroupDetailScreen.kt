@@ -394,7 +394,8 @@ private fun OrderActions(summary: OrderSummary, enabled: Boolean, stacked: Boole
         Row(modifier.heightIn(min = if (stacked) 28.dp else 44.dp)
             .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onAction(summary.order.id, step, it) })
             .semantics { contentDescription = "Заказ №${summary.order.number}: $description" },
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (stacked) Arrangement.Start else Arrangement.Center) {
             Checkbox(checked = checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.size(if (stacked) 16.dp else 18.dp))
             Text(label, Modifier.padding(start = if (stacked) 2.dp else 4.dp),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = if (stacked) 9.5.sp else 11.sp, letterSpacing = 0.sp),
