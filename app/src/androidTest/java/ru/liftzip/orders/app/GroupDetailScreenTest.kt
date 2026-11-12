@@ -211,6 +211,17 @@ class GroupDetailScreenTest {
         scrollToEditorField("Действия по заказу")
     }
 
+    @Test fun orderTilesUseTheirOwnNextActionStatus() {
+        runBlocking {
+            repository.setOrderAction(orderIds[0], OrderAction.WITHDRAWN, true)
+            repository.setOrderAction(orderIds[0], OrderAction.TRANSFERRED, true)
+            repository.setOrderAction(orderIds[1], OrderAction.WITHDRAWN, true)
+        }
+        showOrders = true
+        showScreen(1f)
+        compose.onNodeWithText("Доставка").assertExists()
+    }
+
     @Test fun formingOrderKeepsFulfillmentDisabled() {
         orderId = runBlocking {
             repository.saveOrder(SaveOrderCommand(
