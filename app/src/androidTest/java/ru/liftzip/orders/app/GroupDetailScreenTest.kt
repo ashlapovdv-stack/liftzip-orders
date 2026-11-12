@@ -1,6 +1,10 @@
 package ru.liftzip.orders.app
 
 import android.content.Context
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
@@ -123,8 +127,19 @@ class GroupDetailScreenTest {
 
     private fun capture(name: String) {
         val context: Context = ApplicationProvider.getApplicationContext()
-        File(context.filesDir, name).outputStream().use {
-            compose.onNodeWithTag("group-screen").captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        val image = compose.onNodeWithTag("group-screen").captureToImage().asAndroidBitmap()
+        // AGP uninstalls the target after connected tests. Test images must outlive it.
+        val output = if (Build.VERSION.SDK_INT >= 29) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/OrdersTest")
+            }
+            val uri = checkNotNull(context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values))
+            checkNotNull(context.contentResolver.openOutputStream(uri))
+        } else File(context.filesDir, name).outputStream()
+        output.use {
+            check(image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
         }
     }
 

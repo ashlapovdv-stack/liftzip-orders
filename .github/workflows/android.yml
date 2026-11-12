@@ -88,9 +88,18 @@ jobs:
           script: |
             ./gradlew :core:data:connectedDebugAndroidTest :app:connectedDebugAndroidTest --no-daemon
             mkdir -p artifacts
-            adb exec-out run-as ru.liftzip.orders cat files/group-table.png > artifacts/group-table.png
-            adb exec-out run-as ru.liftzip.orders cat files/group-completed.png > artifacts/group-completed.png
-            adb exec-out run-as ru.liftzip.orders cat files/group-large-font.png > artifacts/group-large-font.png
+            adb pull /sdcard/Download/OrdersTest/group-table.png artifacts/group-table.png
+            adb pull /sdcard/Download/OrdersTest/group-completed.png artifacts/group-completed.png
+            adb pull /sdcard/Download/OrdersTest/group-large-font.png artifacts/group-large-font.png
+
+      - name: Verify screen images
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('group-table.png', 'group-completed.png', 'group-large-font.png'):
+              data = (Path('artifacts') / name).read_bytes()
+              assert data.startswith(b'\x89PNG\r\n\x1a\n') and len(data) > 1000, name
+          PY
 
       - name: Upload verification reports and group screen previews
         uses: actions/upload-artifact@v4
