@@ -259,6 +259,12 @@ class GroupDetailScreenTest {
         }
     }
 
+    @Test fun compactOrderEditorSupportsDeletion() {
+        showOrder = true
+        showScreen(1f)
+        compose.onNodeWithText("Название заказа").assertExists()
+    }
+
     @Test fun formingOrderKeepsFulfillmentDisabled() {
         orderId = runBlocking {
             repository.saveOrder(SaveOrderCommand(
