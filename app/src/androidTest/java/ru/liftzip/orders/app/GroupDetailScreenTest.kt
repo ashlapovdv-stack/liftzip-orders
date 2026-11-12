@@ -87,6 +87,14 @@ class GroupDetailScreenTest {
         assertEquals("540 000 ₽", summaryText("Д"))
         assertEquals("270 000 ₽", summaryText("К"))
         assertEquals("270 000 ₽", summaryText("∆"))
+        for ((title, word) in listOf(longTitle to "лифтмонтаж", "Заказ 11.11 электроника" to "электроника", "Заказ 12.11 комплектующие" to "комплектующие")) {
+            val layout = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(title).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+            val text = layout.single()
+            org.junit.Assert.assertTrue((0 until text.lineCount).any {
+                title.substring(text.getLineStart(it), text.getLineEnd(it)).contains(word)
+            })
+        }
         capture("group-table.png")
         orderIds.forEachIndexed { index, id ->
             for ((action, description) in listOf(

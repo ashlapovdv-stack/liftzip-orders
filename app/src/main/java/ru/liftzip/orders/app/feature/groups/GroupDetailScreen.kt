@@ -24,7 +24,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -270,7 +269,7 @@ fun GroupDetailScreen(
 }
 
 private val GroupBackground = Color(0xFFF8FAFC)
-private val GroupOutline = Color(0xFFE2E8EB)
+private val GroupOutline = Color(0xFFD8E1E5)
 private val TableHeading = Color(0xFFEDF3F1)
 private val TotalBackground = Color(0xFFEAF4EF)
 private val Positive = Color(0xFF17784B)
@@ -314,7 +313,7 @@ private fun GroupOrdersTable(
             Column {
                 FinancialRow("Заказ", "Д", "К", "∆", inlineActions, heading = true)
                 details.orders.sortedBy { it.order.number }.forEach { summary ->
-                    HorizontalDivider(color = GroupOutline, thickness = 0.5.dp)
+                    HorizontalDivider(color = GroupOutline, thickness = 1.dp)
                     FinancialRow(
                         name = summary.order.counterparty.ifBlank { "Заказ №${summary.order.number}" },
                         income = summary.sales.formatAmount(), costs = summary.calculation.knownCost.formatAmount(),
@@ -327,7 +326,7 @@ private fun GroupOrdersTable(
                     if (!inlineActions) OrderActions(summary, !busy && details.summary.group.state != GroupState.FORMING, false, onAction)
                 }
                 if (details.orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(12.dp))
-                HorizontalDivider(color = GroupOutline, thickness = 0.5.dp)
+                HorizontalDivider(color = GroupOutline, thickness = 1.dp)
                 FinancialRow("Итого", details.summary.sales.formatAmount(), details.summary.knownCosts.formatAmount(),
                     if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—", inlineActions,
                     total = true, profitColor = if (details.summary.preliminaryProfit < Money.ZERO) MaterialTheme.colorScheme.error else Positive)
@@ -342,8 +341,8 @@ private fun FinancialRow(
     heading: Boolean = false, total: Boolean = false, profitColor: Color = Positive,
     onOpen: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null,
 ) {
-    val nameWeight = if (inlineActions) 28.5f else 1.6f
-    val amountWeight = if (inlineActions) 14.5f else 1f
+    val nameWeight = if (inlineActions) 33f else 1.6f
+    val amountWeight = if (inlineActions) 15f else 1f
     val valueStyle = MaterialTheme.typography.bodySmall.copy(
         fontSize = if (inlineActions && !heading) 10.5.sp else 12.sp,
         letterSpacing = 0.sp,
@@ -354,15 +353,14 @@ private fun FinancialRow(
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(nameWeight).fillMaxHeight()
             .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(horizontal = 8.dp, vertical = if (heading || total) 12.dp else 10.dp), contentAlignment = Alignment.CenterStart) {
+            .padding(horizontal = 6.dp, vertical = if (heading || total) 12.dp else 10.dp), contentAlignment = Alignment.CenterStart) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
                     fontWeight = if (heading || total) FontWeight.SemiBold else FontWeight.Medium)
-                if (onOpen != null) Icon(Icons.Default.ChevronRight, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         listOf("Доход" to income, "Расход" to costs, "Прибыль" to profit).forEachIndexed { index, (description, value) ->
-            if (!heading && !total) VerticalDivider(color = GroupOutline, thickness = 0.5.dp)
+            if (!heading && !total) VerticalDivider(color = GroupOutline, thickness = 1.dp)
             Box(Modifier.weight(amountWeight).padding(horizontal = 1.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
                 Text(value, style = valueStyle, fontWeight = if (heading || total || index == 2) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (index == 2 && !heading) profitColor else MaterialTheme.colorScheme.onSurface,
@@ -370,8 +368,8 @@ private fun FinancialRow(
             }
         }
         if (inlineActions) {
-            if (!heading && !total) VerticalDivider(color = GroupOutline, thickness = 0.5.dp)
-            Box(Modifier.weight(28f).padding(horizontal = 3.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
+            if (!heading && !total) VerticalDivider(color = GroupOutline, thickness = 1.dp)
+            Box(Modifier.weight(22f).padding(horizontal = 1.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
                 if (heading) Text("Действия", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                 else if (actions != null) actions()
             }
@@ -397,8 +395,10 @@ private fun OrderActions(summary: OrderSummary, enabled: Boolean, stacked: Boole
             .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onAction(summary.order.id, step, it) })
             .semantics { contentDescription = "Заказ №${summary.order.number}: $description" },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Checkbox(checked = checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.size(18.dp))
-            Text(label, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+            Checkbox(checked = checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.size(if (stacked) 16.dp else 18.dp))
+            Text(label, Modifier.padding(start = if (stacked) 2.dp else 4.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = if (stacked) 9.5.sp else 11.sp, letterSpacing = 0.sp),
+                textAlign = TextAlign.Center)
         }
     }
     if (stacked) Column(Modifier.fillMaxWidth()) { entries.forEach { action(it, Modifier.fillMaxWidth()) } }
