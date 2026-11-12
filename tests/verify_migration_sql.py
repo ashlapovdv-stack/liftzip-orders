@@ -1,37 +1,79 @@
-"""Execute actual 2->3 migration SQL on a schema-2 fixture; compare SQLite structures with Room's schema-3 export."""
+"""Run every supported upgrade on SQLite and compare each step with Room exports."""
 from pathlib import Path
-import json, re, sqlite3
-ROOT=Path(__file__).resolve().parents[1]
-schemas=ROOT/'core/data/schemas/ru.liftzip.orders.data.database.OrdersDatabase'
-old=json.loads((schemas/'2.json').read_text())['database']
-new=json.loads((schemas/'3.json').read_text())['database']
-def create(db,schema):
- for table in schema['entities']:
-  db.execute(table['createSql'].replace('${TABLE_NAME}',table['tableName']))
-  for idx in table['indices']: db.execute(idx['createSql'].replace('${TABLE_NAME}',table['tableName']))
-actual=sqlite3.connect(':memory:');actual.execute('PRAGMA foreign_keys=ON');create(actual,old)
-actual.execute("INSERT INTO settlement_groups VALUES('group',1,'FORMING',0,1,NULL,1,1)")
-actual.execute("INSERT INTO products VALUES('product','Товар',NULL,NULL,NULL,'[]',1,1,1)")
-actual.execute("INSERT INTO orders VALUES('order',1,'2026-11-11','Денис','group',500000,'original',0,'INCOMPLETE',1,1,1)")
-actual.execute("INSERT INTO order_lines VALUES('line','order','product','Товар',NULL,'2',250000,'100','CNY','13.25',1,1,1)")
-actual.execute("INSERT INTO cost_entries VALUES('legacy-delivery','ORDER','order','DELIVERY','350','RUB','1',1,'2026-11-11','legacy',1,1,1)")
-actual.execute("CREATE UNIQUE INDEX index_settlement_groups_one_forming ON settlement_groups(state) WHERE state='FORMING'")
-source=(ROOT/'core/data/src/main/kotlin/ru/liftzip/orders/data/database/OrdersDatabase.kt').read_text()
-body=source.split('val MIGRATION_2_3')[1].split('fun create(')[0]
-for statement in re.findall(r'db.execSQL\("([^"\n]+)"\)',body):
- if '$it' in statement:
-  for column in ['deliveryWeight','deliveryTariff','deliveryRate','deliveryPlanDate']:actual.execute(statement.replace('$it',column))
- else: actual.execute(statement)
-expected=sqlite3.connect(':memory:');create(expected,new)
-for table in new['entities']:
- name=table['tableName']
- for pragma in ['table_info','foreign_key_list']:
-  assert actual.execute(f'PRAGMA {pragma}("{name}")').fetchall()==expected.execute(f'PRAGMA {pragma}("{name}")').fetchall(),(name,pragma)
- def indices(db):
-  return sorted((row[1],row[2],tuple(db.execute(f'PRAGMA index_info("{row[1]}")').fetchall())) for row in db.execute(f'PRAGMA index_list("{name}")') if row[3]!='pk')
- assert indices(actual)==indices(expected),name
-assert actual.execute('SELECT receivedPaymentMinor,comment FROM orders').fetchone()==(500000,'original')
-assert actual.execute('SELECT deliveryWeight,deliveryTariff,deliveryRate,deliveryPlanDate FROM order_lines').fetchone()==(None,None,None,None)
-assert actual.execute("SELECT amount FROM cost_entries WHERE id='legacy-delivery'").fetchone()==('350',)
-assert not actual.execute('PRAGMA foreign_key_check').fetchall()
-print('PASS: actual migration SQL matches Room schema 3; order/line/legacy costs preserved; no fabricated forecasts/payments')
+import json
+import re
+import sqlite3
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMAS = ROOT / 'core/data/schemas/ru.liftzip.orders.data.database.OrdersDatabase'
+SOURCE = (ROOT / 'core/data/src/main/kotlin/ru/liftzip/orders/data/database/OrdersDatabase.kt').read_text()
+CURRENT = int(re.search(r'const val SCHEMA_VERSION = (\d+)', SOURCE)[1])
+assert 'version = OrdersDatabase.SCHEMA_VERSION' in SOURCE, 'Room and backup must use the same version'
+
+def schema(version):
+    return json.loads((SCHEMAS / f'{version}.json').read_text())['database']
+
+def create(db, definition):
+    for table in definition['entities']:
+        db.execute(table['createSql'].replace('${TABLE_NAME}', table['tableName']))
+        for index in table['indices']:
+            db.execute(index['createSql'].replace('${TABLE_NAME}', table['tableName']))
+
+def migrate(db, start):
+    match = re.search(rf'val MIGRATION_{start}_{start + 1}\b(.*?)(?=\n        (?:val MIGRATION_|fun create\())', SOURCE, re.S)
+    assert match, f'missing migration {start}->{start + 1}'
+    body = match[1]
+    loop = re.search(r'listOf\(([^)]+)\)\.forEach', body)
+    columns = re.findall(r'"([^"]+)"', loop[1]) if loop else []
+    statements = re.findall(r'db.execSQL\("([^"\n]+)"\)', body)
+    assert statements, f'no SQL in migration {start}'
+    for statement in statements:
+        if '$it' in statement:
+            assert columns
+            for column in columns:
+                db.execute(statement.replace('$it', column))
+        else:
+            db.execute(statement)
+
+def compare(db, version):
+    expected = sqlite3.connect(':memory:')
+    definition = schema(version)
+    create(expected, definition)
+    for table in definition['entities']:
+        name = table['tableName']
+        for pragma in ('table_info', 'foreign_key_list'):
+            assert db.execute(f'PRAGMA {pragma}("{name}")').fetchall() == expected.execute(f'PRAGMA {pragma}("{name}")').fetchall(), (version, name, pragma)
+        def indices(conn):
+            return sorted((row[1], row[2], tuple(conn.execute(f'PRAGMA index_info("{row[1]}")'))) for row in conn.execute(f'PRAGMA index_list("{name}")') if row[3] != 'pk' and not (version < CURRENT and row[1] == 'index_settlement_groups_one_forming'))
+        assert indices(db) == indices(expected), (version, name, 'indices')
+    assert not db.execute('PRAGMA foreign_key_check').fetchall()
+    expected.close()
+
+for start in range(1, CURRENT):
+    db = sqlite3.connect(':memory:')
+    db.execute('PRAGMA foreign_keys=ON')
+    create(db, schema(start))
+    db.execute("INSERT INTO settlement_groups VALUES('group',1,'CALCULATING',0,1,1,1,1)")
+    db.execute("INSERT INTO products VALUES('product','Товар',NULL,NULL,NULL,'[]',1,1,1)")
+    db.execute("INSERT INTO orders(id,number,date,counterparty,groupId,receivedPaymentMinor,comment,costsConfirmed,calculationState,createdAt,updatedAt,revision) VALUES('order',1,'2026-11-11','Тест','group',500000,'original',0,'INCOMPLETE',1,1,1)")
+    db.execute("INSERT INTO order_lines(id,orderId,productId,productNameSnapshot,articleSnapshot,quantity,saleUnitPriceMinor,purchaseUnitPrice,purchaseCurrency,purchaseRate,createdAt,updatedAt,revision) VALUES('line','order','product','Товар',NULL,'2',250000,'100','CNY','13.25',1,1,1)")
+    db.execute("INSERT INTO cost_entries VALUES('legacy-delivery','ORDER','order','DELIVERY','350','RUB','1',1,'2026-11-11','legacy',1,1,1)")
+    if start >= 2:
+        db.execute("CREATE UNIQUE INDEX index_settlement_groups_one_forming ON settlement_groups(state) WHERE state='FORMING'")
+    if start >= 3:
+        db.execute("UPDATE order_lines SET deliveryWeight='2',deliveryTariff='25',deliveryRate='13.25',deliveryPlanDate='2026-11-11'")
+    if start >= 4:
+        db.execute('UPDATE orders SET manualDeliveryPriceMinor=0')
+    if start >= 5:
+        db.execute("UPDATE orders SET orderRate='13.25'")
+    for version in range(start, CURRENT):
+        migrate(db, version)
+        compare(db, version + 1)
+    assert db.execute('SELECT receivedPaymentMinor,comment FROM orders').fetchone() == (500000, 'original')
+    assert db.execute('SELECT withdrawn,transferred,received FROM orders').fetchone() == (0, 0, 0)
+    assert db.execute('SELECT orderRate FROM orders').fetchone() == (('13.25' if start >= 3 else None),)
+    assert db.execute('SELECT manualDeliveryPriceMinor FROM orders').fetchone() == ((0 if start >= 4 else None),)
+    assert db.execute("SELECT amount FROM cost_entries WHERE id='legacy-delivery'").fetchone() == ('350',)
+    assert db.execute('SELECT count(*) FROM delivery_payments').fetchone() == (0,)
+    db.close()
+    print(f'PASS: {start}->{CURRENT}; schemas, amounts, rates, null/zero, legacy costs and empty action marks preserved')

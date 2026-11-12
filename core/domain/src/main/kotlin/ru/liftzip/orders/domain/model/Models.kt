@@ -7,7 +7,22 @@ import java.time.LocalDate
 import java.util.UUID
 
 enum class Currency { RUB, CNY }
-enum class GroupState { FORMING, CALCULATING }
+enum class GroupState { FORMING, CALCULATING, COMPLETED }
+enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
+
+data class OrderFulfillment(
+    val withdrawn: Boolean = false,
+    val transferred: Boolean = false,
+    val received: Boolean = false,
+) {
+    val isComplete: Boolean get() = withdrawn && transferred && received
+
+    fun withAction(action: OrderAction, checked: Boolean): OrderFulfillment = when (action) {
+        OrderAction.WITHDRAWN -> copy(withdrawn = checked)
+        OrderAction.TRANSFERRED -> copy(transferred = checked)
+        OrderAction.RECEIVED -> copy(received = checked)
+    }
+}
 enum class CalculationState { INCOMPLETE, PRELIMINARY }
 enum class CostOwnerType { LINE, ORDER, GROUP }
 enum class CostKind { PURCHASE, DELIVERY, COMMISSION, OTHER }
@@ -73,6 +88,7 @@ data class Order(
     val revision: Long,
     val manualDeliveryPrice: Money? = null,
     val orderRate: BigDecimal? = null,
+    val fulfillment: OrderFulfillment = OrderFulfillment(),
 )
 
 data class OrderLine(

@@ -194,6 +194,16 @@ class BackupManager(
             }
             payload.products.forEach { it.toDomain() }
             payload.groups.forEach { it.toDomain() }
+            payload.groups.forEach { group ->
+                val groupOrders = payload.orders.filter { it.groupId == group.id }
+                val allDone = groupOrders.isNotEmpty() && groupOrders.all { it.withdrawn && it.transferred && it.received }
+                if ((group.state == GroupState.COMPLETED.name) != (group.state != GroupState.FORMING.name && allDone)) {
+                    throw BackupException("Статус группы не соответствует отметкам заказов")
+                }
+                if (group.state == GroupState.FORMING.name && groupOrders.any { it.withdrawn || it.transferred || it.received }) {
+                    throw BackupException("Отметки выполнения в формируемой группе")
+                }
+            }
             payload.orders.forEach { order ->
                 if (order.groupId !in groups) throw BackupException("Заказ ссылается на отсутствующую группу")
                 if (order.receivedPaymentMinor < 0) throw BackupException("Отрицательная оплата в заказе ${order.number}")
@@ -220,12 +230,6 @@ class BackupManager(
                     }
                 }
                 val domainLines = orderLines.map { it.toDomain() }
-                val sales = domainLines.fold(ru.liftzip.orders.domain.model.Money.ZERO) { sum, line ->
-                    sum + OrderCalculator.lineSale(line)
-                }
-                if (sales.minorUnits != order.receivedPaymentMinor) {
-                    throw BackupException("Оплата заказа ${order.number} не равна сумме продажи")
-                }
                 val orderCosts = payload.costs.filter {
                     (it.ownerType == CostOwnerType.ORDER.name && it.ownerId == order.id) ||
                         (it.ownerType == CostOwnerType.LINE.name && orderLines.any { line -> line.id == it.ownerId })

@@ -24,7 +24,10 @@ object OrderValidator {
             }
             if (line.saleUnitPrice.stripTrailingZeros().scale() > 2) fail("Позиция ${index + 1}: цена продажи задаётся с точностью до копеек")
             Money.fromRubles(line.saleUnitPrice)
-            ru.liftzip.orders.domain.delivery.DeliveryCalculator.validatePlan(line.deliveryWeight, line.deliveryTariff, command.orderRate, line.deliveryPlanDate)
+            val hasForecast = line.deliveryWeight != null || line.deliveryTariff != null || line.deliveryPlanDate != null
+            ru.liftzip.orders.domain.delivery.DeliveryCalculator.validatePlan(
+                line.deliveryWeight, line.deliveryTariff, if (hasForecast) command.orderRate else null, line.deliveryPlanDate,
+            )
             validatePurchase(
                 index = index,
                 price = line.purchaseUnitPrice,
@@ -39,7 +42,6 @@ object OrderValidator {
             if (it < BigDecimal.ZERO) fail("Цена доставки не может быть отрицательной")
             Money.fromRubles(it)
         }
-        command.orderRate?.let { if (it <= BigDecimal.ZERO) fail("Курс заказа должен быть положительным") }
         if (command.lines.any { it.deliveryWeight != null || it.deliveryTariff != null } && command.orderRate == null) {
             fail("Для расчёта доставки укажите курс заказа")
         }

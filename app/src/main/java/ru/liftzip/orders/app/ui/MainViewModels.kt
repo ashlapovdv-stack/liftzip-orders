@@ -73,6 +73,18 @@ class GroupDetailViewModel(
     val message = _message.asStateFlow()
     private var finishCommandId = UUID.randomUUID()
 
+    fun setAction(orderId: UUID, action: ru.liftzip.orders.domain.model.OrderAction, checked: Boolean) {
+        if (_busy.value) return
+        _busy.value = true
+        viewModelScope.launch {
+            try {
+                repository.setOrderAction(orderId, action, checked)
+            } catch (error: Exception) {
+                _message.value = error.message ?: "Не удалось сохранить отметку"
+            } finally { _busy.value = false }
+        }
+    }
+
     fun finish(groupId: UUID, onFinished: () -> Unit) {
         if (_busy.value) return
         _busy.value = true

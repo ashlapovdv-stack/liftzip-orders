@@ -12,6 +12,37 @@ import java.util.UUID
 
 class OrderValidatorTest {
     @Test
+    fun `reference order rate does not require a delivery forecast`() {
+        OrderValidator.validate(command("100", "100").copy(orderRate = BigDecimal("13.25")))
+    }
+
+    @Test
+    fun `order rate also allows a line without forecast beside a planned line`() {
+        val planned = line("50").copy(
+            deliveryWeight = BigDecimal("2"), deliveryTariff = BigDecimal("25"),
+            deliveryPlanDate = LocalDate.parse("2026-11-11"),
+        )
+        OrderValidator.validate(command("100", "100").copy(
+            orderRate = BigDecimal("13.25"), lines = listOf(planned, line("50")),
+        ))
+    }
+
+    @Test
+    fun `forecast still requires its date and order rate`() {
+        val planned = line("100").copy(deliveryWeight = BigDecimal("2"))
+        assertThrows(IllegalArgumentException::class.java) {
+            OrderValidator.validate(command("100", "100").copy(
+                orderRate = BigDecimal("13.25"), lines = listOf(planned),
+            ))
+        }
+        assertThrows(DomainValidationException::class.java) {
+            OrderValidator.validate(command("100", "100").copy(
+                lines = listOf(planned.copy(deliveryPlanDate = LocalDate.parse("2026-11-11"))),
+            ))
+        }
+    }
+
+    @Test
     fun `partial payment is allowed and stays independent of sale`() {
         val command = command(payment = "99.99", sale = "100")
         OrderValidator.validate(command)

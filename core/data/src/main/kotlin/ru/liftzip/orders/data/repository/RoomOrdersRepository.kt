@@ -195,6 +195,40 @@ class RoomOrdersRepository(
         }
     }.flowOn(Dispatchers.IO)
 
+    override suspend fun setOrderAction(
+        orderId: UUID,
+        action: ru.liftzip.orders.domain.model.OrderAction,
+        checked: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val old = dao.getOrder(orderId.toString()) ?: throw DomainValidationException("Заказ не найден")
+            val group = dao.getGroup(old.groupId) ?: throw DomainValidationException("Группа не найдена")
+            if (group.state == GroupState.FORMING.name) {
+                throw DomainValidationException("Сначала завершите формирование группы")
+            }
+            val progress = old.toDomain().fulfillment.withAction(action, checked)
+            if (progress == old.toDomain().fulfillment) return@withTransaction
+            val now = Instant.now()
+            val updated = old.copy(
+                withdrawn = progress.withdrawn, transferred = progress.transferred, received = progress.received,
+                updatedAt = now.epoch(), revision = old.revision + 1,
+            )
+            dao.updateOrder(updated)
+            val orders = dao.getGroupOrders(group.id)
+            val state = if (orders.isNotEmpty() && orders.all { it.toDomain().fulfillment.isComplete })
+                GroupState.COMPLETED else GroupState.CALCULATING
+            if (state.name != group.state) dao.updateGroup(group.copy(
+                state = state.name, updatedAt = now.epoch(), revision = group.revision + 1,
+            ))
+            dao.insertChangeEvent(ChangeEventEntity(
+                id = UUID.randomUUID().toString(), entityType = "ORDER", entityId = old.id,
+                changeType = "FULFILLMENT_${action.name}", eventAt = now.epoch(), localUser = "local",
+                beforeJson = Json.encodeToString(OrderEntity.serializer(), old),
+                afterJson = Json.encodeToString(OrderEntity.serializer(), updated),
+            ))
+        }
+    }
+
     override suspend fun saveOrder(command: SaveOrderCommand): UUID = withContext(Dispatchers.IO) {
         database.withTransaction {
             dao.getOrderCommand(command.commandId.toString())?.let { return@withTransaction it.orderId.uuid() }
@@ -222,6 +256,9 @@ class RoomOrdersRepository(
                 revision = (existing?.revision ?: 0) + 1,
                 manualDeliveryPriceMinor = command.manualDeliveryPrice?.let { Money.fromRubles(it).minorUnits },
                 orderRate = command.orderRate?.canonical(),
+                withdrawn = existing?.withdrawn ?: false,
+                transferred = existing?.transferred ?: false,
+                received = existing?.received ?: false,
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)
 
@@ -240,7 +277,9 @@ class RoomOrdersRepository(
                     createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
                     revision = (old?.revision ?: 0) + 1,
                     deliveryWeight = draft.deliveryWeight?.canonical(), deliveryTariff = draft.deliveryTariff?.canonical(),
-                    deliveryRate = command.orderRate?.canonical(), deliveryPlanDate = draft.deliveryPlanDate?.toString(),
+                    deliveryRate = if (draft.deliveryWeight != null || draft.deliveryTariff != null || draft.deliveryPlanDate != null)
+                        command.orderRate?.canonical() else null,
+                    deliveryPlanDate = draft.deliveryPlanDate?.toString(),
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.

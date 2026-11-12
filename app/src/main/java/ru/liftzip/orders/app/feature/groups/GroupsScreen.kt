@@ -24,6 +24,7 @@ import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.GroupsViewModel
 import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.format
+import ru.liftzip.orders.app.ui.label
 import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.GroupSummary
 import ru.liftzip.orders.domain.repository.OrdersRepository
@@ -49,11 +50,10 @@ private fun GroupCard(summary: GroupSummary, onClick: () -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Группа №${summary.group.number}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                StatusBadge(if (summary.group.state == GroupState.FORMING) "Формируется" else "На расчёте")
+                StatusBadge(summary.group.state.label())
             }
             Text("Заказов: ${summary.orderCount} · Неполных расчётов: ${summary.incompleteCount}")
             Text("Продажи: ${summary.sales.format()}")
-            Text("Получено: ${summary.receivedPayment.format()}")
             Text("Известные расходы: ${summary.knownCosts.format()}")
             Text("Предварительная прибыль: ${summary.preliminaryProfit.format()}", fontWeight = FontWeight.SemiBold)
             if (!summary.isComplete) Text("Расчёт неполный; итог не является окончательной прибылью", color = MaterialTheme.colorScheme.error)

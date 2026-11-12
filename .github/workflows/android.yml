@@ -67,7 +67,41 @@ jobs:
         run: ./gradlew :app:lintDebug --no-daemon
 
       - name: Build APK and Android test APK
-        run: ./gradlew :app:assembleDebug :core:data:assembleDebugAndroidTest --no-daemon
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :core:data:assembleDebugAndroidTest --no-daemon
+
+      - name: Verify migration SQL
+        run: python3 tests/verify_migration_sql.py
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run database and group screen tests on Android
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          disable-animations: true
+          script: |
+            ./gradlew :core:data:connectedDebugAndroidTest :app:connectedDebugAndroidTest --no-daemon
+            mkdir -p artifacts
+            adb exec-out run-as ru.liftzip.orders cat files/group-table.png > artifacts/group-table.png
+            adb exec-out run-as ru.liftzip.orders cat files/group-completed.png > artifacts/group-completed.png
+            adb exec-out run-as ru.liftzip.orders cat files/group-large-font.png > artifacts/group-large-font.png
+
+      - name: Upload verification reports and group screen previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: Orders-verification-${{ github.run_number }}
+          path: |
+            artifacts/*.png
+            **/build/reports/androidTests/**
+            **/build/test-results/**
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Verify installable APK signing certificate
         if: github.event_name != 'pull_request'

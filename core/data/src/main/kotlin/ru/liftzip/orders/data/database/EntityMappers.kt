@@ -49,6 +49,7 @@ fun OrderEntity.toDomain(): Order = Order(
     createdAt = createdAt.instant(), updatedAt = updatedAt.instant(), revision = revision,
     manualDeliveryPrice = manualDeliveryPriceMinor?.let(::Money),
     orderRate = orderRate?.decimal(),
+    fulfillment = ru.liftzip.orders.domain.model.OrderFulfillment(withdrawn, transferred, received),
 )
 
 fun OrderLineEntity.toDomain(): OrderLine = OrderLine(

@@ -1,22 +1,23 @@
 package ru.liftzip.orders.app.feature.groups
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,9 +42,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -54,6 +57,7 @@ import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.GroupDetailViewModel
 import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.format
+import ru.liftzip.orders.app.ui.label
 import ru.liftzip.orders.app.ui.formatAmount
 import ru.liftzip.orders.app.ui.parseDecimal
 import ru.liftzip.orders.domain.model.CostDraft
@@ -61,6 +65,8 @@ import ru.liftzip.orders.domain.model.CostKind
 import ru.liftzip.orders.domain.model.Currency
 import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.GroupDetails
+import ru.liftzip.orders.domain.model.OrderAction
+import ru.liftzip.orders.domain.model.OrderSummary
 import ru.liftzip.orders.domain.model.SaveGroupCostsCommand
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.math.BigDecimal
@@ -94,13 +100,14 @@ fun GroupDetailScreen(
     var confirmFinish by remember { mutableStateOf(false) }
     var costs by rememberSaveable(stateSaver = costDraftsSaver) { mutableStateOf<List<EditorCostDraft>>(emptyList()) }
     var confirmed by rememberSaveable { mutableStateOf(false) }
+    var costsDirty by rememberSaveable { mutableStateOf(false) }
     var loadedRevision by rememberSaveable { mutableStateOf<Long?>(null) }
     var localMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(details?.summary?.group?.revision) {
         details?.let { current ->
-            if (loadedRevision == current.summary.group.revision) return@let
+            if (loadedRevision == current.summary.group.revision || costsDirty) return@let
             loadedRevision = current.summary.group.revision
             costs = current.costs.map {
                 EditorCostDraft(
@@ -130,14 +137,14 @@ fun GroupDetailScreen(
                 item { Text("Загрузка…") }
             } else {
                 item {
-                    StatusBadge(if (current.summary.group.state == GroupState.FORMING) "Формируется" else "На расчёте")
-                    Text("Заказов: ${current.summary.orderCount}")
-                    GroupOrdersTable(current, onOpenOrder)
-                    Text("Полученная оплата: ${current.summary.receivedPayment.format()}")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        StatusBadge(current.summary.group.state.label())
+                        Text("${current.orders.count { it.order.fulfillment.isComplete }} / ${current.summary.orderCount} выполнено", style = MaterialTheme.typography.bodySmall)
+                    }
+                    GroupOrdersTable(current, busy, onOpenOrder, model::setAction)
                     if (!current.summary.isComplete) {
                         Text("Расчёт неполный; неизвестные затраты не заменены нулём", color = MaterialTheme.colorScheme.error)
                     }
-                    Text("Статус «На расчёте» не означает утверждение расчёта или подтверждение выкупа")
                 }
                 if (current.summary.group.state == GroupState.FORMING) {
                     item {
@@ -151,14 +158,14 @@ fun GroupDetailScreen(
                 item {
                     CostsEditor(
                         title = "Расходы группы", costs = costs, errors = emptyMap(), errorPrefix = "group_cost",
-                        onAdd = { costs = costs + EditorCostDraft() },
-                        onChange = { index, transform -> costs = costs.mapIndexed { i, cost -> if (i == index) transform(cost) else cost } },
-                        onRemove = { index -> costs = costs.filterIndexed { i, _ -> i != index } },
+                        onAdd = { costsDirty = true; costs = costs + EditorCostDraft() },
+                        onChange = { index, transform -> costsDirty = true; costs = costs.mapIndexed { i, cost -> if (i == index) transform(cost) else cost } },
+                        onRemove = { index -> costsDirty = true; costs = costs.filterIndexed { i, _ -> i != index } },
                     )
                 }
                 item {
-                    Row(Modifier.fillMaxWidth().clickable { confirmed = !confirmed }) {
-                        Checkbox(checked = confirmed, onCheckedChange = { confirmed = it })
+                    Row(Modifier.fillMaxWidth().clickable { costsDirty = true; confirmed = !confirmed }) {
+                        Checkbox(checked = confirmed, onCheckedChange = { costsDirty = true; confirmed = it })
                         Text("Все групповые затраты указаны, включая нулевые", Modifier.align(Alignment.CenterVertically))
                     }
                     OutlinedButton(
@@ -179,6 +186,7 @@ fun GroupDetailScreen(
                             scope.launch {
                                 try {
                                     repository.saveGroupCosts(SaveGroupCostsCommand(groupId, confirmed, parsed))
+                                    costsDirty = false
                                     localMessage = "Расходы группы сохранены"
                                 } catch (error: Exception) { localMessage = error.message }
                             }
@@ -214,61 +222,93 @@ fun GroupDetailScreen(
 }
 
 @Composable
-private fun GroupOrdersTable(details: GroupDetails, onOpenOrder: (UUID) -> Unit) {
-    Text("Суммы в ₽", style = MaterialTheme.typography.bodySmall)
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val tableWidth = maxOf(maxWidth, 360.dp)
-        Column(Modifier.horizontalScroll(rememberScrollState())) {
-            Column(Modifier.width(tableWidth)) {
-                GroupOrdersTableRow("Заказ", "Д", "К", "∆", emphasized = true)
-                HorizontalDivider()
+private fun GroupOrdersTable(
+    details: GroupDetails,
+    busy: Boolean,
+    onOpenOrder: (UUID) -> Unit,
+    onAction: (UUID, OrderAction, Boolean) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Суммы в ₽ · Д — доход · К — расход · ∆ — прибыль",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+            Column {
+                AmountsRow("Д", "К", "∆", emphasized = true,
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant))
                 details.orders.forEach { summary ->
-                    val calculation = summary.calculation
-                    GroupOrdersTableRow(
-                        name = summary.order.counterparty.ifBlank { "Заказ №${summary.order.number}" },
-                        income = summary.sales.formatAmount(),
-                        costs = calculation.knownCost.formatAmount(),
-                        profit = if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.formatAmount() else "—",
-                        modifier = Modifier.clickable { onOpenOrder(summary.order.id) },
-                    )
-                    HorizontalDivider()
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onOpenOrder(summary.order.id) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Заказ №${summary.order.number}", fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium)
+                                if (summary.order.counterparty.isNotBlank()) Text(summary.order.counterparty,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            Text("Открыть ›", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                        AmountsRow(
+                            summary.sales.formatAmount(), summary.calculation.knownCost.formatAmount(),
+                            if (summary.calculation.isComplete) summary.calculation.preliminaryProfitWithoutGroupCosts.formatAmount() else "—",
+                        )
+                        OrderActions(summary, enabled = !busy && details.summary.group.state != GroupState.FORMING, onAction)
+                    }
                 }
-                if (details.orders.isEmpty()) {
-                    Text("В группе пока нет заказов", Modifier.padding(vertical = 12.dp))
+                if (details.orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(Modifier.background(MaterialTheme.colorScheme.secondaryContainer)) {
+                    Text("Итого", Modifier.padding(start = 12.dp, top = 10.dp),
+                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    AmountsRow(details.summary.sales.formatAmount(), details.summary.knownCosts.formatAmount(),
+                        if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—", emphasized = true)
                 }
-                GroupOrdersTableRow(
-                    name = "Итого",
-                    income = details.summary.sales.formatAmount(),
-                    costs = details.summary.knownCosts.formatAmount(),
-                    profit = if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—",
-                    emphasized = true,
-                )
             }
         }
     }
 }
 
 @Composable
-private fun GroupOrdersTableRow(
-    name: String,
-    income: String,
-    costs: String,
-    profit: String,
-    modifier: Modifier = Modifier,
-    emphasized: Boolean = false,
-) {
-    val weight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal
-    Row(modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(name, Modifier.weight(1.6f).padding(end = 8.dp), style = MaterialTheme.typography.bodySmall, fontWeight = weight)
-        listOf("Доход" to income, "Известные расходы" to costs, "Предварительная прибыль" to profit).forEach { (label, value) ->
-            Text(
-                value,
-                Modifier.weight(1f).padding(horizontal = 4.dp).semantics { contentDescription = "$label: $value" },
+private fun AmountsRow(income: String, costs: String, profit: String, emphasized: Boolean = false, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf("Доход" to income, "Расход" to costs, "Прибыль" to profit).forEach { (label, value) ->
+            Text(value, Modifier.weight(1f).padding(horizontal = 4.dp).semantics { contentDescription = "$label: $value" },
                 style = MaterialTheme.typography.bodySmall,
-                fontWeight = weight,
-                textAlign = TextAlign.End,
-                softWrap = false,
-            )
+                fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Medium,
+                textAlign = TextAlign.End)
+        }
+    }
+}
+
+@Composable
+private fun OrderActions(summary: OrderSummary, enabled: Boolean, onAction: (UUID, OrderAction, Boolean) -> Unit) {
+    val progress = summary.order.fulfillment
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
+        listOf(
+            Triple(OrderAction.WITHDRAWN, "Снял", progress.withdrawn),
+            Triple(OrderAction.TRANSFERRED, "Передал", progress.transferred),
+            Triple(OrderAction.RECEIVED, "Получено", progress.received),
+        ).forEach { (action, label, checked) ->
+            val description = when (action) {
+                OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
+                OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
+                OrderAction.RECEIVED -> "Товар получен"
+            }
+            Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox,
+                    onValueChange = { onAction(summary.order.id, action, it) })
+                .semantics { contentDescription = "Заказ №${summary.order.number}: $description" }
+                .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
+                Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 2.dp))
+            }
         }
     }
 }

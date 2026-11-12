@@ -13,8 +13,8 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
-            ?.toIntOrNull()?.coerceAtLeast(3) ?: 3
-        versionName = "0.3"
+            ?.toIntOrNull()?.coerceAtLeast(4) ?: 4
+        versionName = "0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -73,6 +73,8 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(platform(libs.compose.bom))
-    androidTestImplementation(libs.compose.ui.test.manifest)
+    debugImplementation(libs.compose.ui.test.manifest)
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.room.runtime)
     debugImplementation(libs.compose.ui.tooling)
 }

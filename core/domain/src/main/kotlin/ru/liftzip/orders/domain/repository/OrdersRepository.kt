@@ -27,6 +27,7 @@ interface OrdersRepository {
     fun observeProducts(query: String, limit: Int = 100): Flow<List<Product>>
     fun observeProductHistory(productId: UUID): Flow<ProductPriceHistory?>
     suspend fun saveOrder(command: SaveOrderCommand): UUID
+    suspend fun setOrderAction(orderId: UUID, action: ru.liftzip.orders.domain.model.OrderAction, checked: Boolean)
     suspend fun saveGroupCosts(command: SaveGroupCostsCommand)
     suspend fun finishGroup(command: FinishGroupCommand): FinishGroupResult
 }

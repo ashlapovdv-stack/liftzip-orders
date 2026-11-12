@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupCommandEntity::class,
         AppMetadataEntity::class, DeliveryInvoiceEntity::class, DeliveryPaymentEntity::class,
     ],
-    version = 5,
+    version = OrdersDatabase.SCHEMA_VERSION,
     exportSchema = true,
 )
 abstract class OrdersDatabase : RoomDatabase() {
@@ -29,7 +29,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 4
+        const val SCHEMA_VERSION = 6
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -65,6 +65,16 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // This integrity index belongs to onOpen, outside Room's declared schema.
+                db.execSQL("DROP INDEX IF EXISTS index_settlement_groups_one_forming")
+                listOf("withdrawn", "transferred", "received").forEach {
+                    db.execSQL("ALTER TABLE orders ADD COLUMN `$it` INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
         fun create(context: Context): OrdersDatabase {
             preserveBeforeMigration(context)
             return Room.databaseBuilder(
@@ -72,7 +82,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             DATABASE_NAME,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .addCallback(IntegrityCallback)
             .build()
         }

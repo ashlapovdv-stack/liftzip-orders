@@ -59,6 +59,7 @@ import ru.liftzip.orders.app.ui.PriceSearchViewModel
 import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.format
+import ru.liftzip.orders.app.ui.label
 import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.app.ui.formatDateTime
 import ru.liftzip.orders.domain.model.Currency
@@ -133,7 +134,7 @@ fun OrderEditorScreen(
                 ) { Text("Дата заказа: ${state.date.formatDate()}") }
                 AppTextField(state.orderRate, { value -> model.update { it.copy(orderRate = value) } }, "Курс, ₽/¥", error = state.errors["orderRate"], decimal = true)
                 state.groupNumber?.let {
-                    Text("Группа №$it · ${if (state.groupState == GroupState.FORMING) "Формируется" else "На расчёте"}")
+                    Text("Группа №$it · ${state.groupState.label()}")
                 } ?: Text("При сохранении заказ попадёт в текущую формируемую группу")
             }
             item { SectionTitle("Товары · ${state.lines.size}") }

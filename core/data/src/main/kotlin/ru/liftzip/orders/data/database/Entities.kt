@@ -63,6 +63,9 @@ data class OrderEntity(
     val revision: Long,
     val manualDeliveryPriceMinor: Long? = null,
     val orderRate: String? = null,
+    @ColumnInfo(defaultValue = "0") val withdrawn: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val transferred: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val received: Boolean = false,
 )
 
 @Serializable

@@ -34,6 +34,7 @@ import ru.liftzip.orders.app.ui.OrdersViewModel
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.format
+import ru.liftzip.orders.app.ui.label
 import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.domain.model.OrderSummary
 import ru.liftzip.orders.domain.model.OrdersFilter
@@ -103,7 +104,7 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit) {
             }
             Text("Продажа: ${summary.sales.format()} · Оплата: ${summary.order.receivedPayment.format()}")
             Text(
-                "Группа №${summary.groupNumber} · ${if (summary.groupState.name == "FORMING") "Формируется" else "На расчёте"}",
+                "Группа №${summary.groupNumber} · ${summary.groupState.label()}",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

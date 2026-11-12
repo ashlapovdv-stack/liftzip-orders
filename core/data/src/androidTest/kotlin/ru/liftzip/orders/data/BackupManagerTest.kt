@@ -76,6 +76,23 @@ class BackupManagerTest {
         assertEquals(orderId, repository.observeOrders("", OrdersFilter.ALL, 50).first().single().order.id)
     }
 
+    @Test fun exportUsesActualSchemaAndRestoresRateAndFulfillment() = runTest {
+        val id = repository.saveOrder(orderCommand("Готовый").copy(orderRate = BigDecimal("13.25"), receivedPayment = BigDecimal.ZERO))
+        val group = repository.observeOrder(id).first()!!.group
+        repository.finishGroup(ru.liftzip.orders.domain.model.FinishGroupCommand(UUID.randomUUID(), group.id))
+        ru.liftzip.orders.domain.model.OrderAction.entries.forEach { repository.setOrderAction(id, it, true) }
+        val file = File(context.cacheDir, "fulfillment-roundtrip.zip")
+        val inspection = manager.exportTo(Uri.fromFile(file))
+        assertEquals(database.openHelper.readableDatabase.version, inspection.schemaVersion)
+        repository.setOrderAction(id, ru.liftzip.orders.domain.model.OrderAction.WITHDRAWN, false)
+        manager.importFrom(Uri.fromFile(file))
+        val restored = repository.observeOrder(id).first()!!
+        assertTrue(restored.order.fulfillment.isComplete)
+        assertEquals(ru.liftzip.orders.domain.model.GroupState.COMPLETED, restored.group.state)
+        assertEquals(0, restored.order.orderRate!!.compareTo(BigDecimal("13.25")))
+        assertEquals(0L, restored.order.receivedPayment.minorUnits)
+    }
+
     @Test fun deliveryRoundtripPreservesLedgerAndDoesNotTouchGoods() = runTest {
         val id=repository.saveOrder(orderCommand("Доставка"))
         val day=LocalDate.parse("2026-11-11")

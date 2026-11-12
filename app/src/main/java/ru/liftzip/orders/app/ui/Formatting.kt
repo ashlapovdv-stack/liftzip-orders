@@ -22,3 +22,9 @@ fun BigDecimal.formatDecimal(): String = stripTrailingZeros().toPlainString()
 fun LocalDate.formatDate(): String = format(dateFormatter)
 fun Instant.formatDateTime(): String = atZone(ZoneId.systemDefault()).format(dateTimeFormatter)
 fun String.parseDecimal(): BigDecimal? = trim().replace(',', '.').toBigDecimalOrNull()
+
+fun ru.liftzip.orders.domain.model.GroupState.label(): String = when (this) {
+    ru.liftzip.orders.domain.model.GroupState.FORMING -> "Формируется"
+    ru.liftzip.orders.domain.model.GroupState.CALCULATING -> "На расчёте"
+    ru.liftzip.orders.domain.model.GroupState.COMPLETED -> "Выполнена"
+}
