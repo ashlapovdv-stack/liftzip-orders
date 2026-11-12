@@ -95,6 +95,7 @@ class GroupDetailScreenTest {
                 title.substring(text.getLineStart(it), text.getLineEnd(it)).contains(word)
             })
         }
+        assertFiveColumnActions()
         capture("group-table.png")
         orderIds.forEachIndexed { index, id ->
             for ((action, description) in listOf(
@@ -135,6 +136,7 @@ class GroupDetailScreenTest {
 
     @Test fun largerFontKeepsTableAndActionsWithinScreen() {
         showScreen(1.3f, 320f)
+        assertFiveColumnActions()
         assertLongTitleAndValuesFit()
         capture("group-large-font.png")
     }
@@ -142,8 +144,33 @@ class GroupDetailScreenTest {
     @Test fun phoneWidthKeepsFiveColumnsAndFullLongTitle() {
         showScreen(1.3f, 393f)
         compose.onNodeWithText("Действия").assertIsDisplayed()
+        assertFiveColumnActions()
         assertLongTitleAndValuesFit()
         capture("group-inline-large-font.png")
+    }
+
+    private fun assertFiveColumnActions() {
+        compose.onNodeWithText("Действия").assertIsDisplayed()
+        val root = compose.onNodeWithTag("group-screen").fetchSemanticsNode().boundsInRoot
+        val profit = compose.onNodeWithContentDescription("Прибыль: 120\u00a0000").fetchSemanticsNode().boundsInRoot
+        val squares = OrderAction.entries.map { action ->
+            val tag = "order-1-$action"
+            val square = compose.onNodeWithTag("$tag-square", useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val caption = compose.onNodeWithTag("$tag-caption", useUnmergedTree = true).assertIsDisplayed()
+            val bounds = caption.fetchSemanticsNode().boundsInRoot
+            org.junit.Assert.assertTrue(bounds.top >= square.bottom)
+            org.junit.Assert.assertTrue(bounds.right <= root.right && bounds.left >= profit.right)
+            val layout = mutableListOf<TextLayoutResult>()
+            caption.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+            assertEquals(1, layout.single().lineCount)
+            org.junit.Assert.assertFalse(layout.single().hasVisualOverflow)
+            org.junit.Assert.assertTrue(square.left >= profit.right)
+            square
+        }
+        squares.zipWithNext().forEach { (left, right) ->
+            org.junit.Assert.assertTrue(left.right < right.left)
+            org.junit.Assert.assertEquals(left.top, right.top, 1f)
+        }
     }
 
     private fun assertLongTitleAndValuesFit() {
@@ -162,6 +189,7 @@ class GroupDetailScreenTest {
             val values = mutableListOf<TextLayoutResult>()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(values) }
             assertEquals(1, values.single().lineCount)
+            org.junit.Assert.assertFalse(values.single().hasVisualOverflow)
         }
     }
 

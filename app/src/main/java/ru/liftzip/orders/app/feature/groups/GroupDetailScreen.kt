@@ -1,6 +1,7 @@
 package ru.liftzip.orders.app.feature.groups
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -31,7 +33,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,12 +55,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -307,101 +313,117 @@ private fun GroupOrdersTable(
     onAction: (UUID, OrderAction, Boolean) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // A separate action row on very narrow screens preserves readable money and names.
-        val inlineActions = maxWidth >= 350.dp
+        // Five columns at every phone width. Fit the text to its measured cell;
+        // never move actions outside the order's row.
+        val amountWidth = (maxWidth - 4.dp) * 0.13f - 2.dp
+        val actionWidth = (maxWidth - 4.dp) * 0.28f / 3f
+        val orders = details.orders.sortedBy { it.order.number }
+        val totals = listOf(details.summary.sales.formatAmount(), details.summary.knownCosts.formatAmount(),
+            if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—")
+        val values = orders.map { summary -> listOf(summary.sales.formatAmount(), summary.calculation.knownCost.formatAmount(),
+            if (summary.calculation.isComplete) summary.calculation.preliminaryProfitWithoutGroupCosts.formatAmount() else "—") }
+        val amountStyles = (0..2).map { index ->
+            fittedTableStyle(values.map { it[index] } + totals[index], amountWidth,
+                MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, letterSpacing = 0.sp,
+                    fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"))
+        }
+        val actionStyle = fittedTableStyle(listOf("Снял", "Передал", "Получено"), actionWidth,
+            MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp, fontWeight = FontWeight.Normal))
         Surface(color = Color.White, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, GroupOutline)) {
             Column {
-                FinancialRow("Заказ", "Д", "К", "∆", inlineActions, heading = true)
-                details.orders.sortedBy { it.order.number }.forEach { summary ->
+                FinancialRow("Заказ", "Д", "К", "∆", amountStyles, heading = true)
+                orders.forEachIndexed { index, summary ->
                     HorizontalDivider(color = GroupOutline, thickness = 1.dp)
                     FinancialRow(
                         name = summary.order.counterparty.ifBlank { "Заказ №${summary.order.number}" },
-                        income = summary.sales.formatAmount(), costs = summary.calculation.knownCost.formatAmount(),
-                        profit = if (summary.calculation.isComplete) summary.calculation.preliminaryProfitWithoutGroupCosts.formatAmount() else "—",
-                        inlineActions = inlineActions,
+                        income = values[index][0], costs = values[index][1], profit = values[index][2],
+                        amountStyles = amountStyles,
                         profitColor = if (summary.calculation.preliminaryProfitWithoutGroupCosts < Money.ZERO) MaterialTheme.colorScheme.error else Positive,
                         onOpen = { onOpenOrder(summary.order.id) },
-                        actions = { OrderActions(summary, !busy && details.summary.group.state != GroupState.FORMING, inlineActions, onAction) },
+                        actions = { OrderActions(summary, !busy && details.summary.group.state != GroupState.FORMING, actionStyle, onAction) },
                     )
-                    if (!inlineActions) OrderActions(summary, !busy && details.summary.group.state != GroupState.FORMING, false, onAction)
                 }
-                if (details.orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(12.dp))
+                if (orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(12.dp))
                 HorizontalDivider(color = GroupOutline, thickness = 1.dp)
-                FinancialRow("Итого", details.summary.sales.formatAmount(), details.summary.knownCosts.formatAmount(),
-                    if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—", inlineActions,
+                FinancialRow("Итого", totals[0], totals[1], totals[2], amountStyles,
                     total = true, profitColor = if (details.summary.preliminaryProfit < Money.ZERO) MaterialTheme.colorScheme.error else Positive)
             }
         }
     }
 }
 
+/** Use one measured font size per column, including its bold total. */
+@Composable
+private fun fittedTableStyle(values: List<String>, width: Dp, style: TextStyle): TextStyle {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    return remember(values, width, style, measurer, density) {
+        val available = with(density) { width.toPx() } - 2f
+        val measured = values.maxOf { measurer.measure(AnnotatedString(it), style, softWrap = false).size.width }.toFloat()
+        style.copy(fontSize = style.fontSize * minOf(1f, available.coerceAtLeast(1f) / measured.coerceAtLeast(1f)))
+    }
+}
+
 @Composable
 private fun FinancialRow(
-    name: String, income: String, costs: String, profit: String, inlineActions: Boolean,
+    name: String, income: String, costs: String, profit: String, amountStyles: List<TextStyle>,
     heading: Boolean = false, total: Boolean = false, profitColor: Color = Positive,
     onOpen: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null,
 ) {
-    val nameWeight = if (inlineActions) 33f else 1.6f
-    val amountWeight = if (inlineActions) 15f else 1f
-    val valueStyle = MaterialTheme.typography.bodySmall.copy(
-        fontSize = if (inlineActions && !heading) 10.5.sp else 12.sp,
-        letterSpacing = 0.sp,
-        fontFeatureSettings = "tnum",
-    )
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)
         .background(if (heading) TableHeading else if (total) TotalBackground else Color.White),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(nameWeight).fillMaxHeight()
+        Box(Modifier.weight(33f).fillMaxHeight()
             .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
             .padding(horizontal = 6.dp, vertical = if (heading || total) 12.dp else 10.dp), contentAlignment = Alignment.CenterStart) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
-                    fontWeight = if (heading || total) FontWeight.SemiBold else FontWeight.Medium)
-            }
+            Text(name, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
+                fontWeight = if (heading || total) FontWeight.SemiBold else FontWeight.Medium)
         }
         listOf("Доход" to income, "Расход" to costs, "Прибыль" to profit).forEachIndexed { index, (description, value) ->
-            if (!heading && !total) VerticalDivider(color = GroupOutline, thickness = 1.dp)
-            Box(Modifier.weight(amountWeight).padding(horizontal = 1.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
-                Text(value, style = valueStyle, fontWeight = if (heading || total || index == 2) FontWeight.SemiBold else FontWeight.Normal,
+            VerticalDivider(color = if (heading || total) Color.Transparent else GroupOutline, thickness = 1.dp)
+            Box(Modifier.weight(13f).padding(horizontal = 1.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
+                Text(value, style = if (heading) MaterialTheme.typography.labelSmall else amountStyles[index],
+                    fontWeight = if (heading || total || index == 2) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (index == 2 && !heading) profitColor else MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center, modifier = Modifier.semantics { contentDescription = "$description: $value" })
             }
         }
-        if (inlineActions) {
-            if (!heading && !total) VerticalDivider(color = GroupOutline, thickness = 1.dp)
-            Box(Modifier.weight(22f).padding(horizontal = 1.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
-                if (heading) Text("Действия", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                else if (actions != null) actions()
-            }
+        VerticalDivider(color = if (heading || total) Color.Transparent else GroupOutline, thickness = 1.dp)
+        Box(Modifier.weight(28f).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+            if (heading) Text("Действия", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+            else if (actions != null) actions()
         }
     }
 }
 
 @Composable
-private fun OrderActions(summary: OrderSummary, enabled: Boolean, stacked: Boolean, onAction: (UUID, OrderAction, Boolean) -> Unit) {
+private fun OrderActions(summary: OrderSummary, enabled: Boolean, captionStyle: TextStyle, onAction: (UUID, OrderAction, Boolean) -> Unit) {
     val progress = summary.order.fulfillment
     val entries = listOf(
         Triple(OrderAction.WITHDRAWN, "Снял", progress.withdrawn),
         Triple(OrderAction.TRANSFERRED, "Передал", progress.transferred),
         Triple(OrderAction.RECEIVED, "Получено", progress.received),
     )
-    val action: @Composable (Triple<OrderAction, String, Boolean>, Modifier) -> Unit = { (step, label, checked), modifier ->
-        val description = when (step) {
-            OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
-            OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
-            OrderAction.RECEIVED -> "Товар получен"
-        }
-        Row(modifier.heightIn(min = if (stacked) 28.dp else 44.dp)
-            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onAction(summary.order.id, step, it) })
-            .semantics { contentDescription = "Заказ №${summary.order.number}: $description" },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (stacked) Arrangement.Start else Arrangement.Center) {
-            Checkbox(checked = checked, onCheckedChange = null, enabled = enabled, modifier = Modifier.size(if (stacked) 16.dp else 18.dp))
-            Text(label, Modifier.padding(start = if (stacked) 2.dp else 4.dp),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = if (stacked) 9.5.sp else 11.sp, letterSpacing = 0.sp),
-                textAlign = TextAlign.Center)
+    Row(Modifier.fillMaxWidth()) {
+        entries.forEach { (step, label, checked) ->
+            val description = when (step) {
+                OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
+                OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
+                OrderAction.RECEIVED -> "Товар получен"
+            }
+            val tag = "order-${summary.order.number}-$step"
+            Column(Modifier.weight(1f).heightIn(min = 44.dp)
+                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onAction(summary.order.id, step, it) })
+                .semantics { contentDescription = "Заказ №${summary.order.number}: $description" },
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Box(Modifier.size(16.dp).testTag("$tag-square")
+                    .background(if (checked) Positive else Color.Transparent, RoundedCornerShape(3.dp))
+                    .border(1.dp, if (checked) Positive else Color(0xFF9AA3AD), RoundedCornerShape(3.dp)),
+                    contentAlignment = Alignment.Center) {
+                    if (checked) Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                }
+                Text(label, Modifier.padding(top = 3.dp).testTag("$tag-caption"), style = captionStyle, textAlign = TextAlign.Center)
+            }
         }
     }
-    if (stacked) Column(Modifier.fillMaxWidth()) { entries.forEach { action(it, Modifier.fillMaxWidth()) } }
-    else Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { entries.forEach { action(it, Modifier.weight(1f)) } }
 }
