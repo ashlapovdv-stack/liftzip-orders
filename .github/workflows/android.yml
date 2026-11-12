@@ -85,13 +85,7 @@ jobs:
           target: default
           arch: x86_64
           disable-animations: true
-          script: |
-            ./gradlew :core:data:connectedDebugAndroidTest :app:connectedDebugAndroidTest --no-daemon
-            mkdir -p artifacts
-            adb pull /sdcard/Download/OrdersTest/group-table.png artifacts/group-table.png
-            adb pull /sdcard/Download/OrdersTest/group-completed.png artifacts/group-completed.png
-            adb pull /sdcard/Download/OrdersTest/group-large-font.png artifacts/group-large-font.png
-            adb pull /sdcard/Download/OrdersTest/group-inline-large-font.png artifacts/group-inline-large-font.png
+          script: bash scripts/run_connected_tests.sh
 
       - name: Verify screen images
         run: |
@@ -142,6 +136,7 @@ jobs:
         with:
           name: build-reports-${{ github.run_number }}
           path: |
+            artifacts/**
             **/build/reports/**
             **/build/test-results/**
           if-no-files-found: ignore

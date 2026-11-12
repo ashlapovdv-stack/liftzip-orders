@@ -183,7 +183,13 @@ class GroupDetailScreenTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(longTitle).fetchSemanticsNodes().isNotEmpty() }
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(longTitle).fetchSemanticsNodes().isNotEmpty() }
+        } catch (error: ComposeTimeoutException) {
+            compose.onRoot().printToLog("GroupScreenTest")
+            runCatching { capture("group-timeout.png") }
+            throw error
+        }
     }
 
     private fun capture(name: String) {
