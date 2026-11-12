@@ -346,6 +346,7 @@ private fun FinancialRow(
     val amountWeight = if (inlineActions) 14.5f else 1f
     val valueStyle = MaterialTheme.typography.bodySmall.copy(
         fontSize = if (inlineActions && !heading) 10.5.sp else 12.sp,
+        letterSpacing = 0.sp,
         fontFeatureSettings = "tnum",
     )
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)
