@@ -142,11 +142,13 @@ fun GroupDetailScreen(
         }
     }
 
+    // Read the snapshot during composition, rather than only inside the lazy item builder.
+    val current = details
     Scaffold(
         containerColor = GroupBackground,
         topBar = {
             TopAppBar(
-                title = { Text("Группа №${details?.summary?.group?.number ?: "…"}", fontWeight = FontWeight.SemiBold) },
+                title = { Text("Группа №${current?.summary?.group?.number ?: "…"}", fontWeight = FontWeight.SemiBold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = GroupBackground),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
             )
@@ -157,7 +159,6 @@ fun GroupDetailScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val current = details
             if (current == null) {
                 item { Text("Загрузка…") }
             } else {
@@ -329,7 +330,7 @@ private fun GroupOrdersTable(
                     fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"))
         }
         val actionStyle = fittedTableStyle(listOf("Снял", "Передал", "Получено"), actionWidth,
-            MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp, fontWeight = FontWeight.Normal))
+            MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 0.sp, fontWeight = FontWeight.Normal))
         Surface(color = Color.White, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, GroupOutline)) {
             Column {
                 FinancialRow("Заказ", "Д", "К", "∆", amountStyles, heading = true)
@@ -361,7 +362,8 @@ private fun fittedTableStyle(values: List<String>, width: Dp, style: TextStyle):
     return remember(values, width, style, measurer, density) {
         val available = with(density) { width.toPx() } - 2f
         val measured = values.maxOf { measurer.measure(AnnotatedString(it), style, softWrap = false).size.width }.toFloat()
-        style.copy(fontSize = style.fontSize * minOf(1f, available.coerceAtLeast(1f) / measured.coerceAtLeast(1f)))
+        val scale = minOf(1f, available.coerceAtLeast(1f) / measured.coerceAtLeast(1f))
+        style.copy(fontSize = style.fontSize * scale, lineHeight = style.lineHeight * scale)
     }
 }
 
@@ -386,7 +388,7 @@ private fun FinancialRow(
                 Text(value, style = if (heading) MaterialTheme.typography.labelSmall else amountStyles[index],
                     fontWeight = if (heading || total || index == 2) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (index == 2 && !heading) profitColor else MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center, modifier = Modifier.semantics { contentDescription = "$description: $value" })
+                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "$description: $value" })
             }
         }
         VerticalDivider(color = if (heading || total) Color.Transparent else GroupOutline, thickness = 1.dp)
@@ -423,7 +425,7 @@ private fun OrderActions(summary: OrderSummary, enabled: Boolean, captionStyle: 
                     contentAlignment = Alignment.Center) {
                     if (checked) Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                 }
-                Text(label, Modifier.padding(top = 3.dp).testTag("$tag-caption"), style = captionStyle, textAlign = TextAlign.Center)
+                Text(label, Modifier.fillMaxWidth().padding(top = 3.dp).testTag("$tag-caption"), style = captionStyle, textAlign = TextAlign.Center)
             }
         }
     }
