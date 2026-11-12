@@ -301,13 +301,14 @@ private fun OrderActions(summary: OrderSummary, enabled: Boolean, onAction: (UUI
                 OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
                 OrderAction.RECEIVED -> "Товар получен"
             }
-            Row(Modifier.weight(1f).heightIn(min = 48.dp)
+            Column(Modifier.weight(1f).heightIn(min = 64.dp)
                 .toggleable(value = checked, enabled = enabled, role = Role.Checkbox,
                     onValueChange = { onAction(summary.order.id, action, it) })
                 .semantics { contentDescription = "Заказ №${summary.order.number}: $description" }
-                .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                .padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
                 Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-                Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 2.dp))
+                Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
             }
         }
     }

@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -106,6 +108,10 @@ class GroupDetailScreenTest {
             org.junit.Assert.assertTrue(node.boundsInRoot.right <= rootWidth + 1)
             org.junit.Assert.assertTrue(node.boundsInRoot.left >= 0)
         }
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Получено", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(1, layouts.single().lineCount)
         capture("group-large-font.png")
     }
 
