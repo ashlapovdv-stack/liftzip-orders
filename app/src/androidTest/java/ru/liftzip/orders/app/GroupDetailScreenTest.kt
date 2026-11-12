@@ -233,8 +233,12 @@ class GroupDetailScreenTest {
         runBlocking { repository.setOrderAction(orderId, OrderAction.WITHDRAWN, false) }
         compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("order-card-1") and hasText("Принят")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("orders-search"))
-        compose.onNodeWithTag("orders-search").performTextReplacement("электроника").performImeAction()
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-card-1").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("orders-search").performTextReplacement("электроника")
+        compose.onNodeWithTag("orders-search").performImeAction()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("order-card-3").fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodesWithTag("order-card-2").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("order-card-2").assertExists()
         compose.onNodeWithTag("order-card-3").assertDoesNotExist()
         compose.onNodeWithContentDescription("Очистить поиск").performClick()
