@@ -35,6 +35,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import ru.liftzip.orders.app.feature.orders.OrderEditorScreen
 import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
 import ru.liftzip.orders.app.ui.OrdersTheme
@@ -57,6 +58,7 @@ class GroupDetailScreenTest {
     private lateinit var groupId: UUID
     private var openedOrder: UUID? = null
     private var showGroups by mutableStateOf(false)
+    private var showOrder by mutableStateOf(false)
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -156,6 +158,12 @@ class GroupDetailScreenTest {
         capture("groups-list.png")
     }
 
+    @Test fun orderEditorUsesTheSameFulfillmentAsGroup() {
+        showOrder = true
+        showScreen(1f)
+        compose.onNodeWithContentDescription("Заказ №1: Получены деньги от Дениса").assertIsOff()
+    }
+
     @Test fun largerFontKeepsTableAndActionsWithinScreen() {
         showScreen(1.3f, 320f)
         capture("group-large-font.png")
@@ -228,7 +236,8 @@ class GroupDetailScreenTest {
                 CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
                     OrdersTheme {
                         Box(Modifier.width(width.dp).testTag("group-screen")) {
-                            if (showGroups) GroupsScreen(repository, onOpenGroup = {})
+                            if (showOrder) OrderEditorScreen(repository, orderId, onBack = {})
+                            else if (showGroups) GroupsScreen(repository, onOpenGroup = {})
                             else GroupDetailScreen(repository, groupId, onBack = {}, onOpenOrder = { openedOrder = it })
                         }
                     }
