@@ -201,6 +201,7 @@ data class GroupDetails(
 data class PriceRecordView(
     val record: PriceRecord,
     val orderNumber: Long,
+    val unitWeight: BigDecimal? = null,
 )
 
 data class ProductPriceHistory(

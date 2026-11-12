@@ -21,7 +21,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.room.Room
@@ -53,7 +54,7 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class GroupDetailScreenTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private lateinit var database: OrdersDatabase
     private lateinit var repository: RoomOrdersRepository
     private val longTitle = "Заказ 11.11 тяговая цепь, лифтмонтаж ДВ 2"
@@ -93,7 +94,11 @@ class GroupDetailScreenTest {
         repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), groupId))
     }
 
-    @After fun tearDown() { database.close() }
+    @After fun tearDown() {
+        // Cancel screen ViewModels before closing the in-memory database.
+        compose.activityRule.scenario.close()
+        database.close()
+    }
 
     @Test fun compactTableShowsAllAmountsAndActionsCompleteAndReopenGroup() {
         showScreen(1f)
@@ -367,9 +372,15 @@ class GroupDetailScreenTest {
             compose.onNodeWithTag("order-new-$action", useUnmergedTree = true).assertIsOn()
         }
         compose.onNodeWithText("Название заказа").performTextReplacement("Заказ с отметками")
+        compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("10")
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
         compose.onNodeWithText("Название товара").performTextReplacement("Товар с отметками")
-        compose.onNodeWithText("Цена для Дениса, ₽/шт (включая доставку)").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithText("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithText("Вес единицы, кг").performScrollTo().performTextReplacement("0.2")
+        compose.onNodeWithText("Тариф, ¥/кг").performTextReplacement("55")
+        compose.onNodeWithText("Денису, ₽/шт").performScrollTo()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        captureSheet("position-editor.png")
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Заказ с отметками").fetchSemanticsNodes().isNotEmpty() }
@@ -500,9 +511,12 @@ class GroupDetailScreenTest {
         }
     }
 
-    private fun capture(name: String) {
+    private fun captureSheet(name: String) = saveImage(name, compose.onNodeWithTag("position-editor").captureToImage().asAndroidBitmap())
+
+    private fun capture(name: String) = saveImage(name, compose.onNodeWithTag("group-screen").captureToImage().asAndroidBitmap())
+
+    private fun saveImage(name: String, image: android.graphics.Bitmap) {
         val context: Context = ApplicationProvider.getApplicationContext()
-        val image = compose.onNodeWithTag("group-screen").captureToImage().asAndroidBitmap()
         // AGP uninstalls the target after connected tests. Test images must outlive it.
         val output = if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {

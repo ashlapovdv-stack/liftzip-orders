@@ -60,6 +60,34 @@ class RoomOrdersRepositoryTest {
         assertEquals(BigDecimal("55"), history.latestPurchase!!.record.price)
     }
 
+    @Test fun priceHistoryUsesWeightOfItsSourceLineAndKeepsUnknownWeight() = runTest {
+        val command = orderCommand()
+        val ids = listOf("0.2", "1.35", null).map { weight ->
+            repository.saveOrder(command.copy(commandId = UUID.randomUUID(), orderRate = BigDecimal("10"),
+                lines = listOf(command.lines.single().copy(
+                    deliveryWeight = weight?.let(::BigDecimal),
+                    deliveryTariff = weight?.let { BigDecimal("55") },
+                    deliveryPlanDate = weight?.let { LocalDate.parse("2026-11-11") },
+                ))))
+        }
+        val productId = repository.observeOrder(ids.first()).first()!!.lines.single().productId
+        val history = repository.observeProductHistory(productId).first()!!
+        assertEquals(6, history.records.size)
+        listOf(BigDecimal("0.2"), BigDecimal("1.35"), null).forEachIndexed { index, expected ->
+            val records = history.records.filter { it.record.orderId == ids[index] }
+            assertEquals(2, records.size)
+            records.forEach { assertEquals(expected, it.unitWeight) }
+        }
+        val saved = repository.observeOrder(ids.first()).first()!!
+        val line = saved.lines.single()
+        repository.saveOrder(command.copy(commandId = UUID.randomUUID(), orderId = ids.first(), orderRate = BigDecimal("10"),
+            lines = listOf(command.lines.single().copy(id = line.id, productId = productId,
+                deliveryWeight = BigDecimal("0.45"), deliveryTariff = BigDecimal("55"), deliveryPlanDate = LocalDate.parse("2026-11-11")))))
+        val updated = repository.observeProductHistory(productId).first()!!
+        assertTrue(updated.records.filter { it.record.orderId == ids.first() }.all { it.unitWeight == BigDecimal("0.45") })
+        assertEquals(6, updated.records.size)
+    }
+
     @Test fun finishIsAtomicAndRepeatedCommandDoesNotCreateThirdGroup() = runTest {
         repository.saveOrder(orderCommand())
         val first = repository.observeGroups().first().single()

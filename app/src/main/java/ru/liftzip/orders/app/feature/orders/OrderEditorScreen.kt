@@ -238,82 +238,73 @@ fun OrderEditorScreen(
     }
 
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
-        ModalBottomSheet(onDismissRequest={ editingLine=null }, sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true), modifier=Modifier.imePadding()) {
-            Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal=16.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-                    Text("Позиция ${index+1}",style=MaterialTheme.typography.titleLarge)
-                    TextButton(onClick={editingLine=null}) { Text("Готово") }
+        ModalBottomSheet(
+            onDismissRequest = { editingLine = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = Color(0xFFF6F8F8),
+            modifier = Modifier.imePadding(),
+        ) {
+            val line = state.lines[index]
+            Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal = 12.dp).testTag("position-editor")) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = { editingLine = null }) { Text("Готово") }
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                val line = state.lines[index]
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SectionTitle("Позиция ${index + 1}")
-                            Box(Modifier.weight(1f))
-                            if (state.lines.isNotEmpty()) {
-                                TextButton(onClick = { deleteLineIndex = index; editingLine = null }) { Text("Удалить") }
-                            }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OrderSection {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Товар", style = MaterialTheme.typography.titleSmall)
+                            TextButton(onClick = { catalogLine = index }, enabled = !state.salesLocked) { Text("Из каталога") }
                         }
-                        OutlinedButton(
-                            onClick = { catalogLine = index }, enabled = !state.salesLocked,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Выбрать товар из каталога") }
-                        AppTextField(
-                            line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
-                            "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked,
-                        )
-                        AppTextField(
-                            line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
-                            "Артикул (необязательно)", enabled = !state.salesLocked,
-                        )
-                        AppTextField(
-                            line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
-                            "Количество", error = state.errors["line_${index}_quantity"],
-                            enabled = !state.salesLocked, decimal = true,
-                        )
-                        AppTextField(
-                            line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
-                            "Цена для Дениса, ₽/шт (включая доставку)", error = state.errors["line_${index}_sale"],
-                            enabled = !state.salesLocked, decimal = true,
-                        )
+                        AppTextField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
+                            "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
+                        AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
+                            "Артикул", enabled = !state.salesLocked)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppTextField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
+                                "Количество", Modifier.weight(0.8f), error = state.errors["line_${index}_quantity"], enabled = !state.salesLocked, decimal = true)
+                            AppTextField(line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
+                                "Денису, ₽/шт", Modifier.weight(1.2f), error = state.errors["line_${index}_sale"], enabled = !state.salesLocked, decimal = true)
+                        }
+                        Text("Цена для Дениса включает доставку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         state.errors["line_${index}_zero"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (line.salePrice.replace(',', '.').toBigDecimalOrNull()?.signum() == 0) {
-                            Row(Modifier.clickable { model.updateLine(index) { it.copy(zeroSalePriceConfirmed = !it.zeroSalePriceConfirmed) } }) {
-                                Checkbox(
-                                    checked = line.zeroSalePriceConfirmed,
-                                    onCheckedChange = { checked -> model.updateLine(index) { it.copy(zeroSalePriceConfirmed = checked) } },
-                                    enabled = !state.salesLocked,
-                                )
-                                Text("Подтверждаю нулевую цену", Modifier.align(Alignment.CenterVertically))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = line.zeroSalePriceConfirmed,
+                                    onCheckedChange = { checked -> model.updateLine(index) { it.copy(zeroSalePriceConfirmed = checked) } }, enabled = !state.salesLocked)
+                                Text("Подтверждаю нулевую цену", style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                        SectionTitle("Закупочный расчёт")
-                        AppTextField(
-                            line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
-                            "Закупочная цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"} (справочно)", error = state.errors["line_${index}_purchase"], decimal = true,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Currency.entries.forEach { currency ->
-                                FilterChip(
-                                    selected = line.purchaseCurrency == currency,
-                                    onClick = {
-                                        model.updateLine(index) {
-                                            it.copy(purchaseCurrency = currency)
-                                        }
-                                    },
-                                    label = { Text(currency.name) },
-                                )
-                            }
-                        }
-                        SectionTitle("Ориентир доставки · отдельно от товара")
-                        AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight=value,deliveryPlanDate=LocalDate.now()) } }, "Вес одной единицы, кг", decimal=true)
-                        AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff=value,deliveryPlanDate=LocalDate.now()) } }, "Тариф, CNY/кг", decimal=true)
-                        Text("Расчёт по курсу заказа.",style=MaterialTheme.typography.bodySmall)
-                        state.errors["line_${index}_delivery"]?.let { Text(it,color=MaterialTheme.colorScheme.error) }
-
                     }
-                }
+                    OrderSection {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Закупка · справочно", style = MaterialTheme.typography.titleSmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Currency.entries.forEach { currency ->
+                                    FilterChip(selected = line.purchaseCurrency == currency,
+                                        onClick = { model.updateLine(index) { it.copy(purchaseCurrency = currency) } },
+                                        label = { Text(if (currency == Currency.RUB) "₽" else "¥") })
+                                }
+                            }
+                        }
+                        AppTextField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
+                            "Цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"}", error = state.errors["line_${index}_purchase"], decimal = true)
+                    }
+                    OrderSection {
+                        Text("Доставка · ориентир", style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
+                                "Вес единицы, кг", Modifier.weight(1f), decimal = true)
+                            AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
+                                "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
+                        }
+                        state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                    TextButton(onClick = { deleteLineIndex = index; editingLine = null }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Удалить позицию", Modifier.padding(start = 6.dp))
+                    }
                 }
             }
         }

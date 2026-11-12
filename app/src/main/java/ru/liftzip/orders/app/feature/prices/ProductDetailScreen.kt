@@ -91,6 +91,7 @@ fun ProductDetailScreen(
                                 isWarning = item.record.preliminary,
                             )
                             Text(item.priceText(), fontWeight = FontWeight.SemiBold)
+                            Text("Вес единицы: ${item.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
                             Text("Количество: ${item.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
                             Text("Заказ №${item.orderNumber} · ${item.record.eventAt.formatDateTime()}", style = MaterialTheme.typography.bodySmall)
                             if (item.record.type == PriceEventType.PURCHASE && item.record.currency == Currency.CNY) {
