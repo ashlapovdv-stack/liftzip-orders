@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
@@ -46,6 +47,8 @@ class GroupDetailScreenTest {
     @get:Rule val compose = createComposeRule()
     private lateinit var database: OrdersDatabase
     private lateinit var repository: RoomOrdersRepository
+    private val longTitle = "Заказ 11.11 тяговая цепь, лифтмонтаж ДВ 2"
+    private lateinit var orderIds: List<UUID>
     private lateinit var orderId: UUID
     private lateinit var groupId: UUID
     private var openedOrder: UUID? = null
@@ -54,14 +57,21 @@ class GroupDetailScreenTest {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
         repository = RoomOrdersRepository(database)
         repository.initialize()
-        orderId = repository.saveOrder(SaveOrderCommand(
-            commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = "Заказ для Дениса",
-            receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
-            lines = listOf(OrderLineDraft(productName = "Контактор", quantity = BigDecimal.ONE,
-                saleUnitPrice = BigDecimal("240000"), zeroSalePriceConfirmed = true)),
-            costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal("120000"),
-                date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
-        ))
+        orderIds = listOf(
+            Triple(longTitle, "240000", "120000"),
+            Triple("Заказ 11.11 электроника", "180000", "90000"),
+            Triple("Заказ 12.11 комплектующие", "120000", "60000"),
+        ).map { (title, sale, purchase) ->
+            repository.saveOrder(SaveOrderCommand(
+                commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = title,
+                receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+                lines = listOf(OrderLineDraft(productName = "Тестовая позиция", quantity = BigDecimal.ONE,
+                    saleUnitPrice = BigDecimal(sale), zeroSalePriceConfirmed = true)),
+                costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal(purchase),
+                    date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
+            ))
+        }
+        orderId = orderIds.first()
         groupId = repository.observeOrder(orderId).first()!!.group.id
         repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), groupId))
     }
@@ -72,63 +82,100 @@ class GroupDetailScreenTest {
         showScreen(1f)
         compose.onNodeWithText("Полученная оплата: 0 ₽").assertDoesNotExist()
         compose.onNodeWithText("Статус «На расчёте» не означает утверждение расчёта или подтверждение выкупа").assertDoesNotExist()
-        for (title in listOf("Д", "К", "∆", "Снял", "Передал", "Получено")) compose.onNodeWithText(title).assertIsDisplayed()
+        compose.onNodeWithText("Открыть ›").assertDoesNotExist()
+        compose.onNodeWithText("Суммы в ₽ · Д — доход · К — расход · ∆ — прибыль").assertDoesNotExist()
+        assertEquals("540 000 ₽", summaryText("Д"))
+        assertEquals("270 000 ₽", summaryText("К"))
+        assertEquals("270 000 ₽", summaryText("∆"))
         capture("group-table.png")
-        for ((action, description) in listOf(
-            OrderAction.WITHDRAWN to "Получены деньги от Дениса",
-            OrderAction.TRANSFERRED to "Деньги за товар переданы посреднику",
-            OrderAction.RECEIVED to "Товар получен",
-        )) {
-            clickAction(description)
-            compose.waitUntil(10_000) {
-                runBlocking {
-                    val p = repository.observeOrder(orderId).first()!!.order.fulfillment
-                    when (action) {
-                        OrderAction.WITHDRAWN -> p.withdrawn
-                        OrderAction.TRANSFERRED -> p.transferred
-                        OrderAction.RECEIVED -> p.received
+        orderIds.forEachIndexed { index, id ->
+            for ((action, description) in listOf(
+                OrderAction.WITHDRAWN to "Получены деньги от Дениса",
+                OrderAction.TRANSFERRED to "Деньги за товар переданы посреднику",
+                OrderAction.RECEIVED to "Товар получен",
+            )) {
+                clickAction(description, index + 1)
+                compose.waitUntil(10_000) {
+                    runBlocking {
+                        val p = repository.observeOrder(id).first()!!.order.fulfillment
+                        when (action) {
+                            OrderAction.WITHDRAWN -> p.withdrawn
+                            OrderAction.TRANSFERRED -> p.transferred
+                            OrderAction.RECEIVED -> p.received
+                        }
                     }
                 }
+                compose.waitForIdle()
             }
-            compose.waitForIdle()
+            if (index == 0) compose.onNodeWithText("1 / 3 выполнено").assertExists()
         }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Выполнена").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Выполнена").performScrollTo()
         capture("group-completed.png")
         clickAction("Товар получен")
         compose.waitUntil(10_000) { compose.onAllNodesWithText("На расчёте").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Заказ №1").performClick()
+        compose.onNodeWithText(longTitle).performScrollTo().performClick()
         assertEquals(orderId, openedOrder)
+        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
+        compose.onNodeWithText("Расходы группы").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить расходы группы").assertExists()
+        compose.onNodeWithText("Расходы группы").performClick()
+        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
+        compose.onNodeWithText("Добавить расход").performScrollTo().performClick()
+        compose.onNodeWithText("Сумма расхода").assertExists()
     }
 
     @Test fun largerFontKeepsTableAndActionsWithinScreen() {
-        showScreen(1.3f)
-        val rootWidth = compose.onNodeWithTag("group-screen").fetchSemanticsNode().boundsInRoot.width
-        for (label in listOf("Д", "К", "∆", "Снял", "Передал", "Получено")) {
-            val node = compose.onNodeWithText(label).assertIsDisplayed().fetchSemanticsNode()
-            org.junit.Assert.assertTrue(node.boundsInRoot.right <= rootWidth + 1)
-            org.junit.Assert.assertTrue(node.boundsInRoot.left >= 0)
-        }
-        val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("Получено", useUnmergedTree = true)
-            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(1, layouts.single().lineCount)
+        showScreen(1.3f, 320f)
+        assertLongTitleAndValuesFit()
         capture("group-large-font.png")
     }
 
-    private fun showScreen(fontScale: Float) {
+    @Test fun phoneWidthKeepsFiveColumnsAndFullLongTitle() {
+        showScreen(1.3f, 393f)
+        compose.onNodeWithText("Действия").assertIsDisplayed()
+        assertLongTitleAndValuesFit()
+        capture("group-inline-large-font.png")
+    }
+
+    private fun assertLongTitleAndValuesFit() {
+        val root = compose.onNodeWithTag("group-screen").fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithText(longTitle).assertIsDisplayed()
+        val layouts = mutableListOf<TextLayoutResult>()
+        title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        org.junit.Assert.assertTrue(layouts.single().lineCount > 1)
+        org.junit.Assert.assertFalse((0 until layouts.single().lineCount).any { layouts.single().isLineEllipsized(it) })
+        for (description in listOf("Доход: 240 000", "Расход: 120 000", "Прибыль: 120 000")) {
+            val exact = description.replace(' ', '\u00a0').replace(":\u00a0", ": ")
+            val node = compose.onNodeWithContentDescription(exact).assertIsDisplayed()
+            val bounds = node.fetchSemanticsNode().boundsInRoot
+            org.junit.Assert.assertTrue(bounds.right <= root.right + 1 && bounds.left >= root.left)
+            org.junit.Assert.assertTrue(title.fetchSemanticsNode().boundsInRoot.right <= bounds.left + 1)
+            val values = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(values) }
+            assertEquals(1, values.single().lineCount)
+        }
+    }
+
+    private fun summaryText(label: String): String = compose.onNodeWithTag("group-total-$label")
+        .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString("") { it.text }
+        .replace('\u00a0', ' ').replace('\u202f', ' ')
+
+    private fun showScreen(fontScale: Float, width: Float = 393f) {
         compose.setContent {
             val density = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
-                OrdersTheme {
-                    Box(Modifier.fillMaxSize()) {
-                        Box(Modifier.width(320.dp).testTag("group-screen")) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val viewportDensity = density.density * minOf(maxWidth.value / width, 1f)
+                CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
+                    OrdersTheme {
+                        Box(Modifier.width(width.dp).testTag("group-screen")) {
                             GroupDetailScreen(repository, groupId, onBack = {}, onOpenOrder = { openedOrder = it })
                         }
                     }
                 }
             }
         }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Заказ №1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(longTitle).fetchSemanticsNodes().isNotEmpty() }
     }
 
     private fun capture(name: String) {
@@ -149,9 +196,9 @@ class GroupDetailScreenTest {
         }
     }
 
-    private fun clickAction(description: String) {
-        val node = compose.onNodeWithContentDescription("Заказ №1: $description")
+    private fun clickAction(description: String, orderNumber: Int = 1) {
+        val node = compose.onNodeWithContentDescription("Заказ №$orderNumber: $description")
         compose.waitUntil(10_000) { !node.fetchSemanticsNode().config.contains(SemanticsProperties.Disabled) }
-        node.performClick()
+        node.performScrollTo().performClick()
     }
 }

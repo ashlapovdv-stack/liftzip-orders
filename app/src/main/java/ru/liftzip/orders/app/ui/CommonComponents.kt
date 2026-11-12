@@ -93,8 +93,9 @@ fun CostsEditor(
     onAdd: () -> Unit,
     onChange: (Int, (EditorCostDraft) -> EditorCostDraft) -> Unit,
     onRemove: (Int) -> Unit,
+    showHeadingAndAdd: Boolean = true,
 ) {
-    SectionTitle(title)
+    if (showHeadingAndAdd) SectionTitle(title)
     costs.forEachIndexed { index, cost ->
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -139,7 +140,7 @@ fun CostsEditor(
             }
         }
     }
-    OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить расход") }
+    if (showHeadingAndAdd) OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Добавить расход") }
 }
 
 fun CostKind.russian(): String = when (this) {
