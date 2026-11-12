@@ -33,8 +33,8 @@ class OrderCalculatorTest {
         )
         val delivery = cost(CostOwnerType.ORDER, orderId, "3000", CostKind.PURCHASE)
         val result = OrderCalculator.calculate(order("5000", true), listOf(line), listOf(delivery))
-        assertEquals("3000.00", result.knownCost.toBigDecimal().toPlainString())
-        assertEquals("2000.00", result.preliminaryProfitWithoutGroupCosts.toBigDecimal().toPlainString())
+        assertEquals("3000.00", result.purchaseCost!!.toBigDecimal().toPlainString())
+        assertEquals("2000.00", result.profit!!.toBigDecimal().toPlainString())
         assertTrue(result.isComplete)
     }
 
@@ -54,24 +54,24 @@ class OrderCalculatorTest {
             emptyList(),
         )
         assertFalse(result.isComplete)
-        assertEquals(Money.ZERO, result.knownCost)
-        assertEquals(Money.ZERO, result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(null, result.purchaseCost)
+        assertEquals(null, result.profit)
     }
 
     @Test
-    fun `group expense is counted once and not allocated to order`() {
+    fun `group expense remains reference and is not allocated to order`() {
         val order = order("1000", true)
         val line = line("1", "1000", "400", Currency.RUB, "1")
         val groupExpense = cost(CostOwnerType.GROUP, groupId, "100")
         val purchase = cost(CostOwnerType.ORDER, orderId, "400", CostKind.PURCHASE)
         val orderCalculation = OrderCalculator.calculate(order, listOf(line), listOf(purchase))
-        assertEquals(Money.fromRubles(BigDecimal("600.00")), orderCalculation.preliminaryProfitWithoutGroupCosts)
+        assertEquals(Money.fromRubles(BigDecimal("600.00")), orderCalculation.profit)
         val group = SettlementGroup(
             groupId, 1, GroupState.CALCULATING, true, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH, 1,
         )
         val summary = OrderCalculator.summarizeGroup(group, listOf(Triple(order, listOf(line), listOf(purchase))), listOf(groupExpense))
-        assertEquals(Money.fromRubles(BigDecimal("600.00")), summary.preliminaryProfit)
-        assertEquals(Money.fromRubles(BigDecimal("400.00")), summary.knownCosts)
+        assertEquals(Money.fromRubles(BigDecimal("600.00")), summary.profit)
+        assertEquals(Money.fromRubles(BigDecimal("400.00")), summary.purchaseCost)
     }
 
     @Test
@@ -79,7 +79,7 @@ class OrderCalculatorTest {
         val result = OrderCalculator.calculate(
             order("100", true), listOf(line("1", "100", "150", Currency.RUB, "1")), listOf(cost(CostOwnerType.ORDER, orderId, "150", CostKind.PURCHASE)),
         )
-        assertEquals(Money.fromRubles(BigDecimal("-50.00")), result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(Money.fromRubles(BigDecimal("-50.00")), result.profit)
     }
 
     @Test fun `approved D K delta formula uses manual delivery and aggregate purchase only`() {
@@ -87,25 +87,57 @@ class OrderCalculatorTest {
             deliveryWeight = BigDecimal("0.2"), deliveryTariff = BigDecimal("55"), deliveryRate = BigDecimal("13.3"))
         val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = Money(20000)),
             listOf(line), listOf(cost(CostOwnerType.ORDER, orderId, "8000", CostKind.PURCHASE)))
-        assertEquals(Money(1280000), result.sales)
-        assertEquals(Money(800000), result.knownCost)
-        assertEquals(Money(480000), result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(Money(1280000), result.income)
+        assertEquals(Money(800000), result.purchaseCost)
+        assertEquals(Money(480000), result.profit)
     }
 
     @Test fun `missing purchase is unknown despite specified delivery`() {
         val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = Money(20000)),
             listOf(line("1", "13000", null, null, null)), emptyList())
-        assertEquals(Money(1280000), result.sales)
-        assertEquals(null, result.knownPurchaseCosts)
-        assertEquals(null, result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(Money(1280000), result.income)
+        assertEquals(null, result.purchaseCost)
+        assertEquals(null, result.profit)
     }
 
     @Test fun `missing manual delivery does not assume free delivery`() {
         val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = null),
             listOf(line("1", "13000", null, null, null)), listOf(cost(CostOwnerType.ORDER, orderId, "8000", CostKind.PURCHASE)))
-        assertEquals(null, result.sales)
-        assertEquals(Money(800000), result.knownPurchaseCosts)
-        assertEquals(null, result.preliminaryProfitWithoutGroupCosts)
+        assertEquals(null, result.income)
+        assertEquals(Money(800000), result.purchaseCost)
+        assertEquals(null, result.profit)
+    }
+
+    @Test fun `explicit zero purchase and manual delivery are complete`() {
+        val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = Money.ZERO),
+            listOf(line("1", "100", "500", Currency.CNY, "10")),
+            listOf(cost(CostOwnerType.ORDER, orderId, "0", CostKind.PURCHASE)))
+        assertEquals(Money(10000), result.income)
+        assertEquals(Money.ZERO, result.purchaseCost)
+        assertEquals(Money(10000), result.profit)
+        assertTrue(result.isComplete)
+    }
+
+    @Test fun `group never presents partial purchase as a complete total`() {
+        val first = order("0", false).copy(manualDeliveryPrice = Money(20000))
+        val second = first.copy(id = UUID.randomUUID())
+        val rows = listOf(Triple(first, listOf(line("1", "13000", null, null, null)),
+            listOf(cost(CostOwnerType.ORDER, orderId, "8000", CostKind.PURCHASE))),
+            Triple(second, listOf(line("1", "2000", null, null, null).copy(orderId = second.id)), emptyList()))
+        val group = SettlementGroup(groupId, 1, GroupState.CALCULATING, false, Instant.EPOCH, null, Instant.EPOCH, 1)
+        val total = OrderCalculator.summarizeGroup(group, rows, emptyList())
+        assertEquals(Money(1460000), total.income)
+        assertEquals(null, total.purchaseCost)
+        assertEquals(null, total.profit)
+        assertEquals(1, total.incompleteCount)
+    }
+
+    @Test fun `manual delivery keeps kopecks and negative income visible`() {
+        val result = OrderCalculator.calculate(order("0", false).copy(manualDeliveryPrice = Money(20001)),
+            listOf(line("1", "100.01", null, null, null)), listOf(cost(CostOwnerType.ORDER, orderId, "50.02", CostKind.PURCHASE)))
+        assertEquals(Money(-10000), result.income)
+        assertEquals(Money(5002), result.purchaseCost)
+        assertEquals(Money(-15002), result.profit)
     }
 
     private fun order(payment: String, costsConfirmed: Boolean) = Order(

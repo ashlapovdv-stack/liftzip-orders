@@ -120,7 +120,7 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
             }
             Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Продажа: ${summary.sales.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                Text("Продажа: ${summary.calculation.priceForDenis.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text("Оплата: ${summary.order.receivedPayment.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             }
             if (!summary.calculation.isComplete) Text("Расчёт неполный", style = MaterialTheme.typography.labelSmall,

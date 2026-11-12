@@ -57,7 +57,7 @@ class RoomOrdersRepositoryTest {
         val history = repository.observeProductHistory(productId).first()!!
         assertEquals(2, history.records.size)
         assertEquals(1, history.records.count { it.record.type.name == "SALE" })
-        assertEquals(BigDecimal("55"), history.latestPurchase!!.record.price)
+        assertEquals(BigDecimal("55"), history.records.single { it.record.type.name == "PURCHASE" }.record.price)
     }
 
     @Test fun priceHistoryUsesWeightOfItsSourceLineAndKeepsUnknownWeight() = runTest {
@@ -73,6 +73,8 @@ class RoomOrdersRepositoryTest {
         val productId = repository.observeOrder(ids.first()).first()!!.lines.single().productId
         val history = repository.observeProductHistory(productId).first()!!
         assertEquals(6, history.records.size)
+        assertEquals(3, history.lines.size)
+        assertTrue(history.lines.all { it.sale != null && it.purchase != null })
         listOf(BigDecimal("0.2"), BigDecimal("1.35"), null).forEachIndexed { index, expected ->
             val records = history.records.filter { it.record.orderId == ids[index] }
             assertEquals(2, records.size)
@@ -223,7 +225,8 @@ class RoomOrdersRepositoryTest {
             lines = listOf(draft.lines[1].copy(id = remaining.id, productId = remaining.productId))))
         val after = repository.observeOrder(id).first()!!
         assertEquals(listOf(remaining.id), after.lines.map { it.id })
-        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.summary.sales.minorUnits)
+        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.orders.single().calculation.priceForDenis.minorUnits)
+        assertEquals(null, repository.observeGroup(before.group.id).first()!!.summary.income)
         assertTrue(after.costs.isEmpty())
         assertEquals(1, database.backupDao().allPriceRecords().count { it.orderId == id.toString() })
         assertTrue(after.history.any { it.changeType == "UPDATED" && it.beforeJson!!.contains("Первый") })
@@ -238,6 +241,29 @@ class RoomOrdersRepositoryTest {
         assertTrue(repository.observeOrder(id).first() != null)
         assertEquals(1, database.deliveryDao().payments(id.toString()).size)
         assertTrue(database.ordersDao().getOrderHistory(id.toString()).none { it.changeType == "DELETED" })
+    }
+
+    @Test fun savedOrderAndGroupUseApprovedFormulaWithoutDeliveryInK() = runTest {
+        val command = orderCommand().copy(manualDeliveryPrice = BigDecimal("200"),
+            lines = listOf(orderCommand().lines.single().copy(saleUnitPrice = BigDecimal("13000"))),
+            costs = listOf(ru.liftzip.orders.domain.model.CostDraft(kind = ru.liftzip.orders.domain.model.CostKind.PURCHASE,
+                amount = BigDecimal("8000"), date = LocalDate.parse("2026-11-11"))))
+        val id = repository.saveOrder(command)
+        val saved = repository.observeOrder(id).first()!!
+        val group = repository.observeGroup(saved.group.id).first()!!
+        assertEquals(1280000L, group.orders.single().calculation.income!!.minorUnits)
+        assertEquals(800000L, group.orders.single().calculation.purchaseCost!!.minorUnits)
+        assertEquals(480000L, group.orders.single().calculation.profit!!.minorUnits)
+        assertEquals(1280000L, group.summary.income!!.minorUnits)
+        assertEquals(800000L, group.summary.purchaseCost!!.minorUnits)
+        assertEquals(480000L, group.summary.profit!!.minorUnits)
+        val line = saved.lines.single()
+        repository.saveOrder(command.copy(commandId = UUID.randomUUID(), orderId = id, costs = emptyList(),
+            lines = listOf(command.lines.single().copy(id = line.id, productId = line.productId))))
+        val incomplete = repository.observeGroup(saved.group.id).first()!!
+        assertEquals(1280000L, incomplete.summary.income!!.minorUnits)
+        assertEquals(null, incomplete.summary.purchaseCost)
+        assertEquals(null, incomplete.summary.profit)
     }
 
     private fun orderCommand() = SaveOrderCommand(

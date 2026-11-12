@@ -47,7 +47,7 @@ class DeliveryCalculatorTest {
     @Test fun logisticsDoesNotChangeGoodsProfit() {
         val o=Order(order,1,day,"Денис",UUID.randomUUID(),Money(500000),"",true,CalculationState.PRELIMINARY,Instant.EPOCH,Instant.EPOCH,1)
         val result=OrderCalculator.calculate(o,listOf(line()),emptyList())
-        assertEquals(Money.ZERO,result.knownCost);assertEquals(Money.ZERO,result.preliminaryProfitWithoutGroupCosts);assertFalse(result.isComplete)
+        assertNull(result.purchaseCost);assertNull(result.profit);assertFalse(result.isComplete)
     }
     @Test fun invoiceDoesNotRequireGuessedWeightOrRate() { DeliveryCalculator.validateInvoice(DeliveryInvoice(order,Money(443750),day)) }
     @Test fun netSumDoesNotDependOnJournalDateOrder() {

@@ -155,8 +155,10 @@ class BackupManagerTest {
     }
 
     @Test fun formingGroupFulfillmentSurvivesBackupRestore() = runTest {
-        val id = repository.saveOrder(orderCommand("Отметки").copy(
-            initialFulfillment = ru.liftzip.orders.domain.model.OrderFulfillment(true, true, true)))
+        val id = repository.saveOrder(orderCommand("Отметки"))
+        // Build 72 allowed these flags. Preserve existing data without allowing new edits.
+        val legacy = database.ordersDao().getOrder(id.toString())!!
+        database.ordersDao().updateOrder(legacy.copy(withdrawn = true, transferred = true, received = true))
         val uri = Uri.fromFile(File(context.cacheDir, "forming-flags.zip"))
         manager.exportTo(uri)
         manager.importFrom(uri)
@@ -165,6 +167,26 @@ class BackupManagerTest {
         assertEquals(ru.liftzip.orders.domain.model.GroupState.FORMING, saved.group.state)
         repository.finishGroup(ru.liftzip.orders.domain.model.FinishGroupCommand(UUID.randomUUID(), saved.group.id))
         assertEquals(ru.liftzip.orders.domain.model.GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
+    }
+
+    @Test fun backupPreservesManualDeliveryAndAggregatePurchaseForApprovedFormula() = runTest {
+        val command = orderCommand("Формула")
+        val id = repository.saveOrder(command.copy(manualDeliveryPrice = BigDecimal("200"),
+            lines = listOf(command.lines.single().copy(saleUnitPrice = BigDecimal("13000"))),
+            costs = listOf(ru.liftzip.orders.domain.model.CostDraft(kind = ru.liftzip.orders.domain.model.CostKind.PURCHASE,
+                amount = BigDecimal("8000"), date = LocalDate.parse("2026-11-11")))))
+        val before = repository.observeOrder(id).first()!!
+        val uri = Uri.fromFile(File(context.cacheDir, "formula-roundtrip.zip"))
+        manager.exportTo(uri)
+        manager.importFrom(uri)
+        val after = repository.observeOrder(id).first()!!
+        assertEquals(before.order, after.order)
+        assertEquals(before.lines, after.lines)
+        assertEquals(before.costs, after.costs)
+        val summary = repository.observeGroup(after.group.id).first()!!.summary
+        assertEquals(1280000L, summary.income!!.minorUnits)
+        assertEquals(800000L, summary.purchaseCost!!.minorUnits)
+        assertEquals(480000L, summary.profit!!.minorUnits)
     }
 
     private fun orderCommand(counterparty: String) = SaveOrderCommand(

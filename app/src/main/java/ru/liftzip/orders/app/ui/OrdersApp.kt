@@ -101,7 +101,6 @@ fun OrdersApp(container: AppContainer) {
             val id = UUID.fromString(entry.arguments?.getString("id"))
             ProductDetailScreen(
                 container.repository, id, onBack = { nav.popBackStack() },
-                onOpenOrder = { nav.navigate("order/$it") },
             )
         }
         composable("settings") {

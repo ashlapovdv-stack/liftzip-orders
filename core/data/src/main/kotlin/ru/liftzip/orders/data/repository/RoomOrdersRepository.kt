@@ -192,7 +192,9 @@ class RoomOrdersRepository(
                 product = product.toDomain(),
                 records = records.mapNotNull { record ->
                     orders.firstOrNull { it.id == record.orderId }?.let {
-                        PriceRecordView(record.toDomain(), it.number, linesById[record.sourceLineId]?.deliveryWeight?.decimal())
+                        PriceRecordView(record.toDomain(), it.number,
+                            linesById[record.sourceLineId]?.deliveryWeight?.decimal(), it.orderRate?.decimal(),
+                            linesById[record.sourceLineId]?.deliveryTariff?.decimal())
                     }
                 },
             )
@@ -207,6 +209,7 @@ class RoomOrdersRepository(
         database.withTransaction {
             val old = dao.getOrder(orderId.toString()) ?: throw DomainValidationException("Заказ не найден")
             val group = dao.getGroup(old.groupId) ?: throw DomainValidationException("Группа не найдена")
+            if (group.state == GroupState.FORMING.name) throw DomainValidationException("Сначала завершите формирование группы")
             val progress = old.toDomain().fulfillment.withAction(action, checked)
             if (progress == old.toDomain().fulfillment) return@withTransaction
             val now = Instant.now()
@@ -288,9 +291,9 @@ class RoomOrdersRepository(
                 revision = (existing?.revision ?: 0) + 1,
                 manualDeliveryPriceMinor = command.manualDeliveryPrice?.let { Money.fromRubles(it).minorUnits },
                 orderRate = command.orderRate?.canonical(),
-                withdrawn = existing?.withdrawn ?: command.initialFulfillment.withdrawn,
-                transferred = existing?.transferred ?: command.initialFulfillment.transferred,
-                received = existing?.received ?: command.initialFulfillment.received,
+                withdrawn = existing?.withdrawn ?: false,
+                transferred = existing?.transferred ?: false,
+                received = existing?.received ?: false,
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)
 
@@ -425,7 +428,7 @@ class RoomOrdersRepository(
         return OrderSummary(
             order = order.toDomain(), groupNumber = group.number, groupState = GroupState.valueOf(group.state),
             composition = lines.joinToString(", ") { it.productNameSnapshot }.take(160),
-            sales = calculation.sales, calculation = calculation,
+            calculation = calculation,
         )
     }
 

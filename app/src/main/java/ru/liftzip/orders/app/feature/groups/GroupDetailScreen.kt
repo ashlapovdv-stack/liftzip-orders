@@ -288,10 +288,10 @@ private fun GroupTotals(details: GroupDetails) {
     ) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 10.dp)) {
             listOf(
-                Triple("Д", summary.sales.format(), Positive),
-                Triple("К", summary.knownCosts.format(), MaterialTheme.colorScheme.error),
-                Triple("∆", if (summary.isComplete) summary.preliminaryProfit.format() else "—",
-                    if (summary.preliminaryProfit < Money.ZERO) MaterialTheme.colorScheme.error else Positive),
+                Triple("Д", summary.income?.format() ?: "—", Positive),
+                Triple("К", summary.purchaseCost?.format() ?: "—", MaterialTheme.colorScheme.error),
+                Triple("∆", summary.profit?.format() ?: "—",
+                    if ((summary.profit ?: Money.ZERO) < Money.ZERO) MaterialTheme.colorScheme.error else Positive),
             ).forEachIndexed { index, (label, value, color) ->
                 if (index > 0) VerticalDivider(color = GroupOutline)
                 Column(Modifier.weight(1f).padding(horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -317,10 +317,10 @@ private fun GroupOrdersTable(
         val amountWidth = (maxWidth - 4.dp) * 0.13f - 2.dp
         val actionWidth = (maxWidth - 4.dp) * 0.28f / 3f
         val orders = details.orders.sortedBy { it.order.number }
-        val totals = listOf(details.summary.sales.formatAmount(), details.summary.knownCosts.formatAmount(),
-            if (details.summary.isComplete) details.summary.preliminaryProfit.formatAmount() else "—")
-        val values = orders.map { summary -> listOf(summary.sales.formatAmount(), summary.calculation.knownCost.formatAmount(),
-            if (summary.calculation.isComplete) summary.calculation.preliminaryProfitWithoutGroupCosts.formatAmount() else "—") }
+        val totals = listOf((details.summary.income?.formatAmount() ?: "—"), (details.summary.purchaseCost?.formatAmount() ?: "—"),
+            details.summary.profit?.formatAmount() ?: "—")
+        val values = orders.map { summary -> listOf((summary.calculation.income?.formatAmount() ?: "—"), (summary.calculation.purchaseCost?.formatAmount() ?: "—"),
+            summary.calculation.profit?.formatAmount() ?: "—") }
         val amountStyles = (0..2).map { index ->
             fittedTableStyle(values.map { it[index] } + totals[index], amountWidth,
                 MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, letterSpacing = 0.sp,
@@ -337,15 +337,15 @@ private fun GroupOrdersTable(
                         name = summary.order.counterparty.ifBlank { "Заказ №${summary.order.number}" },
                         income = values[index][0], costs = values[index][1], profit = values[index][2],
                         amountStyles = amountStyles,
-                        profitColor = if (summary.calculation.preliminaryProfitWithoutGroupCosts < Money.ZERO) MaterialTheme.colorScheme.error else Positive,
+                        profitColor = if ((summary.calculation.profit ?: Money.ZERO) < Money.ZERO) MaterialTheme.colorScheme.error else Positive,
                         onOpen = { onOpenOrder(summary.order.id) },
-                        actions = { OrderActions(summary, !busy, actionStyle, onAction) },
+                        actions = { OrderActions(summary, details.summary.group.state != GroupState.FORMING && !busy, actionStyle, onAction) },
                     )
                 }
                 if (orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(12.dp))
                 HorizontalDivider(color = GroupOutline, thickness = 1.dp)
                 FinancialRow("Итого", totals[0], totals[1], totals[2], amountStyles,
-                    total = true, profitColor = if (details.summary.preliminaryProfit < Money.ZERO) MaterialTheme.colorScheme.error else Positive)
+                    total = true, profitColor = if ((details.summary.profit ?: Money.ZERO) < Money.ZERO) MaterialTheme.colorScheme.error else Positive)
             }
         }
     }

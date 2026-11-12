@@ -1,107 +1,93 @@
 package ru.liftzip.orders.app.feature.prices
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Color
-import ru.liftzip.orders.app.ui.CompactTopBar
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import ru.liftzip.orders.app.ui.CompactTopBar
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.ProductDetailViewModel
-import ru.liftzip.orders.app.ui.SectionTitle
-import ru.liftzip.orders.app.ui.StatusBadge
 import ru.liftzip.orders.app.ui.formatDateTime
 import ru.liftzip.orders.app.ui.formatDecimal
 import ru.liftzip.orders.domain.model.Currency
-import ru.liftzip.orders.domain.model.PriceEventType
 import ru.liftzip.orders.domain.model.PriceRecordView
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProductDetailScreen(
-    repository: OrdersRepository,
-    productId: UUID,
-    onBack: () -> Unit,
-    onOpenOrder: (UUID) -> Unit,
-) {
+fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: () -> Unit) {
     val model = viewModel<ProductDetailViewModel>(
         key = "product-$productId",
         factory = viewModelFactory { initializer { ProductDetailViewModel(repository, productId) } },
     )
     val history by model.history.collectAsState()
-    Scaffold(
-        topBar = {
-            CompactTopBar("История цен", onBack)
-        },
-    ) { padding ->
+    Scaffold(topBar = { CompactTopBar("История цен", onBack) }) { padding ->
         val current = history
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
+        LazyColumn(Modifier.fillMaxSize().padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (current == null) item { Text("Загрузка…") }
             else {
                 item {
                     Text(current.product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    current.product.article?.let { Text("Артикул: $it") }
-                    SectionTitle("Последние известные цены")
-                    Text("Продажа: ${current.latestSale?.priceText() ?: "нет данных"}")
-                    Text("Закупка: ${current.latestPurchase?.priceText() ?: "нет данных"}")
-                    current.latestPurchase?.let {
-                        Text("Дата: ${it.record.eventAt.formatDateTime()} · ${it.record.currency}")
-                    }
+                    current.product.article?.let { Text("Артикул: $it", style = MaterialTheme.typography.bodySmall) }
                 }
-                item { SectionTitle("Записи из заказов") }
-                if (current.records.isEmpty()) item { EmptyState("Записей пока нет") }
-                items(current.records.size) { index ->
-                    val item = current.records[index]
-                    Card(Modifier.fillMaxWidth().clickable { onOpenOrder(item.record.orderId) }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            StatusBadge(
-                                if (item.record.type == PriceEventType.SALE) "Продажа"
-                                else "Закупка",
-                                isWarning = item.record.preliminary,
-                            )
-                            Text(item.priceText(), fontWeight = FontWeight.SemiBold)
-                            Text("Вес единицы: ${item.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
-                            Text("Количество: ${item.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
-                            Text("Заказ №${item.orderNumber} · ${item.record.eventAt.formatDateTime()}", style = MaterialTheme.typography.bodySmall)
-                            if (item.record.type == PriceEventType.PURCHASE && item.record.currency == Currency.CNY) {
-                                Text("Сохранённый курс: ${item.record.rate.formatDecimal()} RUB/CNY", style = MaterialTheme.typography.bodySmall)
+                if (current.lines.isEmpty()) item { EmptyState("Записей пока нет") }
+                items(current.lines, key = { it.sourceLineId }) { entry ->
+                    val source = entry.source
+                    Card(Modifier.fillMaxWidth().testTag("history-line-${entry.sourceLineId}"),
+                        shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Заказ №${source.orderNumber} · ${source.record.eventAt.formatDateTime()}",
+                                style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                HistoryValue("Денису за единицу", entry.sale?.priceText() ?: "—", Modifier.weight(1f))
+                                HistoryValue("Закупка за единицу", entry.purchase?.priceText() ?: "—", Modifier.weight(1f))
                             }
+                            Text("Количество: ${source.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
+                            Text("Вес единицы: ${source.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
+                            val rate = source.orderRate
+                            if (rate != null) Text("Курс заказа: ${rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
+                            else entry.purchase?.takeIf { it.record.currency == Currency.CNY }?.let {
+                                Text("Курс закупки: ${it.record.rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
+                            }
+                            source.deliveryTariff?.let { Text("Тариф доставки: ${it.formatDecimal()} ¥/кг", style = MaterialTheme.typography.bodySmall) }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HistoryValue(label: String, value: String, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
 

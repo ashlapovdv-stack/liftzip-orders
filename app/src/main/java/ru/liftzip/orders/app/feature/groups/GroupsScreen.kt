@@ -64,18 +64,18 @@ private fun GroupCard(summary: GroupSummary, onClick: () -> Unit) {
                 if (summary.incompleteCount > 0) append(" · Неполных расчётов: ${summary.incompleteCount}")
             }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Продажи" to summary.sales, "Расходы" to summary.knownCosts,
-                    (if (summary.isComplete) "Прибыль" else "Прибыль*") to summary.preliminaryProfit)
+                listOf("Д · без доставки" to summary.income, "К · закупка" to summary.purchaseCost,
+                    "∆ · прибыль" to summary.profit)
                     .forEachIndexed { index, (label, amount) ->
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(amount.format(), style = MaterialTheme.typography.bodySmall.copy(
+                            Text(amount?.format() ?: "—", style = MaterialTheme.typography.bodySmall.copy(
                                 letterSpacing = 0.sp, fontFeatureSettings = "tnum"),
                                 fontWeight = if (index == 2) FontWeight.SemiBold else FontWeight.Medium)
                         }
                     }
             }
-            if (!summary.isComplete) Text("* Расчёт неполный, прибыль предварительная",
+            if (!summary.isComplete) Text("Расчёт неполный",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
     }

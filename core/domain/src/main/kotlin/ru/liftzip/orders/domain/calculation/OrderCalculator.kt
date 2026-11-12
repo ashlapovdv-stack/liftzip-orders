@@ -38,21 +38,21 @@ object OrderCalculator {
             (it.ownerType == CostOwnerType.ORDER && it.ownerId == order.id) ||
                 (it.ownerType == CostOwnerType.LINE && it.ownerId in lineIds)
         }
-        val sales = lines.fold(Money.ZERO) { total, line -> total + lineSale(line) }
-        // Only the aggregate order purchase entry is a goods cost.
-        // Historical line purchases and extra expenses remain stored but never affect profit.
-        val aggregatePurchases = applicableCosts.filter {
+        val priceForDenis = lines.fold(Money.ZERO) { total, line -> total + lineSale(line) }
+        // The agreed formulas have one source for each value. Per-line purchases,
+        // group expenses and delivery estimates stay reference data only.
+        val purchases = applicableCosts.filter {
             it.ownerType == CostOwnerType.ORDER && it.kind == CostKind.PURCHASE
         }
-        val purchaseKnown = aggregatePurchases.size == 1
-        val purchase = if (purchaseKnown) costInRub(aggregatePurchases.single()) else Money.ZERO
-        val complete = purchaseKnown && aggregatePurchases.single().isConfirmed && order.manualDeliveryPrice != null
+        val purchaseEntry = purchases.singleOrNull()
+        val purchase = purchaseEntry?.let(::costInRub)
+        val income = order.manualDeliveryPrice?.let { priceForDenis - it }
+        val complete = income != null && purchase != null && purchaseEntry?.isConfirmed == true
         return OrderCalculation(
-            sales = sales,
-            knownPurchaseCosts = purchase,
-            knownAdditionalCosts = order.manualDeliveryPrice ?: Money.ZERO,
-            knownCost = purchase + (order.manualDeliveryPrice ?: Money.ZERO),
-            preliminaryProfitWithoutGroupCosts = if (complete) sales - purchase - order.manualDeliveryPrice!! else Money.ZERO,
+            priceForDenis = priceForDenis,
+            income = income,
+            purchaseCost = purchase,
+            profit = if (complete) income!! - purchase!! else null,
             isComplete = complete,
         )
     }
@@ -63,25 +63,20 @@ object OrderCalculator {
         groupCosts: List<CostEntry>,
     ): GroupSummary {
         val calculations = orders.map { (order, lines, costs) -> calculate(order, lines, costs) }
-        val sales = calculations.fold(Money.ZERO) { sum, item -> sum + item.sales }
-        val payment = orders.fold(Money.ZERO) { sum, item -> sum + item.first.receivedPayment }
-        val orderCosts = calculations.fold(Money.ZERO) { sum, item -> sum + item.knownCost }
-        val knownCosts = orderCosts
-        val complete = calculations.all { it.isComplete }
         return GroupSummary(
             group = group,
             orderCount = orders.size,
-            sales = sales,
-            receivedPayment = payment,
-            knownCosts = knownCosts,
+            income = totalOrUnknown(calculations.map { it.income }),
+            receivedPayment = orders.fold(Money.ZERO) { sum, item -> sum + item.first.receivedPayment },
+            purchaseCost = totalOrUnknown(calculations.map { it.purchaseCost }),
             incompleteCount = calculations.count { !it.isComplete },
-            preliminaryProfit = if (complete) sales - knownCosts else Money.ZERO,
-            isComplete = complete,
+            profit = totalOrUnknown(calculations.map { it.profit }),
+            isComplete = calculations.all { it.isComplete },
         )
     }
 
-    private fun OrderLine.isPurchaseComplete(): Boolean =
-        purchaseUnitPrice != null && purchaseCurrency != null && purchaseRate != null
+    private fun totalOrUnknown(values: List<Money?>): Money? =
+        if (values.any { it == null }) null else values.fold(Money.ZERO) { sum, value -> sum + value!! }
 
     private fun rateFor(currency: Currency, rate: BigDecimal): BigDecimal {
         require(rate > BigDecimal.ZERO) { "Курс должен быть положительным" }

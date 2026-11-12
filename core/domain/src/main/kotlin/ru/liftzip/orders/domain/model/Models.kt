@@ -177,18 +177,17 @@ data class OrderSummary(
     val groupNumber: Long,
     val groupState: GroupState,
     val composition: String,
-    val sales: Money,
     val calculation: OrderCalculation,
 )
 
 data class GroupSummary(
     val group: SettlementGroup,
     val orderCount: Int,
-    val sales: Money,
+    val income: Money?,
     val receivedPayment: Money,
-    val knownCosts: Money,
+    val purchaseCost: Money?,
     val incompleteCount: Int,
-    val preliminaryProfit: Money,
+    val profit: Money?,
     val isComplete: Boolean,
 )
 
@@ -202,22 +201,33 @@ data class PriceRecordView(
     val record: PriceRecord,
     val orderNumber: Long,
     val unitWeight: BigDecimal? = null,
+    val orderRate: BigDecimal? = null,
+    val deliveryTariff: BigDecimal? = null,
 )
 
 data class ProductPriceHistory(
     val product: Product,
     val records: List<PriceRecordView>,
 ) {
-    val latestSale: PriceRecordView? = records.firstOrNull { it.record.type == PriceEventType.SALE }
-    val latestPurchase: PriceRecordView? = records.firstOrNull { it.record.type == PriceEventType.PURCHASE }
+    val lines: List<PriceHistoryLine> = records.groupBy { it.record.sourceLineId }.map { (id, events) ->
+        PriceHistoryLine(id, events.firstOrNull { it.record.type == PriceEventType.SALE },
+            events.firstOrNull { it.record.type == PriceEventType.PURCHASE })
+    }
+}
+
+data class PriceHistoryLine(
+    val sourceLineId: UUID,
+    val sale: PriceRecordView?,
+    val purchase: PriceRecordView?,
+) {
+    val source: PriceRecordView get() = requireNotNull(sale ?: purchase)
 }
 
 data class OrderCalculation(
-    val sales: Money,
-    val knownPurchaseCosts: Money,
-    val knownAdditionalCosts: Money,
-    val knownCost: Money,
-    val preliminaryProfitWithoutGroupCosts: Money,
+    val priceForDenis: Money,
+    val income: Money?,
+    val purchaseCost: Money?,
+    val profit: Money?,
     val isComplete: Boolean,
 )
 
@@ -262,7 +272,6 @@ data class SaveOrderCommand(
     val costs: List<CostDraft>,
     val manualDeliveryPrice: BigDecimal? = null,
     val orderRate: BigDecimal? = null,
-    val initialFulfillment: OrderFulfillment = OrderFulfillment(),
 )
 
 data class SaveGroupCostsCommand(

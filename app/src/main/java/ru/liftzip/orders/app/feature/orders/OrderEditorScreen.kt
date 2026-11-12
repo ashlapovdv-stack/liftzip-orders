@@ -133,7 +133,7 @@ fun OrderEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             OrderFulfillmentActions(state.orderNumber, state.fulfillment,
-                                enabled = state.loaded && !state.saving && !state.actionsSaving,
+                                enabled = state.loaded && state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
                                 captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp),
                                 onAction = model::setAction)
                         }
@@ -190,14 +190,15 @@ fun OrderEditorScreen(
             model.preview()?.let { calculation -> item {
                 OrderSection {
                     Text("Итого", style = MaterialTheme.typography.titleSmall)
-                    listOf("Цена для Дениса" to calculation.sales.format(),
-                        "Закупка и доставка" to (if (calculation.isComplete) calculation.knownCost.format() else "Неполные данные"),
-                        "Прибыль" to (if (calculation.isComplete) calculation.preliminaryProfitWithoutGroupCosts.format() else "Не рассчитана"))
+                    listOf("Цена для Дениса" to calculation.priceForDenis.format(),
+                        "Д · без доставки" to (calculation.income?.format() ?: "—"),
+                        "К · закупка" to (calculation.purchaseCost?.format() ?: "—"),
+                        "∆ · прибыль" to (calculation.profit?.format() ?: "—"))
                         .forEachIndexed { index, (label, value) ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = if (index == 2) FontWeight.SemiBold else FontWeight.Medium,
-                                    color = if (index == 2 && calculation.preliminaryProfitWithoutGroupCosts < ru.liftzip.orders.domain.model.Money.ZERO) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                                Text(value, modifier = Modifier.testTag("order-total-$index"), style = MaterialTheme.typography.bodySmall, fontWeight = if (index == 3) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (index == 3 && (calculation.profit ?: ru.liftzip.orders.domain.model.Money.ZERO) < ru.liftzip.orders.domain.model.Money.ZERO) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     if (!calculation.isComplete) Text("Расчёт неполный", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
@@ -213,7 +214,7 @@ fun OrderEditorScreen(
                 }
             }
             if (state.orderId != null) item {
-                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && !state.saving && !state.actionsSaving,
+                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics { contentDescription = "Удалить заказ" },
                     shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {

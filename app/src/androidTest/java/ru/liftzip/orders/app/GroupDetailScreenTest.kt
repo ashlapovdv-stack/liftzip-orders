@@ -47,6 +47,7 @@ import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
 import ru.liftzip.orders.app.ui.MainScreenScaffold
 import ru.liftzip.orders.app.ui.OrdersTheme
+import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.data.database.OrdersDatabase
 import ru.liftzip.orders.data.repository.RoomOrdersRepository
 import ru.liftzip.orders.domain.model.*
@@ -88,6 +89,8 @@ class GroupDetailScreenTest {
                 receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
                 lines = listOf(OrderLineDraft(productName = "Тестовая позиция", quantity = BigDecimal.ONE,
                     saleUnitPrice = BigDecimal(sale), zeroSalePriceConfirmed = true,
+                    purchaseUnitPrice = if (index == 2) BigDecimal("800") else null,
+                    purchaseCurrency = if (index == 2) Currency.CNY else null, purchaseRate = if (index == 2) BigDecimal("10") else null,
                     deliveryWeight = if (index == 2) BigDecimal("0.2") else null,
                     deliveryTariff = if (index == 2) BigDecimal("55") else null,
                     deliveryPlanDate = if (index == 2) LocalDate.parse("2026-11-11") else null)),
@@ -330,23 +333,31 @@ class GroupDetailScreenTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-card-4").fetchSemanticsNodes().isEmpty() }
     }
 
-    @Test fun compactPriceHistoryOpensItsSourceOrder() {
+    @Test fun compactPriceHistoryCombinesPricesAndDoesNotNavigateToOrder() {
         showPrices = true
         showScreen(1f)
         compose.onNodeWithText("Тестовая позиция").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Записи из заказов").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Вес единицы: 0.2 кг"))
-        compose.onAllNodesWithText("Вес единицы: 0.2 кг").onFirst().assertIsDisplayed()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Денису за единицу").fetchSemanticsNodes().isNotEmpty() }
+        val sourceLine = runBlocking { repository.observeOrder(orderIds.last()).first()!!.lines.single() }
+        val tag = "history-line-${sourceLine.id}"
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag(tag))
+        val card = compose.onNodeWithTag(tag).assertIsDisplayed()
+        card.assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        compose.onNode(hasText("120000 ₽") and hasAnyAncestor(hasTestTag(tag))).assertExists()
+        compose.onNode(hasText("800 ¥") and hasAnyAncestor(hasTestTag(tag))).assertExists()
+        compose.onNode(hasText("Курс заказа: 10 ₽/¥") and hasAnyAncestor(hasTestTag(tag))).assertExists()
+        compose.onNodeWithText("Тариф доставки: 55 ¥/кг").assertExists()
+        compose.onNodeWithText("Последние известные цены").assertDoesNotExist()
         capture("price-history.png")
+        card.performTouchInput { click(center) }
+        compose.onNodeWithText("История цен").assertExists()
+        compose.onNodeWithText("Название заказа").assertDoesNotExist()
+        org.junit.Assert.assertNull(openedOrder)
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Вес единицы: не указан"))
         compose.onAllNodesWithText("Вес единицы: не указан").onFirst().assertIsDisplayed()
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Записи из заказов"))
-        compose.onAllNodes(hasText("Заказ №", substring = true)).onFirst().performScrollTo().performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Название заказа").fetchSemanticsNodes().isNotEmpty() }
-        org.junit.Assert.assertTrue(openedOrder in orderIds)
     }
 
-    @Test fun formingOrderActionsCanBeUsedWithoutClosingFormation() {
+    @Test fun formingOrderActionsAreBlockedOnBothScreensUntilFormationFinishes() {
         orderId = runBlocking {
             repository.saveOrder(SaveOrderCommand(
                 commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = longTitle,
@@ -362,30 +373,38 @@ class GroupDetailScreenTest {
         val formingId = runBlocking { repository.observeOrder(orderId).first()!!.group.id }
         OrderAction.entries.forEach { action ->
             val node = compose.onNodeWithTag("order-4-$action", useUnmergedTree = true)
-            compose.waitUntil(10_000) { !node.fetchSemanticsNode().config.contains(SemanticsProperties.Disabled) }
-            node.assertIsEnabled().assertIsOff()
+            node.assertIsNotEnabled().assertIsOff()
             compose.onNodeWithTag("order-4-$action-square", useUnmergedTree = true).performTouchInput { click(center) }
-            compose.waitUntil(10_000) { node.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] == androidx.compose.ui.state.ToggleableState.On }
+            node.assertIsOff()
         }
-        assertEquals(OrderFulfillment(true, true, true), runBlocking { repository.observeOrder(orderId).first()!!.order.fulfillment })
-        assertEquals(GroupState.FORMING, runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state })
+        assertEquals(OrderFulfillment(), runBlocking { repository.observeOrder(orderId).first()!!.order.fulfillment })
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Группа №2 →").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Группа №2 →").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Группа №2").fetchSemanticsNodes().isNotEmpty() }
+        OrderAction.entries.forEach { action ->
+            compose.onNodeWithTag("order-4-$action", useUnmergedTree = true).assertIsNotEnabled().assertIsOff()
+            compose.onNodeWithTag("order-4-$action-square", useUnmergedTree = true).performTouchInput { click(center) }
+        }
+        assertEquals(OrderFulfillment(), runBlocking { repository.observeOrder(orderId).first()!!.order.fulfillment })
+        compose.onNodeWithText("Завершить формирование").performScrollTo().performClick()
+        compose.onNodeWithText("Завершить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
+        for (description in listOf("Получены деньги от Дениса", "Деньги за товар переданы посреднику", "Товар получен")) {
+            clickAction(description, 4)
+        }
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.COMPLETED } }
         clickAction("Товар получен", 4)
-        compose.waitUntil(10_000) { runBlocking { !repository.observeOrder(orderId).first()!!.order.fulfillment.received } }
-        assertEquals(GroupState.FORMING, runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state })
-
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
     }
 
-    @Test fun newOrderMarksAreStoredWithItsFirstSave() {
+    @Test fun newOrderCannotSetMarksBeforeItsFirstSave() {
         showOrder = true
         newOrderPreview = true
         showScreen(1f)
         for (action in listOf(OrderAction.WITHDRAWN, OrderAction.TRANSFERRED)) {
             compose.onNodeWithTag("order-new-$action-square", useUnmergedTree = true).performTouchInput { click(center) }
-            compose.onNodeWithTag("order-new-$action", useUnmergedTree = true).assertIsOn()
+            compose.onNodeWithTag("order-new-$action", useUnmergedTree = true).assertIsNotEnabled().assertIsOff()
         }
         compose.onNodeWithText("Название заказа").performTextReplacement("Заказ с отметками")
         compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("10")
@@ -401,8 +420,40 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Заказ с отметками").fetchSemanticsNodes().isNotEmpty() }
         val saved = runBlocking { repository.observeOrders("", OrdersFilter.ALL, 50).first().single { it.order.counterparty == "Заказ с отметками" } }
-        assertEquals(OrderFulfillment(true, true, false), saved.order.fulfillment)
+        assertEquals(OrderFulfillment(), saved.order.fulfillment)
         assertEquals(GroupState.FORMING, saved.groupState)
+    }
+
+    @Test fun approvedFormulaAndMissingPurchaseAreConsistentInOrderAndGroup() {
+        val command = SaveOrderCommand(commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"),
+            counterparty = longTitle, receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+            lines = listOf(OrderLineDraft(productName = "Контактор", quantity = BigDecimal.ONE,
+                saleUnitPrice = BigDecimal("13000"), zeroSalePriceConfirmed = true)),
+            costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal("8000"), date = LocalDate.parse("2026-11-11"))),
+            manualDeliveryPrice = BigDecimal("200"))
+        orderId = runBlocking { repository.saveOrder(command) }
+        showOrder = true
+        showScreen(1f)
+        scrollToEditorField("Итого")
+        compose.onNodeWithTag("order-total-1").assertTextEquals(Money(1280000).format())
+        compose.onNodeWithTag("order-total-2").assertTextEquals(Money(800000).format())
+        compose.onNodeWithTag("order-total-3").assertTextEquals(Money(480000).format())
+        capture("formula-order.png")
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Группа №2 →").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Группа №2 →").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("group-total-Д").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals("12 800 ₽", summaryText("Д"))
+        assertEquals("8 000 ₽", summaryText("К"))
+        assertEquals("4 800 ₽", summaryText("∆"))
+        capture("formula-group.png")
+        runBlocking {
+            val line = repository.observeOrder(orderId).first()!!.lines.single()
+            repository.saveOrder(command.copy(commandId = UUID.randomUUID(), orderId = orderId, costs = emptyList(),
+                lines = listOf(command.lines.single().copy(id = line.id, productId = line.productId))))
+        }
+        compose.waitUntil(10_000) { summaryText("К") == "—" && summaryText("∆") == "—" }
+        assertEquals("12 800 ₽", summaryText("Д"))
     }
 
     private fun scrollToEditorField(text: String) {
@@ -498,7 +549,7 @@ class GroupDetailScreenTest {
                     OrdersTheme {
                         Box(Modifier.width(width.dp).testTag("group-screen")) {
                             if (openedProduct != null) ProductDetailScreen(repository, openedProduct!!,
-                                onBack = { openedProduct = null }, onOpenOrder = { openedOrder = it; orderId = it; openedProduct = null; showPrices = false; showOrder = true })
+                                onBack = { openedProduct = null })
                             else if (showPrices) PricesScreen(repository, onOpenProduct = { openedProduct = it })
                             else if (showOrder) OrderEditorScreen(repository, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
                             else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
