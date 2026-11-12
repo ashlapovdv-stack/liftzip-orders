@@ -9,6 +9,7 @@ import java.util.UUID
 enum class Currency { RUB, CNY }
 enum class GroupState { FORMING, CALCULATING, COMPLETED }
 enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
+enum class OrderStage { ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
 
 data class OrderFulfillment(
     val withdrawn: Boolean = false,
@@ -16,6 +17,14 @@ data class OrderFulfillment(
     val received: Boolean = false,
 ) {
     val isComplete: Boolean get() = withdrawn && transferred && received
+
+    // Flags remain independent; the earliest unfinished action determines the displayed stage.
+    val stage: OrderStage get() = when {
+        !withdrawn -> OrderStage.ACCEPTED
+        !transferred -> OrderStage.AWAITING_PAYMENT
+        !received -> OrderStage.IN_DELIVERY
+        else -> OrderStage.COMPLETED
+    }
 
     fun withAction(action: OrderAction, checked: Boolean): OrderFulfillment = when (action) {
         OrderAction.WITHDRAWN -> copy(withdrawn = checked)

@@ -93,6 +93,21 @@ fun GroupStatusBadge(state: GroupState) {
 }
 
 @Composable
+fun OrderStatusBadge(stage: ru.liftzip.orders.domain.model.OrderStage) {
+    val (text, colors) = when (stage) {
+        ru.liftzip.orders.domain.model.OrderStage.ACCEPTED -> "Принят" to (Color(0xFFE6EFFC) to Color(0xFF184D8D))
+        ru.liftzip.orders.domain.model.OrderStage.AWAITING_PAYMENT -> "На оплате" to (Color(0xFFFFF0CE) to Color(0xFF805600))
+        ru.liftzip.orders.domain.model.OrderStage.IN_DELIVERY -> "Доставка" to (Color(0xFFECE6FA) to Color(0xFF604196))
+        ru.liftzip.orders.domain.model.OrderStage.COMPLETED -> "Выполнен" to (Color(0xFFD9F0E3) to Color(0xFF17613B))
+    }
+    Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(
+        containerColor = colors.first, contentColor = colors.second,
+    )) {
+        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
 fun EmptyState(text: String) {
     Column(
         Modifier.fillMaxWidth().padding(32.dp),

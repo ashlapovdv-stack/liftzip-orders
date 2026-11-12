@@ -39,6 +39,7 @@ import ru.liftzip.orders.app.feature.orders.OrdersScreen
 import ru.liftzip.orders.app.feature.orders.OrderEditorScreen
 import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
+import ru.liftzip.orders.app.ui.MainScreenScaffold
 import ru.liftzip.orders.app.ui.OrdersTheme
 import ru.liftzip.orders.data.database.OrdersDatabase
 import ru.liftzip.orders.data.repository.RoomOrdersRepository
@@ -62,6 +63,7 @@ class GroupDetailScreenTest {
     private var showOrder by mutableStateOf(false)
     private var showOrders by mutableStateOf(false)
     private var openedGroup: UUID? = null
+    private var previewTab by mutableStateOf(0)
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -218,8 +220,30 @@ class GroupDetailScreenTest {
             repository.setOrderAction(orderIds[1], OrderAction.WITHDRAWN, true)
         }
         showOrders = true
-        showScreen(1f)
-        compose.onNodeWithText("Доставка").assertExists()
+        showScreen(1.3f, 320f)
+        listOf(1 to "Доставка", 2 to "На оплате", 3 to "Принят").forEach { (number, stage) ->
+            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("order-card-$number"))
+            compose.onNodeWithText(stage).assertExists()
+        }
+        compose.onNodeWithText("Тестовая позиция").assertDoesNotExist()
+        capture("orders-compact-large-font.png")
+        runBlocking { repository.setOrderAction(orderId, OrderAction.RECEIVED, true) }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("order-card-1"))
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Выполнен").fetchSemanticsNodes().isNotEmpty() }
+        runBlocking { repository.setOrderAction(orderId, OrderAction.WITHDRAWN, false) }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("order-card-1") and hasText("Принят")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("orders-search"))
+        compose.onNodeWithTag("orders-search").performTextReplacement("электроника").performImeAction()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-card-1").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("order-card-2").assertExists()
+        compose.onNodeWithTag("order-card-3").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.onNodeWithTag("orders-search").performImeAction()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("order-card-3").fetchSemanticsNodes().isNotEmpty() }
+        listOf("Заказы", "Группы", "История цен").forEachIndexed { index, title ->
+            compose.onNodeWithTag("main-tab-$index").performClick().assertIsSelected()
+            compose.onNodeWithTag("main-title").assertTextEquals(title)
+        }
     }
 
     @Test fun formingOrderKeepsFulfillmentDisabled() {
@@ -331,9 +355,11 @@ class GroupDetailScreenTest {
                     OrdersTheme {
                         Box(Modifier.width(width.dp).testTag("group-screen")) {
                             if (showOrder) OrderEditorScreen(repository, orderId, onBack = { showOrder = false; showOrders = true })
-                            else if (showOrders) OrdersScreen(repository,
-                                onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},
-                                onOpenGroup = { openedGroup = it; showOrders = false })
+                            else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
+                                OrdersScreen(repository,
+                                    onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},
+                                    onOpenGroup = { openedGroup = it; showOrders = false })
+                            }
                             else if (showGroups) GroupsScreen(repository, onOpenGroup = {})
                             else GroupDetailScreen(repository, groupId, onBack = { showOrders = true }, onOpenOrder = { openedOrder = it })
                         }
@@ -342,7 +368,10 @@ class GroupDetailScreenTest {
             }
         }
         try {
-            compose.waitUntil(10_000) { compose.onAllNodesWithText(longTitle).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) {
+                if (showOrders) compose.onAllNodesWithTag("order-card-3").fetchSemanticsNodes().isNotEmpty()
+                else compose.onAllNodesWithText(longTitle).fetchSemanticsNodes().isNotEmpty()
+            }
         } catch (error: ComposeTimeoutException) {
             compose.onRoot().printToLog("GroupScreenTest")
             runCatching { capture("group-timeout.png") }

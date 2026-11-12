@@ -33,6 +33,7 @@ fun OrderFulfillmentActions(
     orderNumber: Long,
     progress: OrderFulfillment,
     enabled: Boolean = true,
+    compact: Boolean = false,
     captionStyle: TextStyle = MaterialTheme.typography.labelSmall,
     onAction: ((OrderAction, Boolean) -> Unit)? = null,
 ) {
@@ -42,7 +43,7 @@ fun OrderFulfillmentActions(
         Triple(OrderAction.TRANSFERRED, "Передал", progress.transferred),
         Triple(OrderAction.RECEIVED, "Получено", progress.received),
     )
-    Row(Modifier.fillMaxWidth()) {
+    Row(if (compact) Modifier else Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 0.dp)) {
         entries.forEach { (step, label, checked) ->
             val description = when (step) {
                 OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
@@ -57,17 +58,27 @@ fun OrderFulfillmentActions(
                 role = Role.Checkbox
                 toggleableState = ToggleableState(checked)
             }
-            Column(Modifier.weight(1f).heightIn(min = 44.dp).then(interaction)
-                .testTag(tag).semantics { contentDescription = "Заказ №$orderNumber: $description" },
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Box(Modifier.size(16.dp).testTag("$tag-square")
+            val cell = interaction.testTag(tag).semantics { contentDescription = "Заказ №$orderNumber: $description" }
+            val square: @Composable () -> Unit = {
+                Box(Modifier.size(if (compact) 12.dp else 16.dp).testTag("$tag-square")
                     .background(if (checked) green else Color.Transparent, RoundedCornerShape(3.dp))
                     .border(1.dp, if (checked) green else Color(0xFF9AA3AD), RoundedCornerShape(3.dp)),
                     contentAlignment = Alignment.Center) {
-                    if (checked) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    if (checked) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(if (compact) 10.dp else 14.dp))
                 }
-                Text(label, Modifier.fillMaxWidth().padding(top = 3.dp).testTag("$tag-caption"),
-                    style = captionStyle, textAlign = TextAlign.Center)
+            }
+            if (compact) {
+                Row(cell.heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    square()
+                    Text(label, Modifier.testTag("$tag-caption"), style = captionStyle)
+                }
+            } else {
+                Column(Modifier.weight(1f).heightIn(min = 44.dp).then(cell),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    square()
+                    Text(label, Modifier.fillMaxWidth().padding(top = 3.dp).testTag("$tag-caption"),
+                        style = captionStyle, textAlign = TextAlign.Center)
+                }
             }
         }
     }

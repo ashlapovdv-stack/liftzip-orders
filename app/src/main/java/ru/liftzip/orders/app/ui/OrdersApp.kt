@@ -1,12 +1,18 @@
 package ru.liftzip.orders.app.ui
 
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -18,6 +24,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -49,41 +62,15 @@ fun OrdersApp(container: AppContainer) {
 
     NavHost(navController = nav, startDestination = "main", modifier = Modifier.fillMaxSize()) {
         composable("main") {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = { Text(tabTitles[selectedTab.coerceIn(0, 2)]) },
-                        actions = {
-                            IconButton(onClick = { nav.navigate("settings") }) {
-                                Icon(Icons.Default.Settings, contentDescription = "Настройки и резервные копии")
-                            }
-                        },
-                    )
-                },
-                bottomBar = {
-                    NavigationBar {
-                        tabTitles.forEachIndexed { index, title ->
-                            NavigationBarItem(
-                                selected = selectedTab == index,
-                                onClick = { mainModel.selectTab(index) },
-                                icon = { Icon(tabIcons[index], contentDescription = title) },
-                                label = { Text(title) },
-                            )
-                        }
-                    }
-                },
-            ) { padding ->
-                androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(padding)) {
-                    when (selectedTab.coerceIn(0, 2)) {
-                        0 -> OrdersScreen(
-                            container.repository,
-                            onOpenOrder = { nav.navigate("order/$it") },
-                            onNewOrder = { nav.navigate("order/new") },
-                            onOpenGroup = { nav.navigate("group/$it") },
-                        )
-                        1 -> GroupsScreen(container.repository) { nav.navigate("group/$it") }
-                        else -> PricesScreen(container.repository) { nav.navigate("product/$it") }
-                    }
+            MainScreenScaffold(selectedTab = selectedTab, onSelectTab = { mainModel.selectTab(it) },
+                onSettings = { nav.navigate("settings") }) {
+                when (selectedTab.coerceIn(0, 2)) {
+                    0 -> OrdersScreen(container.repository,
+                        onOpenOrder = { nav.navigate("order/$it") },
+                        onNewOrder = { nav.navigate("order/new") },
+                        onOpenGroup = { nav.navigate("group/$it") })
+                    1 -> GroupsScreen(container.repository) { nav.navigate("group/$it") }
+                    else -> PricesScreen(container.repository) { nav.navigate("product/$it") }
                 }
             }
         }
@@ -124,4 +111,52 @@ fun OrdersApp(container: AppContainer) {
             SettingsScreen(container.backup, container.settings, onBack = { nav.popBackStack() })
         }
     }
+}
+
+/** Compact chrome shared by the three main tabs, including system bar insets. */
+@Composable
+internal fun MainScreenScaffold(
+    selectedTab: Int,
+    onSelectTab: (Int) -> Unit,
+    onSettings: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Scaffold(containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Row(Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(tabTitles[selectedTab.coerceIn(0, 2)], Modifier.weight(1f).testTag("main-title"),
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp),
+                        fontWeight = FontWeight.Medium)
+                    IconButton(onClick = onSettings, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Settings, "Настройки и резервные копии", Modifier.size(22.dp))
+                    }
+                }
+            }
+        },
+        bottomBar = {
+            Surface(color = Color.White) {
+                Column(Modifier.navigationBarsPadding()) {
+                    HorizontalDivider(color = Color(0xFFE1E8E5))
+                    Row(Modifier.fillMaxWidth().height(56.dp)) {
+                        tabTitles.forEachIndexed { index, title ->
+                            val selected = selectedTab == index
+                            val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            Column(Modifier.weight(1f).fillMaxHeight().testTag("main-tab-$index")
+                                .selectable(selected, role = Role.Tab, onClick = { onSelectTab(index) }),
+                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                Box(Modifier.size(36.dp, 24.dp).background(
+                                    if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center) {
+                                    Icon(tabIcons[index], null, Modifier.size(20.dp), tint = color)
+                                }
+                                Text(title, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp), color = color)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    ) { padding -> Box(Modifier.fillMaxSize().padding(padding)) { content() } }
 }

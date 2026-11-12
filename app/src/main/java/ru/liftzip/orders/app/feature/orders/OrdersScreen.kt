@@ -1,9 +1,16 @@
 package ru.liftzip.orders.app.feature.orders
 
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,8 +19,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +37,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -39,7 +54,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import ru.liftzip.orders.app.ui.AppTextField
 import ru.liftzip.orders.app.ui.OrdersViewModel
 import ru.liftzip.orders.app.ui.EmptyState
-import ru.liftzip.orders.app.ui.GroupStatusBadge
+import ru.liftzip.orders.app.ui.OrderStatusBadge
 import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.app.ui.formatDate
@@ -63,15 +78,16 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                AppTextField(query, model::search, "Поиск: номер, клиент, товар, артикул")
+                CompactOrderSearch(query, model::search)
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = filter == OrdersFilter.ALL, onClick = { model.filter(OrdersFilter.ALL) }, label = { Text("Все") })
+                    FilterChip(modifier = Modifier.height(32.dp), selected = filter == OrdersFilter.ALL, onClick = { model.filter(OrdersFilter.ALL) }, label = { Text("Все", style = MaterialTheme.typography.labelMedium) })
                     FilterChip(
+                        modifier = Modifier.height(32.dp),
                         selected = filter == OrdersFilter.NEEDS_CALCULATION,
                         onClick = { model.filter(OrdersFilter.NEEDS_CALCULATION) },
-                        label = { Text("Нужен расчёт") },
+                        label = { Text("Нужен расчёт", style = MaterialTheme.typography.labelMedium) },
                     )
                 }
             }
@@ -93,18 +109,16 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth().testTag("order-card-${summary.order.number}"), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("№${summary.order.number} · ${summary.order.date.formatDate()}",
                     style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                GroupStatusBadge(summary.groupState)
+                OrderStatusBadge(summary.order.fulfillment.stage)
             }
             Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            if (summary.composition.isNotBlank()) Text(summary.composition, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Продажа: ${summary.sales.format()}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text("Оплата: ${summary.order.receivedPayment.format()}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
@@ -113,13 +127,39 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
                 color = MaterialTheme.colorScheme.error)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
-                    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment,
+                    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, compact = true,
                         captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 0.sp))
                 }
-                TextButton(onClick = onOpenGroup, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
+                TextButton(onClick = onOpenGroup, modifier = Modifier.height(32.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
                     Text("Группа №${summary.groupNumber} →", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun CompactOrderSearch(value: String, onChange: (String) -> Unit) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    BasicTextField(value, onChange, singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+        modifier = Modifier.fillMaxWidth().height(44.dp).testTag("orders-search")
+            .semantics { contentDescription = "Поиск: номер, клиент, товар, артикул" }
+            .background(Color.White, RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFFD8E1E5), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp),
+        decorationBox = { input ->
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) Text("Поиск заказов", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    input()
+                }
+                if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, "Очистить поиск", Modifier.size(16.dp))
+                }
+            }
+        })
 }

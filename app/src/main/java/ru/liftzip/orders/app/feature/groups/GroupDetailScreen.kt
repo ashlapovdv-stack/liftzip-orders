@@ -398,7 +398,7 @@ private fun FinancialRow(
 
 @Composable
 private fun OrderActions(summary: OrderSummary, enabled: Boolean, captionStyle: TextStyle, onAction: (UUID, OrderAction, Boolean) -> Unit) {
-    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, enabled, captionStyle) { action, checked ->
+    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, enabled = enabled, captionStyle = captionStyle) { action, checked ->
         onAction(summary.order.id, action, checked)
     }
 }
