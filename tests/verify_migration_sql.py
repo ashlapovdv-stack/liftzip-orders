@@ -11,7 +11,7 @@ CURRENT = int(re.search(r'const val SCHEMA_VERSION = (\d+)', SOURCE)[1])
 assert 'version = OrdersDatabase.SCHEMA_VERSION' in SOURCE, 'Room and backup must use the same version'
 
 def schema(version):
-    return json.loads((SCHEMAS / f'{version}.json').read_text())['database']
+    return json.loads((SCHEMAS / f'{min(version, 7)}.json').read_text())['database']
 
 def create(db, definition):
     for table in definition['entities']:
@@ -27,6 +27,11 @@ def migrate(db, start):
     columns = re.findall(r'"([^"]+)"', loop[1]) if loop else []
     statements = re.findall(r'db.execSQL\("([^"\n]+)"\)', body)
     assert statements, f'no SQL in migration {start}'
+    if 'createFormationGuards(db)' in body:
+        statements.extend([
+            "CREATE TRIGGER IF NOT EXISTS settlement_groups_one_forming_insert BEFORE INSERT ON settlement_groups WHEN NEW.state = 'FORMING' AND EXISTS (SELECT 1 FROM settlement_groups WHERE state = 'FORMING') BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END",
+            "CREATE TRIGGER IF NOT EXISTS settlement_groups_one_forming_update BEFORE UPDATE OF state ON settlement_groups WHEN NEW.state = 'FORMING' AND EXISTS (SELECT 1 FROM settlement_groups WHERE state = 'FORMING' AND id != OLD.id) BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END",
+        ])
     for statement in statements:
         if '$it' in statement:
             assert columns
@@ -69,6 +74,10 @@ for start in range(1, CURRENT):
     for version in range(start, CURRENT):
         migrate(db, version)
         compare(db, version + 1)
+    # The v8 migration removes the Room-invisible partial index.
+    assert not db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='index_settlement_groups_one_forming'").fetchone()
+    assert db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='settlement_groups_one_forming_insert'").fetchone()
+    assert db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='settlement_groups_one_forming_update'").fetchone()
     assert db.execute('SELECT receivedPaymentMinor,comment FROM orders').fetchone() == (500000, 'original')
     assert db.execute('SELECT withdrawn,transferred,received FROM orders').fetchone() == (0, 0, 0)
     assert db.execute('SELECT orderRate FROM orders').fetchone() == (('13.25' if start >= 3 else None),)
