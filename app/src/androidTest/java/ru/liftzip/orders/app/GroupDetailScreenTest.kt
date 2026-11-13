@@ -587,7 +587,7 @@ class GroupDetailScreenTest {
                                     onOpenGroup = { openedGroup = it; groupId = it; showOrders = false })
                             }
                             else if (showGroups) GroupsScreen(repository, onOpenGroup = {})
-                            else GroupDetailScreen(repository, groupId, onBack = { showOrders = true }, onOpenOrder = { openedOrder = it }, onOpenDrafts = {})
+                            else GroupDetailScreen(repository, groupId, onBack = { showOrders = true }, onOpenOrder = { openedOrder = it })
                         }
                     }
                 }
