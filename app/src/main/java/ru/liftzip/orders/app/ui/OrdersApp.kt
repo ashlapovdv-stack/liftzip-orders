@@ -49,6 +49,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ru.liftzip.orders.app.AppContainer
+import ru.liftzip.orders.app.feature.mail.GroupDraftScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
 import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.orders.OrderEditorScreen
@@ -125,7 +126,12 @@ fun OrdersApp(container: AppContainer) {
             GroupDetailScreen(
                 container.repository, id, onBack = { nav.popBackStack() },
                 onOpenOrder = { nav.navigate("order/$it") },
+                onOpenDrafts = { nav.navigate("drafts/$id") },
             )
+        }
+        composable("drafts/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+            val id = UUID.fromString(entry.arguments?.getString("id"))
+            GroupDraftScreen(container.repository, id, onBack = { nav.popBackStack() })
         }
         composable(
             "product/{id}",
