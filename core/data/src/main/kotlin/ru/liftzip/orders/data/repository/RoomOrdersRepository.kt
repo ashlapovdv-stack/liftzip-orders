@@ -314,7 +314,7 @@ class RoomOrdersRepository(
                     deliveryWeight = draft.deliveryWeight?.canonical(), deliveryTariff = draft.deliveryTariff?.canonical(),
                     deliveryRate = if (draft.deliveryWeight != null || draft.deliveryTariff != null || draft.deliveryPlanDate != null)
                         command.orderRate?.canonical() else null,
-                    deliveryPlanDate = draft.deliveryPlanDate?.toString(),
+                    deliveryPlanDate = draft.deliveryPlanDate?.toString(), productUrl = draft.productUrl,
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.
