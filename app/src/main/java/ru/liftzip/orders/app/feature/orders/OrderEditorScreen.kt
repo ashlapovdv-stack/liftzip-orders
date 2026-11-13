@@ -94,6 +94,7 @@ import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.PriceSearchViewModel
 import ru.liftzip.orders.app.ui.OrderFulfillmentActions
+import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
@@ -124,6 +125,7 @@ fun OrderEditorScreen(
     )
     val state by model.state.collectAsState()
     val context = LocalContext.current
+    val mailStore = remember { GroupDraftStore(context.applicationContext) }
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageTarget by remember { mutableStateOf<Int?>(null) }
@@ -193,6 +195,9 @@ fun OrderEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             OrderFulfillmentActions(state.orderNumber, state.fulfillment,
+                                mailDraftCreated = state.groupId?.let { group ->
+                                    state.orderId?.let { order -> mailStore.get(group, order) != null }
+                                } == true,
                                 enabled = state.loaded && state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
                                 captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp),
                                 onAction = model::setAction)
