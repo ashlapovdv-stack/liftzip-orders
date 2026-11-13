@@ -183,7 +183,7 @@ fun OrderEditorScreen(
                 onBack = { if (model.requestBack()) onBack() }) {
                 if (orderId != null && (hasMailDraft || canFormMail)) {
                     OutlinedButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
-                        modifier = Modifier.width(72.dp).height(44.dp),
+                        modifier = Modifier.width(70.dp).height(44.dp),
                         enabled = state.loaded && !state.saving && !state.actionsSaving &&
                             !state.dirty && state.groupId != null,
                         shape = RoundedCornerShape(10.dp),
@@ -199,6 +199,7 @@ fun OrderEditorScreen(
                         }
                     }
                 }
+                Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = { model.save { onBack() } },
                     modifier = Modifier.width(72.dp).height(44.dp),
                     enabled = state.loaded && !state.saving && !state.actionsSaving,
@@ -213,7 +214,6 @@ fun OrderEditorScreen(
                             fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
                     }
                 }
-
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
