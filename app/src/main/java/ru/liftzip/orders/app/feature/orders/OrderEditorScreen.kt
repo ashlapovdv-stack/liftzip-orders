@@ -116,6 +116,7 @@ fun OrderEditorScreen(
     settings: SettingsStore,
     orderId: UUID?,
     onBack: () -> Unit,
+    onOpenDraft: (UUID, UUID) -> Unit = { _, _ -> },
 ) {
     val model = viewModel<OrderEditorViewModel>(
         key = "order-${orderId ?: "new"}",
@@ -171,6 +172,20 @@ fun OrderEditorScreen(
             item {
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
                     "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
+            }
+            if (orderId != null) {
+                item {
+                    Button(
+                        onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
+                        enabled = state.loaded && !state.saving && !state.actionsSaving &&
+                            !state.dirty && state.groupId != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Сформировать письмо / Открыть черновик") }
+                    if (state.dirty) {
+                        Text("Сначала сохраните изменения заказа",
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
             item {
                 OrderSection {
