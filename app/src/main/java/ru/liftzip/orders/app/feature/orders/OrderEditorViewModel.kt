@@ -403,6 +403,7 @@ class OrderEditorViewModel(
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
         deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
+        productUrl = productUrl.ifBlank { null },
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
