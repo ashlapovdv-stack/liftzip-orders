@@ -46,6 +46,8 @@ def compare(db, version):
     create(expected, definition)
     if version >= 7:
         expected.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
+    if version >= 9:
+        expected.execute('ALTER TABLE order_lines ADD COLUMN actualWeight TEXT')
     for table in definition['entities']:
         name = table['tableName']
         for pragma in ('table_info', 'foreign_key_list'):
