@@ -120,6 +120,7 @@ data class OrderLine(
     val deliveryPlanDate: LocalDate? = null,
     val productUrl: String? = null,
     val actualWeight: BigDecimal? = null,
+    val images: List<ByteArray> = emptyList(),
 )
 
 data class CostEntry(
@@ -207,6 +208,7 @@ data class PriceRecordView(
     val deliveryTariff: BigDecimal? = null,
     val actualWeight: BigDecimal? = null,
     val productUrl: String? = null,
+    val images: List<ByteArray> = emptyList(),
 )
 
 data class ProductPriceHistory(
