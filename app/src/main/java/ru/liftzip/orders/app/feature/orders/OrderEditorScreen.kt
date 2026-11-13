@@ -191,7 +191,7 @@ fun OrderEditorScreen(
                 }
             }
             if (!state.salesLocked) item {
-                OutlinedButton(onClick = { model.addLine(); editingLine = state.lines.size }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Добавить позицию") }
+                OutlinedButton(onClick = { model.addLine(); editingLine = 0 }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Добавить позицию") }
             }
             item {
                 OrderSection {
