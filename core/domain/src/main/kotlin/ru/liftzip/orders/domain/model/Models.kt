@@ -118,6 +118,7 @@ data class OrderLine(
     val deliveryTariff: BigDecimal? = null,
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
+    val productUrl: String? = null,
 )
 
 data class CostEntry(
