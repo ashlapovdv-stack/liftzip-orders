@@ -105,6 +105,7 @@ data class OrderLineEntity(
     val deliveryTariff: String? = null,
     val deliveryRate: String? = null,
     val deliveryPlanDate: String? = null,
+    val productUrl: String? = null,
 )
 
 @Serializable
