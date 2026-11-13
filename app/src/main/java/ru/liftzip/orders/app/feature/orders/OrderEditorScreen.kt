@@ -12,6 +12,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import ru.liftzip.orders.app.SettingsStore
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Surface
@@ -107,6 +109,7 @@ import java.util.UUID
 @Composable
 fun OrderEditorScreen(
     repository: OrdersRepository,
+    settings: SettingsStore,
     orderId: UUID?,
     onBack: () -> Unit,
 ) {
@@ -116,6 +119,7 @@ fun OrderEditorScreen(
     )
     val state by model.state.collectAsState()
     val context = LocalContext.current
+    val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageTarget by remember { mutableStateOf<Int?>(null) }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -319,15 +323,17 @@ fun OrderEditorScreen(
                         }
                         AppTextField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
-                        Text("Фотографии товара", style = MaterialTheme.typography.titleSmall)
-                        OutlinedButton(onClick = { imageTarget = index; gallery.launch("image/*") }) {
-                            Text("Добавить из галереи")
-                        }
-                        Row(
-                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (galleryButtonFixed) {
+                                GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
+                            }
+                            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                if (!galleryButtonFixed) {
+                                    GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
+                                }
                             line.images.forEachIndexed { photoIndex, bytes ->
                                 val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
                                 Box(Modifier.size(76.dp)) {
@@ -344,6 +350,7 @@ fun OrderEditorScreen(
                                             modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
                                     }
                                 }
+                            }
                             }
                         }
                         AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
@@ -493,5 +500,20 @@ private fun CompactItemSection(content: @Composable ColumnScope.() -> Unit) {
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp), content = content)
+    }
+}
+
+@Composable
+private fun GalleryAddTile(onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.size(76.dp),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Добавить фото из галереи",
+                modifier = Modifier.size(28.dp))
+            Text("Добавить", style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
