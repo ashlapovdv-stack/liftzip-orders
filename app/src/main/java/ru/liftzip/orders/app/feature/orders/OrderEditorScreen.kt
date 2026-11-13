@@ -235,9 +235,6 @@ fun OrderEditorScreen(
                         }
                     }
                 }
-                /* documents are order-owned and remain available after reopening the order */
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.height(0.dp))
                 }
             }
             item {
