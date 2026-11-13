@@ -40,6 +40,25 @@ class RoomOrdersRepositoryTest {
 
     @After fun tearDown() { database.close() }
 
+    @Test fun taobaoUrlSurvivesSaveAndEditWithoutChangingOrderTotals() = runTest {
+        val canonical = "https://item.taobao.com/item.htm?id=45184215152"
+        val command = orderCommand().copy(lines = listOf(
+            orderCommand().lines.single().copy(productUrl = canonical),
+        ))
+        val id = repository.saveOrder(command)
+        val before = repository.observeOrder(id).first()!!
+        assertEquals(canonical, before.lines.single().productUrl)
+        val line = before.lines.single()
+        repository.saveOrder(command.copy(
+            commandId = UUID.randomUUID(), orderId = id,
+            lines = listOf(command.lines.single().copy(id = line.id, productId = line.productId)),
+        ))
+        val after = repository.observeOrder(id).first()!!
+        assertEquals(canonical, after.lines.single().productUrl)
+        assertEquals(before.order.receivedPayment, after.order.receivedPayment)
+        assertEquals(before.lines.single().saleUnitPrice, after.lines.single().saleUnitPrice)
+    }
+
     @Test fun saveIsIdempotentAndPriceHistoryDoesNotDuplicate() = runTest {
         val command = orderCommand()
         val id = repository.saveOrder(command)
