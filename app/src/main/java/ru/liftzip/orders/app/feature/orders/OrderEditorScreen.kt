@@ -235,7 +235,6 @@ fun OrderEditorScreen(
                         }
                     }
                 }
-                }
             }
             item {
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
