@@ -262,17 +262,26 @@ fun OrderEditorScreen(
                             Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽", style = MaterialTheme.typography.bodySmall)
                             if (state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции", color = MaterialTheme.colorScheme.error)
                         }
-                        if (line.images.isNotEmpty()) {
-                            Icon(Icons.Default.Image, "К товару прикреплены фотографии", Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.primary)
-                        }
-                        if (orderId != null && line.id != null &&
-                            documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
-                            Icon(Icons.Default.AttachFile, "Документы товара", Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.primary)
-                        }
-                        IconButton(onClick = { deleteLineIndex = index }, enabled = !state.saving, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.Delete, "Удалить позицию ${index + 1}", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                                if (line.images.isNotEmpty()) {
+                                    Icon(Icons.Default.Image, "К товару прикреплены фотографии",
+                                        Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                                if (orderId != null && line.id != null &&
+                                    documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
+                                    Icon(Icons.Default.AttachFile, "Документы товара",
+                                        Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            IconButton(onClick = { deleteLineIndex = index },
+                                enabled = !state.saving, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, "Удалить позицию ${index + 1}",
+                                    Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }
@@ -470,6 +479,7 @@ fun OrderEditorScreen(
                                             modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
                                     }
                                 }
+                            }
                                 docs.forEach { file ->
                                     Box(Modifier.size(76.dp).background(Color(0xFFEAF3EB), RoundedCornerShape(10.dp))) {
                                         Column(Modifier.fillMaxSize().clickable {
