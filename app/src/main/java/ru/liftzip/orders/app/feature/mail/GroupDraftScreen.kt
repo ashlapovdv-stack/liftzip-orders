@@ -161,11 +161,6 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                             }
                         }
                     }
-                }
-            }
-            if (documents.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     documents.forEach { document ->
                         Surface(onClick = {
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", document)
