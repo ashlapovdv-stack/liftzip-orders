@@ -1,6 +1,9 @@
 package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -98,6 +101,9 @@ fun OrderEditorScreen(
         factory = viewModelFactory { initializer { OrderEditorViewModel(repository, orderId) } },
     )
     val state by model.state.collectAsState()
+    val linkScope = rememberCoroutineScope()
+    var resolvingLink by remember { mutableStateOf(false) }
+    var linkError by remember { mutableStateOf<String?>(null) }
     var editingLine by remember { mutableStateOf<Int?>(null) }
     var catalogLine by remember { mutableStateOf<Int?>(null) }
     var historyExpanded by remember { mutableStateOf(false) }
@@ -261,6 +267,35 @@ fun OrderEditorScreen(
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
                         AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
                             "Артикул", enabled = !state.salesLocked)
+                        AppTextField(line.productUrl, { value ->
+                            model.updateLine(index) { it.copy(productUrl = value) }
+                            linkError = null
+                        }, "Ссылка Taobao", enabled = !state.salesLocked)
+                        if (!state.salesLocked) {
+                            TextButton(
+                                enabled = !resolvingLink && line.productUrl.isNotBlank(),
+                                onClick = {
+                                    val original = line.productUrl
+                                    resolvingLink = true
+                                    linkError = null
+                                    linkScope.launch {
+                                        try {
+                                            val resolved = TaobaoLinkResolver.resolve(original)
+                                            if (resolved != null) {
+                                                model.updateLine(index) { it.copy(productUrl = resolved) }
+                                            } else {
+                                                linkError = "Не удалось получить постоянную ссылку. Проверьте адрес товара."
+                                            }
+                                        } catch (e: Exception) {
+                                            linkError = "Ссылка недоступна. Проверьте подключение."
+                                        } finally {
+                                            resolvingLink = false
+                                        }
+                                    }
+                                },
+                            ) { Text(if (resolvingLink) "Преобразую…" else "Получить постоянную ссылку") }
+                        }
+                        linkError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppTextField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
                                 "Количество", Modifier.weight(0.8f), error = state.errors["line_${index}_quantity"], enabled = !state.salesLocked, decimal = true)
