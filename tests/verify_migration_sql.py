@@ -66,6 +66,15 @@ for start in range(1, CURRENT):
         db.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
     if start >= 9:
         db.execute('ALTER TABLE order_lines ADD COLUMN actualWeight TEXT')
+    if start >= 8:
+        db.executescript("""
+            CREATE TRIGGER settlement_groups_one_forming_insert BEFORE INSERT ON settlement_groups
+            WHEN NEW.state = 'FORMING' AND EXISTS (SELECT 1 FROM settlement_groups WHERE state = 'FORMING')
+            BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END;
+            CREATE TRIGGER settlement_groups_one_forming_update BEFORE UPDATE OF state ON settlement_groups
+            WHEN NEW.state = 'FORMING' AND EXISTS (SELECT 1 FROM settlement_groups WHERE state = 'FORMING' AND id != OLD.id)
+            BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END;
+        """)
     db.execute("INSERT INTO settlement_groups VALUES('group',1,'CALCULATING',0,1,1,1,1)")
     db.execute("INSERT INTO products VALUES('product','Товар',NULL,NULL,NULL,'[]',1,1,1)")
     db.execute("INSERT INTO orders(id,number,date,counterparty,groupId,receivedPaymentMinor,comment,costsConfirmed,calculationState,createdAt,updatedAt,revision) VALUES('order',1,'2026-11-11','Тест','group',500000,'original',0,'INCOMPLETE',1,1,1)")
