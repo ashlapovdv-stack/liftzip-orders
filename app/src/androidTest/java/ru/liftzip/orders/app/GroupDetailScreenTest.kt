@@ -411,7 +411,6 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Ссылка Taobao").performScrollTo().performTextReplacement(
             "https://item.taobao.com/item.htm?id=45184215152&spm=abc",
         )
-        compose.onNodeWithText("Получить постоянную ссылку").performScrollTo().performClick()
         compose.waitUntil(10_000) {
             compose.onAllNodesWithText("https://item.taobao.com/item.htm?id=45184215152").fetchSemanticsNodes().isNotEmpty()
         }
