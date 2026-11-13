@@ -45,6 +45,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import ru.liftzip.orders.app.feature.mail.GroupDraftStore
+import ru.liftzip.orders.app.feature.mail.OrderDocumentStore
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -77,6 +79,7 @@ import java.util.UUID
 fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNewOrder: () -> Unit, onOpenGroup: (UUID) -> Unit) {
     val context = LocalContext.current
     val draftStore = remember { GroupDraftStore(context.applicationContext) }
+    val documentStore = remember { OrderDocumentStore(context.applicationContext) }
     val lifecycleOwner = LocalLifecycleOwner.current
     var draftRevision by remember { mutableIntStateOf(0) }
     DisposableEffect(lifecycleOwner) {
@@ -115,7 +118,8 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             if (orders.isEmpty()) item { EmptyState("Заказов нет. Создайте первый оплаченный заказ") }
             items(orders, key = { it.order.id }) { summary ->
                 OrderCard(summary, onClick = { onOpenOrder(summary.order.id) }, onOpenGroup = { onOpenGroup(summary.order.groupId) },
-                    hasDraft = draftRevision.let { draftStore.get(summary.order.groupId, summary.order.id) != null })
+                    hasDraft = draftRevision.let { draftStore.get(summary.order.groupId, summary.order.id) != null },
+                    hasDocuments = draftRevision.let { documentStore.files(summary.order.id).isNotEmpty() })
             }
             if (orders.size >= limit && limit < 500) {
                 item { OutlinedButton(onClick = model::showMore, modifier = Modifier.fillMaxWidth()) { Text("Показать ещё") } }
@@ -130,7 +134,7 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: () -> Unit, hasDraft: Boolean) {
+private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: () -> Unit, hasDraft: Boolean, hasDocuments: Boolean) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth().testTag("order-card-${summary.order.number}"), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
@@ -148,7 +152,11 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
                     OrderStatusBadge(summary.order.fulfillment.stage)
                 }
             }
-            Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                if (hasDocuments) Icon(Icons.Default.AttachFile, contentDescription = "К заказу прикреплены документы",
+                    modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Продажа: ${summary.calculation.priceForDenis.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text("Оплата: ${summary.order.receivedPayment.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
