@@ -580,7 +580,7 @@ class GroupDetailScreenTest {
                             if (openedProduct != null) ProductDetailScreen(repository, openedProduct!!,
                                 onBack = { openedProduct = null })
                             else if (showPrices) PricesScreen(repository, onOpenProduct = { openedProduct = it })
-                            else if (showOrder) OrderEditorScreen(repository, (context.applicationContext as OrdersApplication).container.settings, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
+                            else if (showOrder) OrderEditorScreen(repository, ApplicationProvider.getApplicationContext<OrdersApplication>().container.settings, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
                             else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
                                 OrdersScreen(repository,
                                     onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},
