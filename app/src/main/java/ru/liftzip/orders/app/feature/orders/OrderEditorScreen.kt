@@ -326,6 +326,21 @@ fun OrderEditorScreen(
             dismissButton = { TextButton(onClick = { deleteLineIndex = null }) { Text("Отмена") } })
     }
 
+    confirmDeleteDocument?.let { (lineId, file) ->
+        AlertDialog(onDismissRequest = { confirmDeleteDocument = null },
+            title = { Text("Удалить документ?") },
+            text = { Text(file.name.substringAfter('_')) },
+            confirmButton = { TextButton(onClick = {
+                if (orderId != null) {
+                    runCatching { documentStore.delete(orderId, lineId, file) }
+                        .onSuccess { documentsRevision++ }
+                        .onFailure { documentError = it.message }
+                }
+                confirmDeleteDocument = null
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteDocument = null }) { Text("Отмена") } })
+    }
+
     confirmDeletePhoto?.let { (lineIndex, photoIndex) ->
         AlertDialog(
             onDismissRequest = { confirmDeletePhoto = null },
@@ -396,6 +411,49 @@ fun OrderEditorScreen(
                                     }
                                 }
                             }
+                            }
+                        }
+                        if (orderId != null && line.id != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = {
+                                    documentLineTarget = line.id
+                                    documentPicker.launch(arrayOf("application/pdf", "application/msword",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                }) {
+                                    Icon(Icons.Default.AttachFile, null, Modifier.size(18.dp))
+                                    Text("Добавить документ")
+                                }
+                            }
+                            val docs = documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
+                            if (docs.isNotEmpty()) {
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    docs.forEach { file ->
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            OutlinedButton(onClick = {
+                                                val mime = when (file.extension.lowercase()) {
+                                                    "pdf" -> "application/pdf"
+                                                    "doc" -> "application/msword"
+                                                    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                                    else -> "application/octet-stream"
+                                                }
+                                                runCatching {
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                                        setDataAndType(FileProvider.getUriForFile(context,
+                                                            "${context.packageName}.files", file), mime)
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    })
+                                                }.onFailure { documentError = it.message }
+                                            }) {
+                                                Icon(Icons.Default.AttachFile, null, Modifier.size(18.dp))
+                                                Text(file.extension.uppercase())
+                                            }
+                                            IconButton(onClick = { confirmDeleteDocument = line.id to file }) {
+                                                Icon(Icons.Default.DeleteOutline, "Удалить документ", tint = Color(0xFFB71C1C))
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         CompactPositionField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
