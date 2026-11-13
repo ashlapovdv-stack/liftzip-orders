@@ -56,6 +56,14 @@ class GroupDraftStore(private val context: Context) {
             output.recycle()
             bitmap.recycle()
         }
+        val documentStore = OrderDocumentStore(context)
+        var documentNumber = 0
+        details.lines.forEachIndexed { lineIndex, line ->
+            documentStore.lineFiles(draft.orderId, line.id).forEach { document ->
+                documentNumber++
+                document.copyTo(File(staged, "doc_${documentNumber}_item${lineIndex + 1}_${document.name.substringAfter('_')}"), overwrite = true)
+            }
+        }
         OrderDocumentStore(context).files(draft.orderId).forEachIndexed { index, document ->
             document.copyTo(File(staged, "doc_${index + 1}_${document.name.substringAfter('_')}"), overwrite = true)
         }
