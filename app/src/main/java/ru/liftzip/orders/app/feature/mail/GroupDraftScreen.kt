@@ -1,6 +1,9 @@
 package ru.liftzip.orders.app.feature.mail
 
 import android.content.Intent
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.filled.Description
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -81,10 +84,10 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
     LaunchedEffect(groupId) { load() }
 
     val darkGreen = Color(0xFF195B47)
-    Column(Modifier.fillMaxSize().background(Color.White).verticalScroll(rememberScrollState())
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.White).verticalScroll(rememberScrollState())
         .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 2.dp)) {
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", modifier = Modifier.size(30.dp))
             }
@@ -116,27 +119,28 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 Text("Получатель", color = Color(0xFF777777), fontSize = 13.sp)
                 BasicTextField(value = recipient, onValueChange = { recipient = it },
                     singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF202020)),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp).padding(top = 8.dp))
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp).padding(top = 8.dp))
                 HorizontalDivider(color = Color(0xFFB8B8B8))
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 Text("Тема", color = Color(0xFF777777), fontSize = 13.sp)
                 BasicTextField(value = subject, onValueChange = { subject = it },
                     singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF202020)),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp).padding(top = 8.dp))
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp).padding(top = 8.dp))
                 HorizontalDivider(color = Color(0xFFB8B8B8))
             }
             Text("Текст письма", color = darkGreen, fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, start = 4.dp))
             BasicTextField(value = body, onValueChange = { body = it },
                 textStyle = TextStyle(fontSize = 14.sp, lineHeight = 21.sp, color = Color(0xFF202020)),
-                modifier = Modifier.fillMaxWidth().height(330.dp)
+                modifier = Modifier.fillMaxWidth().height(245.dp)
                     .border(1.dp, Color(0xFFCECECE), RoundedCornerShape(10.dp))
                     .padding(12.dp))
             val photos = remember(groupId, current.orderId, current.count) {
                 store.attachments(groupId, current.orderId)
             }
-            if (photos.isNotEmpty()) {
+            val documents = remember(groupId, current.orderId, draftVersion) { store.documents(groupId, current.orderId) }
+            if (photos.isNotEmpty() || documents.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     photos.forEachIndexed { index, photo ->
@@ -159,13 +163,42 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                     }
                 }
             }
+            if (documents.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    documents.forEach { document ->
+                        Surface(onClick = {
+                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", document)
+                            val mime = when (document.extension.lowercase()) {
+                                "pdf" -> "application/pdf"
+                                "doc" -> "application/msword"
+                                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                else -> "application/octet-stream"
+                            }
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, mime)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                })
+                            }.onFailure { error = it.message }
+                        }, shape = RoundedCornerShape(10.dp), color = Color(0xFFEAF3EB),
+                            modifier = Modifier.size(92.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center) {
+                                Icon(Icons.Default.Description, contentDescription = null, tint = darkGreen)
+                                Text(document.extension.uppercase(), color = darkGreen)
+                            }
+                        }
+                    }
+                }
+            }
             Row(Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
             DraftActionButton("Сохранить", Icons.Default.Save, darkGreen) { save() }
             DraftActionButton("Поделиться", Icons.Default.Share, darkGreen, onClick = {
                 save()
-                val files = store.attachments(groupId, current.orderId)
+                val files = store.attachments(groupId, current.orderId) + store.documents(groupId, current.orderId)
                 val uris = ArrayList<Uri>(files.map {
                     FileProvider.getUriForFile(context, "${context.packageName}.files", it)
                 })
@@ -173,7 +206,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                     if (uris.isEmpty()) {
                         data = Uri.parse("mailto:")
                     } else {
-                        type = "image/jpeg"
+                        type = "*/*"
                         putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         clipData = android.content.ClipData.newUri(context.contentResolver, "Фотографии", uris.first()).also { clip ->
