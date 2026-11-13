@@ -1,6 +1,15 @@
 package ru.liftzip.orders.app.feature.mail
 
 import android.content.Intent
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -53,7 +62,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
     }
     LaunchedEffect(groupId) { load() }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { onBack() }) { Text("← Назад") }
         Text("Письмо заказа", style = MaterialTheme.typography.titleLarge)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -83,8 +93,34 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
             OutlinedTextField(value = subject, onValueChange = { subject = it },
                 label = { Text("Тема") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = body, onValueChange = { body = it },
-                label = { Text("Текст письма") }, modifier = Modifier.fillMaxWidth().weight(1f))
-            Text("Фотографий: ${current.count}")
+                label = { Text("Текст письма") }, modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 300.dp))
+            val photos = remember(groupId, current.orderId, current.count) {
+                store.attachments(groupId, current.orderId)
+            }
+            Text("Фотографии с номерами: ${photos.size}")
+            if (photos.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    photos.forEachIndexed { index, photo ->
+                        val preview = remember(photo.absolutePath, photo.lastModified()) {
+                            runCatching {
+                                val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                                BitmapFactory.decodeFile(photo.absolutePath, options)?.asImageBitmap()
+                            }.getOrNull()
+                        }
+                        Column {
+                            if (preview != null) {
+                                Image(bitmap = preview, contentDescription = "Фото ${index + 1}, номер позиции нанесён",
+                                    modifier = Modifier.size(104.dp).clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Fit)
+                            } else {
+                                Text("Ошибка фото ${index + 1}", color = MaterialTheme.colorScheme.error)
+                            }
+                            Text("Фото ${index + 1}", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
             Button(onClick = { save() }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить черновик") }
             Button(onClick = {
                 save()
