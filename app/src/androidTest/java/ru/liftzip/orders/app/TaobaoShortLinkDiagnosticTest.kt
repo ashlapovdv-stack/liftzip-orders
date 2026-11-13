@@ -54,7 +54,7 @@ class TaobaoShortLinkDiagnosticTest {
                 val html = if (status in 200..299 && connection.contentType.orEmpty().lowercase(Locale.ROOT).contains("text/html")) {
                     connection.inputStream.bufferedReader().use { it.readText().take(256_000) }
                 } else ""
-                val embedded = Regex("""(?:item\\.taobao\\.com/item\\.htm\\?id=|[?&]itemId=)(\\d{5,20})""")
+                val embedded = Regex("""(?:item\.taobao\.com/item\.htm\?id=|[?&]itemId=)(\d{5,20})""")
                     .find(html)?.groupValues?.get(1)
                 if (embedded != null) {
                     assertEquals("Unexpected embedded item ID", expectedId, embedded)
@@ -71,7 +71,7 @@ class TaobaoShortLinkDiagnosticTest {
     private fun extractItemId(uri: URI): String? {
         if (uri.host?.lowercase(Locale.ROOT) !in setOf("item.taobao.com", "h5.m.taobao.com", "m.intl.taobao.com")) return null
         return uri.rawQuery?.split('&')?.firstOrNull { it.startsWith("id=") }
-            ?.substringAfter('=')?.takeIf { it.matches(Regex("""\\d{5,20}""")) }
+            ?.substringAfter('=')?.takeIf { it.matches(Regex("""\d{5,20}""")) }
     }
 
     private fun isAllowedHost(host: String?): Boolean {
