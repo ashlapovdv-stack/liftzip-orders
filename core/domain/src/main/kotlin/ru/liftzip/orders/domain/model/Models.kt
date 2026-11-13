@@ -119,6 +119,7 @@ data class OrderLine(
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
     val productUrl: String? = null,
+    val actualWeight: BigDecimal? = null,
 )
 
 data class CostEntry(
@@ -204,6 +205,8 @@ data class PriceRecordView(
     val unitWeight: BigDecimal? = null,
     val orderRate: BigDecimal? = null,
     val deliveryTariff: BigDecimal? = null,
+    val actualWeight: BigDecimal? = null,
+    val productUrl: String? = null,
 )
 
 data class ProductPriceHistory(
@@ -260,6 +263,7 @@ data class OrderLineDraft(
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
     val productUrl: String? = null,
+    val actualWeight: BigDecimal? = null,
 )
 
 data class SaveOrderCommand(
