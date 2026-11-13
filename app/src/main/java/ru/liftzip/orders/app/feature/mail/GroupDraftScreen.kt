@@ -177,7 +177,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                                 })
                             }.onFailure { error = it.message }
                         }, shape = RoundedCornerShape(10.dp), color = Color(0xFFEAF3EB),
-                            modifier = Modifier.size(92.dp)) {
+                            modifier = Modifier.size(104.dp)) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center) {
                                 Icon(Icons.Default.Description, contentDescription = null, tint = darkGreen)
