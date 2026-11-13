@@ -233,3 +233,16 @@ data class AppMetadataEntity(
     @PrimaryKey val key: String,
     val value: String,
 )
+
+@Entity(
+    tableName = "order_line_images",
+    foreignKeys = [ForeignKey(entity = OrderLineEntity::class, parentColumns = ["id"],
+        childColumns = ["lineId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("lineId")],
+)
+data class OrderLineImageEntity(
+    @PrimaryKey val id: String,
+    val lineId: String,
+    val position: Int,
+    val jpeg: ByteArray,
+)
