@@ -60,6 +60,8 @@ for start in range(1, CURRENT):
     db = sqlite3.connect(':memory:')
     db.execute('PRAGMA foreign_keys=ON')
     create(db, schema(start))
+    if start >= 7:
+        db.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
     db.execute("INSERT INTO settlement_groups VALUES('group',1,'CALCULATING',0,1,1,1,1)")
     db.execute("INSERT INTO products VALUES('product','Товар',NULL,NULL,NULL,'[]',1,1,1)")
     db.execute("INSERT INTO orders(id,number,date,counterparty,groupId,receivedPaymentMinor,comment,costsConfirmed,calculationState,createdAt,updatedAt,revision) VALUES('order',1,'2026-11-11','Тест','group',500000,'original',0,'INCOMPLETE',1,1,1)")
