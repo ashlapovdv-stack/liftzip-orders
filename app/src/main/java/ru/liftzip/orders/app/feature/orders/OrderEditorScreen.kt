@@ -14,12 +14,12 @@ import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import ru.liftzip.orders.app.SettingsStore
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -122,6 +122,7 @@ fun OrderEditorScreen(
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageTarget by remember { mutableStateOf<Int?>(null) }
+    var enlargedPhoto by remember { mutableStateOf<ByteArray?>(null) }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         val target = imageTarget
         if (target != null && uris.isNotEmpty()) {
@@ -138,7 +139,7 @@ fun OrderEditorScreen(
     var confirmDeleteOrder by remember { mutableStateOf(false) }
     var deleteLineIndex by remember { mutableStateOf<Int?>(null) }
 
-    BackHandler {
+    BackHandler(enabled = enlargedPhoto == null) {
         when {
             confirmDeletePhoto != null -> confirmDeletePhoto = null
             editingLine != null -> editingLine = null
@@ -315,7 +316,7 @@ fun OrderEditorScreen(
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     TextButton(onClick = { editingLine = null }) { Text("Готово") }
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CompactItemSection {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Товар", style = MaterialTheme.typography.titleSmall)
@@ -339,7 +340,7 @@ fun OrderEditorScreen(
                                 Box(Modifier.size(76.dp)) {
                                     if (bitmap != null) Image(
                                         bitmap.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
-                                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize().clickable { enlargedPhoto = bytes }, contentScale = ContentScale.Crop,
                                     )
                                     IconButton(
                                         onClick = { confirmDeletePhoto = index to photoIndex },
@@ -417,13 +418,34 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-                    TextButton(onClick = { deleteLineIndex = index; editingLine = null }, modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Удалить позицию", Modifier.padding(start = 6.dp))
-                    }
+
+                }
+                TextButton(onClick = { deleteLineIndex = index; editingLine = null },
+                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Удалить позицию", Modifier.padding(start = 6.dp))
                 }
             }
+                }
+            }
+        }
+    }
+
+    enlargedPhoto?.let { bytes ->
+        Dialog(onDismissRequest = { enlargedPhoto = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(Modifier.fillMaxSize().background(Color(0xED101010))
+                .clickable { enlargedPhoto = null }, contentAlignment = Alignment.Center) {
+                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                if (bitmap != null) {
+                    Image(bitmap.asImageBitmap(), contentDescription = "Увеличенное фото товара",
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f),
+                        contentScale = ContentScale.Fit)
+                }
+                TextButton(onClick = { enlargedPhoto = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
+                    Text("Закрыть", color = Color.White)
                 }
             }
         }
