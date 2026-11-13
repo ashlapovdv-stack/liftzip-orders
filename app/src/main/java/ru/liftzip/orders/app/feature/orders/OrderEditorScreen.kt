@@ -364,7 +364,7 @@ fun OrderEditorScreen(
             text = { Text(file.name.substringAfter('_')) },
             confirmButton = { TextButton(onClick = {
                 if (orderId != null) {
-                    runCatching { documentStore.delete(orderId, lineId, file) }
+                    runCatching { check(documentStore.delete(orderId, lineId, file)) { "Не удалось удалить документ" } }
                         .onSuccess { documentsRevision++ }
                         .onFailure { documentError = it.message }
                 }
