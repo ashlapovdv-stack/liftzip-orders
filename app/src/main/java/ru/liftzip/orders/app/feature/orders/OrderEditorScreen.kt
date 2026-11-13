@@ -5,6 +5,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -316,17 +320,24 @@ fun OrderEditorScreen(
                 ) {
             val line = state.lines[index]
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("position-editor")) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 36.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    TextButton(onClick = { editingLine = null }) { Text("Готово") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { deleteLineIndex = index; editingLine = null },
+                            modifier = Modifier.size(40.dp).testTag("delete-position")) {
+                            Icon(Icons.Default.DeleteOutline, "Удалить позицию",
+                                tint = MaterialTheme.colorScheme.error)
+                        }
+                        TextButton(onClick = { editingLine = null }) { Text("Готово") }
+                    }
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     CompactItemSection {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Товар", style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { catalogLine = index }, enabled = !state.salesLocked) { Text("Из каталога") }
                         }
-                        AppTextField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
+                        CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
@@ -358,9 +369,9 @@ fun OrderEditorScreen(
                             }
                             }
                         }
-                        AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
+                        CompactPositionField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
                             "ZIP-код", enabled = !state.salesLocked)
-                        AppTextField(line.productUrl, { value ->
+                        CompactPositionField(line.productUrl, { value ->
                             model.updateLine(index) { it.copy(productUrl = value) }
                             linkError = null
                             if (!state.salesLocked && value.isNotBlank() && (value.contains("taobao.com") || value.contains("tb.cn"))) {
@@ -381,9 +392,9 @@ fun OrderEditorScreen(
                         }, "Ссылка Taobao", enabled = !state.salesLocked)
                         if (resolvingLink) Text("Преобразование ссылки…", style = MaterialTheme.typography.labelSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppTextField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
+                            CompactPositionField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
                                 "Количество", Modifier.weight(0.8f), error = state.errors["line_${index}_quantity"], enabled = !state.salesLocked, decimal = true)
-                            AppTextField(line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
+                            CompactPositionField(line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
                                 "Денису, ₽/шт", Modifier.weight(1.2f), error = state.errors["line_${index}_sale"], enabled = !state.salesLocked, decimal = true)
                         }
 
@@ -407,18 +418,18 @@ fun OrderEditorScreen(
                                 }
                             }
                         }
-                        AppTextField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
+                        CompactPositionField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
                             "Цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"}", error = state.errors["line_${index}_purchase"], decimal = true)
                     }
                     CompactItemSection {
                         Text("Доставка · ориентир", style = MaterialTheme.typography.titleSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
-                                "Вес единицы, кг", Modifier.weight(1f), decimal = true)
-                            AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
+                            CompactPositionField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
+                                "Вес, кг", Modifier.weight(1f), decimal = true)
+                            CompactPositionField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
                                 "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
-                            AppTextField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
-                                "Реал. вес, кг", Modifier.weight(1f), decimal = true)
+                            CompactPositionField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
+                                "Факт, кг", Modifier.weight(1f), decimal = true)
                         }
                         state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
@@ -541,5 +552,44 @@ private fun GalleryAddTile(onClick: () -> Unit) {
                 modifier = Modifier.size(28.dp))
             Text("Добавить", style = MaterialTheme.typography.labelSmall)
         }
+    }
+}
+
+@Composable
+private fun CompactPositionField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    error: String? = null,
+    enabled: Boolean = true,
+    decimal: Boolean = false,
+    minLines: Int = 1,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(9.dp), color = Color.White,
+            border = BorderStroke(1.dp, if (error != null) MaterialTheme.colorScheme.error else Color(0xFF888888))) {
+            BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled,
+                singleLine = minLines <= 1,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                                  else KeyboardOptions.Default,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                    .padding(horizontal = 10.dp, vertical = 10.dp)
+                    .semantics { contentDescription = label },
+                decorationBox = { inner ->
+                    Box {
+                        if (value.isEmpty()) Text(label, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                        inner()
+                    }
+                })
+        }
+        if (error != null) Text(error, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error)
     }
 }
