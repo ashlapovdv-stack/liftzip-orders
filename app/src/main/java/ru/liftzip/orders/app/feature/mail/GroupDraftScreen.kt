@@ -34,7 +34,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
         busy = true
         try {
             drafts = withContext(Dispatchers.IO) {
-                val group = repository.observeGroup(groupId).first() ?: error("Группа не найдена")
+                val group = repository.observeGroup(groupId).first() ?: kotlin.error("Группа не найдена")
                 check(group.summary.group.state != ru.liftzip.orders.domain.model.GroupState.FORMING) {
                     "Сначала завершите формирование группы"
                 }
@@ -127,7 +127,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            val details = repository.observeOrder(current.orderId).first() ?: error("Заказ не найден")
+                            val details = repository.observeOrder(current.orderId).first() ?: kotlin.error("Заказ не найден")
                             store.refresh(details)
                         }
                         drafts = store.list(groupId)
