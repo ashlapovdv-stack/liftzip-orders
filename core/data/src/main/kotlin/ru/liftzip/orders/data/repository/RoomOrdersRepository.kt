@@ -194,7 +194,9 @@ class RoomOrdersRepository(
                     orders.firstOrNull { it.id == record.orderId }?.let {
                         PriceRecordView(record.toDomain(), it.number,
                             linesById[record.sourceLineId]?.deliveryWeight?.decimal(), it.orderRate?.decimal(),
-                            linesById[record.sourceLineId]?.deliveryTariff?.decimal())
+                            linesById[record.sourceLineId]?.deliveryTariff?.decimal(),
+                            linesById[record.sourceLineId]?.actualWeight?.decimal(),
+                            linesById[record.sourceLineId]?.productUrl)
                     }
                 },
             )
