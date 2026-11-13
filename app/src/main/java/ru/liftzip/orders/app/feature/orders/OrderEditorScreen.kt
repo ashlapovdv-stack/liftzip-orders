@@ -503,7 +503,7 @@ fun OrderEditorScreen(
                                             Text(file.extension.uppercase(), style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.primary)
                                         }
-                                        IconButton(onClick = { confirmDeleteDocument = line.id to file },
+                                        IconButton(onClick = { line.id?.let { documentId -> confirmDeleteDocument = documentId to file } },
                                             modifier = Modifier.align(Alignment.TopEnd).size(22.dp)) {
                                             Icon(Icons.Default.DeleteOutline, "Удалить документ",
                                                 modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
