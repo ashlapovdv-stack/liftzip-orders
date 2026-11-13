@@ -92,7 +92,7 @@ fun OrderFulfillmentActions(
         val square: @Composable () -> Unit = {
             Box(Modifier.size(if (compact) 12.dp else 16.dp)
                 .background(if (mailDraftCreated == true) green else Color.Transparent, RoundedCornerShape(3.dp))
-                .border(1.dp, if (mailDraftCreated) green else Color(0xFF9AA3AD), RoundedCornerShape(3.dp)),
+                .border(1.dp, if (mailDraftCreated == true) green else Color(0xFF9AA3AD), RoundedCornerShape(3.dp)),
                 contentAlignment = Alignment.Center) {
                 if (mailDraftCreated == true) Icon(Icons.Default.Check, null, tint = Color.White,
                     modifier = Modifier.size(if (compact) 10.dp else 14.dp))
