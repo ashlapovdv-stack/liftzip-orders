@@ -29,6 +29,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
     var selected by remember { mutableStateOf<UUID?>(null) }
     var busy by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmRefresh by remember { mutableStateOf(false) }
 
     suspend fun load() {
         busy = true
@@ -123,18 +124,29 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
                     } catch (e: Exception) { error = e.message }
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text("Экспорт .eml") }
-            OutlinedButton(onClick = {
-                scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            val details = repository.observeOrder(current.orderId).first() ?: kotlin.error("Заказ не найден")
-                            store.refresh(details)
+            OutlinedButton(onClick = { confirmRefresh = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Обновить из заказа")
+            }
+            if (confirmRefresh) {
+                AlertDialog(onDismissRequest = { confirmRefresh = false },
+                    title = { Text("Обновить черновик?") },
+                    text = { Text("Тема, текст и фотографии будут заменены данными заказа. Получатель сохранится.") },
+                    confirmButton = { TextButton(onClick = {
+                        confirmRefresh = false
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val details = repository.observeOrder(current.orderId).first()
+                                        ?: kotlin.error("Заказ не найден")
+                                    store.refresh(details)
+                                }
+                                drafts = store.list(groupId)
+                                selected = null
+                            } catch (e: Exception) { error = e.message }
                         }
-                        drafts = store.list(groupId)
-                        selected = null
-                    } catch (e: Exception) { error = e.message }
-                }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Обновить из заказа") }
+                    }) { Text("Обновить") } },
+                    dismissButton = { TextButton(onClick = { confirmRefresh = false }) { Text("Отмена") } })
+            }
         }
     }
 }
