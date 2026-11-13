@@ -21,6 +21,11 @@ class TaobaoLinksTest {
         assertNull(TaobaoLinks.canonicalUrl(uri))
     }
 
+    @Test fun refusesToTrustIdsFromShortLinkHosts() {
+        val short = TaobaoLinks.sharedUrl("https://e.tb.cn/h.short?id=12345678901")!!
+        assertNull(TaobaoLinks.canonicalUrl(short))
+    }
+
     @Test fun rejectsUntrustedHostsAndInvalidIds() {
         assertNull(TaobaoLinks.sharedUrl("https://taobao.com.evil.example/item.htm?id=45184215152"))
         assertNull(TaobaoLinks.sharedUrl("http://item.taobao.com/item.htm?id=45184215152"))
