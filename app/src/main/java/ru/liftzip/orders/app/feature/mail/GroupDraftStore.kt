@@ -64,9 +64,8 @@ class GroupDraftStore(private val context: Context) {
                 document.copyTo(File(staged, "doc_${documentNumber}_item${lineIndex + 1}_${document.name.substringAfter('_')}"), overwrite = true)
             }
         }
-        OrderDocumentStore(context).files(draft.orderId).forEachIndexed { index, document ->
-            document.copyTo(File(staged, "doc_${index + 1}_${document.name.substringAfter('_')}"), overwrite = true)
-        }
+        // Legacy order-level documents remain on disk for manual reassignment.
+        // They must not reappear in a refreshed product-specific mail draft.
         val metadata = JSONObject()
             .put("orderId", draft.orderId.toString())
             .put("subject", draft.subject)
