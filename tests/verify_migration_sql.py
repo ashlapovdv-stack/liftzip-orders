@@ -44,7 +44,7 @@ def compare(db, version):
         for pragma in ('table_info', 'foreign_key_list'):
             assert db.execute(f'PRAGMA {pragma}("{name}")').fetchall() == expected.execute(f'PRAGMA {pragma}("{name}")').fetchall(), (version, name, pragma)
         def indices(conn):
-            return sorted((row[1], row[2], tuple(conn.execute(f'PRAGMA index_info("{row[1]}")'))) for row in conn.execute(f'PRAGMA index_list("{name}")') if row[3] != 'pk' and not (version < CURRENT and row[1] == 'index_settlement_groups_one_forming'))
+            return sorted((row[1], row[2], tuple(conn.execute(f'PRAGMA index_info("{row[1]}")'))) for row in conn.execute(f'PRAGMA index_list("{name}")') if row[3] != 'pk' and not (row[1] == 'index_settlement_groups_one_forming'))
         assert indices(db) == indices(expected), (version, name, 'indices')
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
     expected.close()
@@ -75,5 +75,6 @@ for start in range(1, CURRENT):
     assert db.execute('SELECT manualDeliveryPriceMinor FROM orders').fetchone() == ((0 if start >= 4 else None),)
     assert db.execute("SELECT amount FROM cost_entries WHERE id='legacy-delivery'").fetchone() == ('350',)
     assert db.execute('SELECT count(*) FROM delivery_payments').fetchone() == (0,)
+    assert db.execute('SELECT productUrl FROM order_lines WHERE id=\'line\'').fetchone() == (None,)
     db.close()
     print(f'PASS: {start}->{CURRENT}; schemas, amounts, rates, null/zero, legacy costs and empty action marks preserved')
