@@ -62,6 +62,7 @@ data class EditorLineDraft(
     val deliveryPlanDate: LocalDate = LocalDate.now(),
     val productUrl: String = "",
     val actualWeight: String = "",
+    val images: List<ByteArray> = emptyList(),
 )
 
 data class OrderEditorState(
@@ -309,7 +310,7 @@ class OrderEditorViewModel(
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
                 id = line.id, productId = line.productId, productName = name,
-                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), quantity = quantity ?: BigDecimal.ONE,
+                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity ?: BigDecimal.ONE,
                 saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
@@ -407,7 +408,7 @@ class OrderEditorViewModel(
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
         deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
-        productUrl = productUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(),
+        productUrl = productUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(), images = images,
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
@@ -420,7 +421,7 @@ class OrderEditorViewModel(
         costs = emptyList(), deliveryWeight = line.deliveryWeight?.toPlainString().orEmpty(),
         deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = "",
         deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
-        actualWeight = line.actualWeight?.toPlainString().orEmpty(),
+        actualWeight = line.actualWeight?.toPlainString().orEmpty(), images = line.images,
     )
 
     fun deliveryPreview(): Money? = try {
