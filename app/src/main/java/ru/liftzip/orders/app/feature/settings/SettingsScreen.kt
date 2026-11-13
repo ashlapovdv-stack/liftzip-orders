@@ -74,6 +74,29 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Card(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Закрепить кнопку добавления фото",
+                            style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (galleryButtonFixed) "Кнопка остаётся слева при прокрутке фотографий"
+                            else "Кнопка прокручивается вместе с фотографиями",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = galleryButtonFixed,
+                        onCheckedChange = { fixed ->
+                            scope.launch { settings.setGalleryButtonFixed(fixed) }
+                        },
+                    )
+                }
+            }
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Локальные данные", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
