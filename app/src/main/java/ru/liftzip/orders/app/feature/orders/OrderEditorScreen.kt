@@ -1,6 +1,8 @@
 package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
+import android.content.Intent
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
@@ -206,6 +208,36 @@ fun OrderEditorScreen(
                     val documents = documentsRevision.let { documentStore.files(orderId) }
                     if (documents.isNotEmpty()) Text(" ${documents.size} файл(ов)",
                         style = MaterialTheme.typography.labelSmall)
+                }
+                val documents = documentsRevision.let { documentStore.files(orderId) }
+                if (documents.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        documents.forEach { file ->
+                            OutlinedButton(onClick = {
+                                val mime = when (file.extension.lowercase()) {
+                                    "pdf" -> "application/pdf"
+                                    "doc" -> "application/msword"
+                                    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    else -> "application/octet-stream"
+                                }
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(FileProvider.getUriForFile(context,
+                                            "${context.packageName}.files", file), mime)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    })
+                                }.onFailure { documentError = it.message }
+                            }) {
+                                Icon(Icons.Default.AttachFile, contentDescription = null)
+                                Text(file.name.substringAfter('_').take(28), maxLines = 1)
+                            }
+                        }
+                    }
+                }
+                /* documents are order-owned and remain available after reopening the order */
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.height(0.dp))
                 }
             }
             item {
