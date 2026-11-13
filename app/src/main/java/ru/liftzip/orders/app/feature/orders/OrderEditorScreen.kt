@@ -307,11 +307,15 @@ fun OrderEditorScreen(
             onDismissRequest = { editingLine = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
         ) {
-            Box(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
-                Surface(shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    color = Color(0xFFF6F8F8)) {
+            Box(Modifier.fillMaxSize().imePadding().navigationBarsPadding(),
+                contentAlignment = Alignment.BottomCenter) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    color = Color(0xFFF6F8F8),
+                ) {
             val line = state.lines[index]
-            Column(Modifier.fillMaxWidth().fillMaxHeight(0.98f).navigationBarsPadding().padding(horizontal = 12.dp).testTag("position-editor")) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("position-editor")) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 36.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     TextButton(onClick = { editingLine = null }) { Text("Готово") }
