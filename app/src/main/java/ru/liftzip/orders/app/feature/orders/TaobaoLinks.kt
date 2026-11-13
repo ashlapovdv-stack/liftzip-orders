@@ -21,7 +21,7 @@ internal object TaobaoLinks {
     }
 
     fun canonicalUrl(uri: URI): String? {
-        if (!allowedHost(uri.host)) return null
+        if (uri.host?.lowercase(Locale.ROOT) !in setOf("item.taobao.com", "h5.m.taobao.com", "m.intl.taobao.com", "detail.tmall.com")) return null
         val id = uri.rawQuery.orEmpty().split('&').mapNotNull { parameter ->
             val key = parameter.substringBefore('=')
             if (key != "id" && key != "itemId") return@mapNotNull null
