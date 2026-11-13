@@ -116,7 +116,8 @@ fun OrdersApp(container: AppContainer) {
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
             val id = UUID.fromString(entry.arguments?.getString("id"))
-            OrderEditorScreen(container.repository, container.settings, id, onBack = { nav.popBackStack() })
+            OrderEditorScreen(container.repository, container.settings, id, onBack = { nav.popBackStack() },
+                onOpenDraft = { groupId, orderId -> nav.navigate("draft/$groupId/$orderId") })
         }
         composable(
             "group/{id}",
@@ -126,12 +127,15 @@ fun OrdersApp(container: AppContainer) {
             GroupDetailScreen(
                 container.repository, id, onBack = { nav.popBackStack() },
                 onOpenOrder = { nav.navigate("order/$it") },
-                onOpenDrafts = { nav.navigate("drafts/$id") },
             )
         }
-        composable("drafts/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-            val id = UUID.fromString(entry.arguments?.getString("id"))
-            GroupDraftScreen(container.repository, id, onBack = { nav.popBackStack() })
+        composable("draft/{groupId}/{orderId}", arguments = listOf(
+            navArgument("groupId") { type = NavType.StringType },
+            navArgument("orderId") { type = NavType.StringType },
+        )) { entry ->
+            val groupId = UUID.fromString(entry.arguments?.getString("groupId"))
+            val orderId = UUID.fromString(entry.arguments?.getString("orderId"))
+            GroupDraftScreen(container.repository, groupId, orderId, onBack = { nav.popBackStack() })
         }
         composable(
             "product/{id}",
