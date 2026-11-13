@@ -36,7 +36,14 @@ internal object TaobaoLinkResolver {
                 } else if (status in 200..299 &&
                     connection.contentType.orEmpty().lowercase(Locale.ROOT).contains("text/html")) {
                     val html = connection.inputStream.bufferedReader().use { reader ->
-                        reader.readText().take(256_000)
+                        buildString {
+                            val buffer = CharArray(4096)
+                            while (length < 256_000) {
+                                val count = reader.read(buffer, 0, minOf(buffer.size, 256_000 - length))
+                                if (count < 0) break
+                                append(buffer, 0, count)
+                            }
+                        }
                     }
                     val embedded = Regex("""(?:item\.taobao\.com/item\.htm\?id=|[?&]itemId=)(\d{5,20})""")
                         .find(html)?.groupValues?.get(1)
