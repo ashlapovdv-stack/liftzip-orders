@@ -402,7 +402,7 @@ fun OrderEditorScreen(
                         Text("Доставка · ориентир", style = MaterialTheme.typography.titleSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
-                                "Вес, кг", Modifier.weight(1f), decimal = true)
+                                "Вес единицы, кг", Modifier.weight(1f), decimal = true)
                             AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
                                 "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
                             AppTextField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
