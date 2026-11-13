@@ -11,6 +11,8 @@ done
 # Instrumentation APK is installed by the connected tests above.
 if [ "${GITHUB_HEAD_REF:-}" = "diagnostics/taobao-short-link" ]; then
     echo "Running Taobao short-link diagnostic on Android emulator"
+    adb install -r app/build/outputs/apk/debug/app-debug.apk
+    adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
     adb shell am instrument -w \
         -e class ru.liftzip.orders.app.TaobaoShortLinkDiagnosticTest \
         -e taobaoDiagnostic true \
