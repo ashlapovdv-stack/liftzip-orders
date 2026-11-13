@@ -1,7 +1,6 @@
 package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
@@ -282,7 +281,9 @@ fun OrderEditorScreen(
                                         try {
                                             val resolved = TaobaoLinkResolver.resolve(original)
                                             if (resolved != null) {
-                                                model.updateLine(index) { it.copy(productUrl = resolved) }
+                                                if (model.state.value.lines.getOrNull(index)?.productUrl == original) {
+                                                    model.updateLine(index) { it.copy(productUrl = resolved) }
+                                                }
                                             } else {
                                                 linkError = "Не удалось получить постоянную ссылку. Проверьте адрес товара."
                                             }
