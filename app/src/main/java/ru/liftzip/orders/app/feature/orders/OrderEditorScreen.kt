@@ -406,16 +406,53 @@ fun OrderEditorScreen(
                         CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
                         Spacer(Modifier.height(6.dp))
+                        val docs = if (orderId != null && line.id != null) {
+                            documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
+                        } else emptyList()
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             if (galleryButtonFixed) {
                                 GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
+                                if (orderId != null && line.id != null) {
+                                    OutlinedButton(onClick = {
+                                        documentLineTarget = line.id
+                                        documentPicker.launch(arrayOf("application/pdf", "application/msword",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                    }, modifier = Modifier.size(76.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.AttachFile, contentDescription = "Добавить документ",
+                                                modifier = Modifier.size(28.dp))
+                                            Text("Добавить", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
                             }
                             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 if (!galleryButtonFixed) {
                                     GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
+                                    if (orderId != null && line.id != null) {
+                                OutlinedButton(onClick = {
+                                    documentLineTarget = line.id
+                                    documentPicker.launch(arrayOf("application/pdf", "application/msword",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                }, modifier = Modifier.size(76.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center) {
+                                        Icon(Icons.Default.AttachFile, contentDescription = "Добавить документ",
+                                            modifier = Modifier.size(28.dp))
+                                        Text("Добавить", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                    }
                                 }
                             line.images.forEachIndexed { photoIndex, bytes ->
                                 val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
@@ -431,29 +468,6 @@ fun OrderEditorScreen(
                                     ) {
                                         Icon(Icons.Default.DeleteOutline, "Удалить фото ${photoIndex + 1}",
                                             modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
-                                    }
-                                }
-                            }
-                            }
-                        }
-                        if (orderId != null && line.id != null) {
-                            val docs = documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedButton(onClick = {
-                                    documentLineTarget = line.id
-                                    documentPicker.launch(arrayOf("application/pdf", "application/msword",
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                                }, modifier = Modifier.size(76.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center) {
-                                        Icon(Icons.Default.AttachFile, contentDescription = "Добавить документ",
-                                            modifier = Modifier.size(28.dp))
-                                        Text("Добавить", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                                 docs.forEach { file ->
