@@ -11,6 +11,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.foundation.clickable
@@ -129,7 +131,13 @@ fun OrderEditorScreen(
     var confirmDeleteOrder by remember { mutableStateOf(false) }
     var deleteLineIndex by remember { mutableStateOf<Int?>(null) }
 
-    BackHandler { if (model.requestBack()) onBack() }
+    BackHandler {
+        when {
+            confirmDeletePhoto != null -> confirmDeletePhoto = null
+            editingLine != null -> editingLine = null
+            else -> if (model.requestBack()) onBack()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -245,6 +253,10 @@ fun OrderEditorScreen(
                         containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
                     Icon(Icons.Default.Delete, null, Modifier.size(20.dp))
                     Text("Удалить заказ", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    if (state.lines.any { it.images.isNotEmpty() }) {
+                        Spacer(Modifier.width(12.dp))
+                        Icon(Icons.Default.Image, "В заказе есть фотографии", Modifier.size(20.dp))
+                    }
                 }
             }
         }
@@ -280,7 +292,7 @@ fun OrderEditorScreen(
 
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
         ModalBottomSheet(
-            onDismissRequest = { editingLine = null },
+            onDismissRequest = { },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = Color(0xFFF6F8F8),
             modifier = Modifier.imePadding(),
@@ -317,11 +329,11 @@ fun OrderEditorScreen(
                                     )
                                     IconButton(
                                         onClick = { confirmDeletePhoto = index to photoIndex },
-                                        modifier = Modifier.align(Alignment.TopEnd).size(30.dp)
-                                            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp)),
+                                        modifier = Modifier.align(Alignment.TopEnd).size(22.dp)
+                                            .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(5.dp)),
                                     ) {
                                         Icon(Icons.Default.DeleteOutline, "Удалить фото ${photoIndex + 1}",
-                                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                                            modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
