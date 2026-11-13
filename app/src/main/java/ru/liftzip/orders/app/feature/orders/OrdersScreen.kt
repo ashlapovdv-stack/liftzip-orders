@@ -116,15 +116,21 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("№${summary.order.number} · ${summary.order.date.formatDate()}",
                     style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                OrderStatusBadge(summary.order.fulfillment.stage)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!summary.calculation.isComplete) {
+                        androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(8.dp)) {
+                            Text("Расчёт неполный", Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                    OrderStatusBadge(summary.order.fulfillment.stage)
+                }
             }
             Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Продажа: ${summary.calculation.priceForDenis.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text("Оплата: ${summary.order.receivedPayment.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             }
-            if (!summary.calculation.isComplete) Text("Расчёт неполный", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
                     OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, compact = true,
