@@ -69,6 +69,8 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                             }
                             Text("Количество: ${source.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
                             Text("Вес единицы: ${source.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
+                            source.actualWeight?.let { Text("Реальный вес: ${it.formatDecimal()} кг", style = MaterialTheme.typography.bodySmall) }
+                            source.productUrl?.let { Text("Ссылка: $it", style = MaterialTheme.typography.bodySmall) }
                             val rate = source.orderRate
                             if (rate != null) Text("Курс заказа: ${rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             else entry.purchase?.takeIf { it.record.currency == Currency.CNY }?.let {
