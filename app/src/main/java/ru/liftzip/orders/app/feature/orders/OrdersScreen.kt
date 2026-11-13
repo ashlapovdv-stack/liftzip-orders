@@ -43,7 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
