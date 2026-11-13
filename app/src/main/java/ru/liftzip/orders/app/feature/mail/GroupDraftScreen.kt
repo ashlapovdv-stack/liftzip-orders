@@ -21,12 +21,12 @@ import java.io.File
 import java.util.UUID
 
 @Composable
-fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> Unit) {
+fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID, onBack: () -> Unit) {
     val context = LocalContext.current
     val store = remember(groupId) { GroupDraftStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var drafts by remember { mutableStateOf<List<GroupDraftStore.Draft>>(emptyList()) }
-    var selected by remember { mutableStateOf<UUID?>(null) }
+    var selected by remember { mutableStateOf<UUID?>(orderId) }
     var busy by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmRefresh by remember { mutableStateOf(false) }
@@ -35,15 +35,16 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
         busy = true
         try {
             drafts = withContext(Dispatchers.IO) {
-                val group = repository.observeGroup(groupId).first() ?: kotlin.error("Группа не найдена")
-                check(group.summary.group.state != ru.liftzip.orders.domain.model.GroupState.FORMING) {
-                    "Сначала завершите формирование группы"
+                val details = repository.observeOrder(orderId).first()
+                    ?: kotlin.error("Заказ не найден")
+                require(details.order.groupId == groupId) { "Заказ не принадлежит группе" }
+                require(details.order.counterparty.isNotBlank() &&
+                    details.lines.isNotEmpty() &&
+                    details.lines.all { it.productNameSnapshot.isNotBlank() && it.quantity.signum() > 0 }) {
+                    "Для письма нужны название заказа, товары и количество"
                 }
-                group.orders.forEach { summary ->
-                    val details = repository.observeOrder(summary.order.id).first()
-                    if (details != null) store.createIfAbsent(details)
-                }
-                store.list(groupId)
+                store.createIfAbsent(details)
+                store.list(groupId).filter { it.orderId == orderId }
             }
         } catch (e: Exception) { error = e.message }
         busy = false
@@ -51,8 +52,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
     LaunchedEffect(groupId) { load() }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        TextButton(onClick = { if (selected == null) onBack() else selected = null }) { Text("← Назад") }
-        Text("Черновики группы", style = MaterialTheme.typography.titleLarge)
+        TextButton(onClick = { onBack() }) { Text("← Назад") }
+        Text("Письмо заказа", style = MaterialTheme.typography.titleLarge)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) CircularProgressIndicator()
         val current = selected?.let { id -> drafts.find { it.orderId == id } }
@@ -73,7 +74,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
             var body by remember(current.orderId) { mutableStateOf(current.body) }
             fun save() {
                 store.update(groupId, current.orderId, recipient, subject, body)
-                drafts = store.list(groupId)
+                drafts = store.list(groupId).filter { it.orderId == orderId }
             }
             OutlinedTextField(value = recipient, onValueChange = { recipient = it },
                 label = { Text("Получатель") }, modifier = Modifier.fillMaxWidth())
@@ -141,7 +142,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, onBack: () -> 
                                     store.refresh(details)
                                 }
                                 drafts = store.list(groupId)
-                                selected = null
+                                selected = orderId
                             } catch (e: Exception) { error = e.message }
                         }
                     }) { Text("Обновить") } },
