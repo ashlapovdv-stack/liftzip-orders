@@ -108,6 +108,7 @@ fun GroupDetailScreen(
     groupId: UUID,
     onBack: () -> Unit,
     onOpenOrder: (UUID) -> Unit,
+    onOpenDrafts: () -> Unit,
 ) {
     val model = viewModel<GroupDetailViewModel>(
         key = "group-$groupId",
@@ -177,6 +178,13 @@ fun GroupDetailScreen(
                             enabled = current.summary.orderCount > 0 && !busy,
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                         ) { Text("Завершить формирование") }
+                    }
+                }
+                if (current.summary.group.state != GroupState.FORMING) {
+                    item {
+                        Button(onClick = onOpenDrafts, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                            Text("Сформировать письма")
+                        }
                     }
                 }
                 item {
