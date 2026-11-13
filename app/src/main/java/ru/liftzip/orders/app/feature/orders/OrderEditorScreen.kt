@@ -99,6 +99,7 @@ import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import ru.liftzip.orders.app.feature.mail.OrderDocumentStore
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.MailOutline
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
@@ -180,11 +181,18 @@ fun OrderEditorScreen(
             CompactTopBar(state.orderNumber?.let { "Заказ №$it" } ?: "Новый заказ",
                 onBack = { if (model.requestBack()) onBack() }) {
                 if (orderId != null && (hasMailDraft || canFormMail)) {
-                    TextButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
+                    IconButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
+                        modifier = Modifier.width(64.dp).height(48.dp),
                         enabled = state.loaded && !state.saving && !state.actionsSaving &&
                             !state.dirty && state.groupId != null) {
-                        Text(if (hasMailDraft) "Открыть черновик" else "Сформировать письмо",
-                            fontSize = 11.sp, maxLines = 1)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.MailOutline,
+                                contentDescription = if (hasMailDraft) "Открыть черновик" else "Сформировать письмо",
+                                modifier = Modifier.size(22.dp))
+                            Text(if (hasMailDraft) "Открыть" else "Создать", fontSize = 10.sp,
+                                maxLines = 1)
+                        }
                     }
                 }
                 TextButton(onClick = { model.save { onBack() } }, enabled = state.loaded && !state.saving && !state.actionsSaving) {
