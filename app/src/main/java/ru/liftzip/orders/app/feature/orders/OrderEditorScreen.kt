@@ -10,6 +10,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -108,6 +110,7 @@ fun OrderEditorScreen(
     )
     val state by model.state.collectAsState()
     val context = LocalContext.current
+    var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageTarget by remember { mutableStateOf<Int?>(null) }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         val target = imageTarget
@@ -259,6 +262,21 @@ fun OrderEditorScreen(
             dismissButton = { TextButton(onClick = { deleteLineIndex = null }) { Text("Отмена") } })
     }
 
+    confirmDeletePhoto?.let { (lineIndex, photoIndex) ->
+        AlertDialog(
+            onDismissRequest = { confirmDeletePhoto = null },
+            title = { Text("Удалить фотографию?") },
+            text = { Text("Фотография будет удалена из позиции после сохранения заказа.") },
+            confirmButton = { TextButton(onClick = {
+                model.updateLine(lineIndex) { draft ->
+                    draft.copy(images = draft.images.filterIndexed { n, _ -> n != photoIndex })
+                }
+                confirmDeletePhoto = null
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { confirmDeletePhoto = null }) { Text("Отмена") } },
+        )
+    }
+
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
         ModalBottomSheet(
             onDismissRequest = { editingLine = null },
@@ -284,14 +302,27 @@ fun OrderEditorScreen(
                         OutlinedButton(onClick = { imageTarget = index; gallery.launch("image/*") }) {
                             Text("Добавить из галереи")
                         }
-                        line.images.forEachIndexed { photoIndex, bytes ->
-                            val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
-                                    modifier = Modifier.size(88.dp), contentScale = ContentScale.Crop)
-                                TextButton(onClick = { model.updateLine(index) { draft ->
-                                    draft.copy(images = draft.images.filterIndexed { n, _ -> n != photoIndex })
-                                } }) { Text("Удалить фото") }
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            line.images.forEachIndexed { photoIndex, bytes ->
+                                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                                Box(Modifier.size(76.dp)) {
+                                    if (bitmap != null) Image(
+                                        bitmap.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
+                                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                                    )
+                                    IconButton(
+                                        onClick = { confirmDeletePhoto = index to photoIndex },
+                                        modifier = Modifier.align(Alignment.TopEnd).size(30.dp)
+                                            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp)),
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, "Удалить фото ${photoIndex + 1}",
+                                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
                             }
                         }
                         AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
