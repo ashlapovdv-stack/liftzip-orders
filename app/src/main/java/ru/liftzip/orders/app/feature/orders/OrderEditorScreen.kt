@@ -265,38 +265,27 @@ fun OrderEditorScreen(
                         AppTextField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
                         AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
-                            "Артикул", enabled = !state.salesLocked)
+                            "ZIP-код", enabled = !state.salesLocked)
                         AppTextField(line.productUrl, { value ->
                             model.updateLine(index) { it.copy(productUrl = value) }
                             linkError = null
-                        }, "Ссылка Taobao", enabled = !state.salesLocked)
-                        if (!state.salesLocked) {
-                            TextButton(
-                                enabled = !resolvingLink && line.productUrl.isNotBlank(),
-                                onClick = {
-                                    val original = line.productUrl
+                            if (!state.salesLocked && value.isNotBlank() && (value.contains("taobao.com") || value.contains("tb.cn"))) {
+                                linkScope.launch {
                                     resolvingLink = true
-                                    linkError = null
-                                    linkScope.launch {
-                                        try {
-                                            val resolved = TaobaoLinkResolver.resolve(original)
-                                            if (resolved != null) {
-                                                if (model.state.value.lines.getOrNull(index)?.productUrl == original) {
-                                                    model.updateLine(index) { it.copy(productUrl = resolved) }
-                                                }
-                                            } else {
-                                                linkError = "Не удалось получить постоянную ссылку. Проверьте адрес товара."
-                                            }
-                                        } catch (e: Exception) {
-                                            linkError = "Ссылка недоступна. Проверьте подключение."
-                                        } finally {
-                                            resolvingLink = false
+                                    try {
+                                        val resolved = TaobaoLinkResolver.resolve(value)
+                                        if (resolved != null && model.state.value.lines.getOrNull(index)?.productUrl == value) {
+                                            model.updateLine(index) { it.copy(productUrl = resolved) }
                                         }
+                                    } catch (_: Exception) {
+                                        // Preserve the original link when resolution fails.
+                                    } finally {
+                                        resolvingLink = false
                                     }
-                                },
-                            ) { Text(if (resolvingLink) "Преобразую…" else "Получить постоянную ссылку") }
-                        }
-                        linkError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }, "Ссылка Taobao", enabled = !state.salesLocked)
+                        if (resolvingLink) Text("Преобразование ссылки…", style = MaterialTheme.typography.labelSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppTextField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
                                 "Количество", Modifier.weight(0.8f), error = state.errors["line_${index}_quantity"], enabled = !state.salesLocked, decimal = true)
