@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.foundation.clickable
@@ -194,6 +196,10 @@ fun OrderEditorScreen(
                             Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽", style = MaterialTheme.typography.bodySmall)
                             if (state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции", color = MaterialTheme.colorScheme.error)
                         }
+                        if (line.images.isNotEmpty()) {
+                            Icon(Icons.Default.Image, "К товару прикреплены фотографии", Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary)
+                        }
                         IconButton(onClick = { deleteLineIndex = index }, enabled = !state.saving, modifier = Modifier.size(40.dp)) {
                             Icon(Icons.Default.Delete, "Удалить позицию ${index + 1}", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                         }
@@ -292,12 +298,13 @@ fun OrderEditorScreen(
     }
 
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
-        ModalBottomSheet(
-            onDismissRequest = { },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = Color(0xFFF6F8F8),
-            modifier = Modifier.imePadding(),
+        Dialog(
+            onDismissRequest = { editingLine = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
+            Box(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
+                Surface(shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    color = Color(0xFFF6F8F8)) {
             val line = state.lines[index]
             Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal = 12.dp).testTag("position-editor")) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -331,10 +338,10 @@ fun OrderEditorScreen(
                                     IconButton(
                                         onClick = { confirmDeletePhoto = index to photoIndex },
                                         modifier = Modifier.align(Alignment.TopEnd).size(22.dp)
-                                            .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(5.dp)),
+                                            .background(Color.Transparent),
                                     ) {
                                         Icon(Icons.Default.DeleteOutline, "Удалить фото ${photoIndex + 1}",
-                                            modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                                            modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
                                     }
                                 }
                             }
@@ -408,6 +415,8 @@ fun OrderEditorScreen(
                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                         Text("Удалить позицию", Modifier.padding(start = 6.dp))
                     }
+                }
+            }
                 }
             }
         }
