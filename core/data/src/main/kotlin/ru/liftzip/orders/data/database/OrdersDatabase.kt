@@ -99,10 +99,7 @@ abstract class OrdersDatabase : RoomDatabase() {
 
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("""CREATE TABLE IF NOT EXISTS order_line_images (
-                    id TEXT NOT NULL PRIMARY KEY, lineId TEXT NOT NULL, position INTEGER NOT NULL,
-                    jpeg BLOB NOT NULL, FOREIGN KEY(lineId) REFERENCES order_lines(id)
-                    ON UPDATE NO ACTION ON DELETE CASCADE)""")
+                db.execSQL("CREATE TABLE IF NOT EXISTS order_line_images (id TEXT NOT NULL PRIMARY KEY, lineId TEXT NOT NULL, position INTEGER NOT NULL, jpeg BLOB NOT NULL, FOREIGN KEY(lineId) REFERENCES order_lines(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_order_line_images_lineId ON order_line_images(lineId)")
             }
         }
