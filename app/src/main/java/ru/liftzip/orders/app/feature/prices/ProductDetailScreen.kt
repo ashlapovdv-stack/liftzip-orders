@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -77,10 +80,13 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                             Text("Вес единицы: ${source.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
                             source.actualWeight?.let { Text("Реальный вес: ${it.formatDecimal()} кг", style = MaterialTheme.typography.bodySmall) }
                             source.productUrl?.let { Text("Ссылка: $it", style = MaterialTheme.typography.bodySmall) }
-                            source.images.forEachIndexed { index, bytes ->
-                                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                                if (bitmap != null) Image(bitmap.asImageBitmap(), "Фото ${index + 1}",
-                                    modifier = Modifier.size(112.dp), contentScale = ContentScale.Crop)
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                source.images.forEachIndexed { index, bytes ->
+                                    val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                                    if (bitmap != null) Image(bitmap.asImageBitmap(), "Фото ${index + 1}",
+                                        modifier = Modifier.size(76.dp), contentScale = ContentScale.Crop)
+                                }
                             }
                             val rate = source.orderRate
                             if (rate != null) Text("Курс заказа: ${rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
