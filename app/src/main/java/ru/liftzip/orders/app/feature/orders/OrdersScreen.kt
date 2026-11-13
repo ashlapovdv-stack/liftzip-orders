@@ -35,6 +35,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -65,6 +75,17 @@ import java.util.UUID
 
 @Composable
 fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNewOrder: () -> Unit, onOpenGroup: (UUID) -> Unit) {
+    val context = LocalContext.current
+    val draftStore = remember { GroupDraftStore(context.applicationContext) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var draftRevision by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) draftRevision++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val model = viewModel<OrdersViewModel>(factory = viewModelFactory { initializer { OrdersViewModel(repository) } })
     val orders by model.orders.collectAsState()
     val query by model.currentQuery.collectAsState()
@@ -93,7 +114,8 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             }
             if (orders.isEmpty()) item { EmptyState("Заказов нет. Создайте первый оплаченный заказ") }
             items(orders, key = { it.order.id }) { summary ->
-                OrderCard(summary, onClick = { onOpenOrder(summary.order.id) }, onOpenGroup = { onOpenGroup(summary.order.groupId) })
+                OrderCard(summary, onClick = { onOpenOrder(summary.order.id) }, onOpenGroup = { onOpenGroup(summary.order.groupId) },
+                    hasDraft = draftRevision.let { draftStore.get(summary.order.groupId, summary.order.id) != null })
             }
             if (orders.size >= limit && limit < 500) {
                 item { OutlinedButton(onClick = model::showMore, modifier = Modifier.fillMaxWidth()) { Text("Показать ещё") } }
@@ -108,7 +130,7 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: () -> Unit) {
+private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: () -> Unit, hasDraft: Boolean) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth().testTag("order-card-${summary.order.number}"), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
@@ -127,6 +149,12 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
                 }
             }
             Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            if (hasDraft) {
+                androidx.compose.material3.Surface(color = Color(0xFFE2F3E8), shape = RoundedCornerShape(8.dp)) {
+                    Text("Письмо сформировано", Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF22633E))
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Продажа: ${summary.calculation.priceForDenis.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text("Оплата: ${summary.order.receivedPayment.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
