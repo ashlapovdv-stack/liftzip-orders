@@ -416,7 +416,9 @@ class RoomOrdersRepository(
 
     private suspend fun loadOrderDetails(order: OrderEntity, group: SettlementGroupEntity): OrderDetails = OrderDetails(
         order = order.toDomain(), group = group.toDomain(),
-        lines = dao.getOrderLines(order.id).map { it.toDomain() },
+        lines = dao.getOrderLines(order.id).map { line ->
+            line.toDomain().copy(images = dao.getLineImages(line.id).map { it.jpeg })
+        },
         costs = dao.getOrderCosts(order.id).map { it.toDomain() },
         history = dao.getOrderHistory(order.id).map { it.toDomain() },
     )
