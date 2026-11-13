@@ -95,6 +95,8 @@ import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.PriceSearchViewModel
 import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.feature.mail.GroupDraftStore
+import ru.liftzip.orders.app.feature.mail.OrderDocumentStore
+import androidx.compose.material.icons.filled.AttachFile
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
@@ -126,6 +128,16 @@ fun OrderEditorScreen(
     val state by model.state.collectAsState()
     val context = LocalContext.current
     val mailStore = remember { GroupDraftStore(context.applicationContext) }
+    val documentStore = remember { OrderDocumentStore(context.applicationContext) }
+    var documentsRevision by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var documentError by remember { mutableStateOf<String?>(null) }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (orderId != null) {
+            runCatching { uris.forEach { documentStore.add(orderId, it) } }
+                .onSuccess { documentsRevision++ }
+                .onFailure { documentError = it.message }
+        }
+    }
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     val hasMailDraft = state.groupId?.let { g -> state.orderId?.let { mailStore.get(g, it) != null } } == true
     val canFormMail = state.counterparty.isNotBlank() && state.lines.isNotEmpty() &&
@@ -183,6 +195,19 @@ fun OrderEditorScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!state.loaded) item { Text("Загрузка…") }
             state.generalError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
+            documentError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
+            if (orderId != null) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = { documentPicker.launch(arrayOf("application/pdf",
+                        "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) }) {
+                        Icon(Icons.Default.AttachFile, contentDescription = null)
+                        Text("Прикрепить документ")
+                    }
+                    val documents = documentsRevision.let { documentStore.files(orderId) }
+                    if (documents.isNotEmpty()) Text(" ${documents.size} файл(ов)",
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            }
             item {
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
                     "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
