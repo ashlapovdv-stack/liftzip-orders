@@ -29,7 +29,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 7
+        const val SCHEMA_VERSION = 8
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -81,6 +81,15 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        // Room cannot model partial indices. Enforce the one-FORMING-group invariant
+        // with SQLite triggers, which Room does not treat as schema indices.
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS index_settlement_groups_one_forming")
+                createFormationGuards(db)
+            }
+        }
+
         fun create(context: Context): OrdersDatabase {
             preserveBeforeMigration(context)
             return Room.databaseBuilder(
@@ -88,7 +97,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             DATABASE_NAME,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .addCallback(IntegrityCallback)
             .build()
         }
@@ -110,14 +119,26 @@ abstract class OrdersDatabase : RoomDatabase() {
     }
 }
 
-private object IntegrityCallback : RoomDatabase.Callback() {
-    override fun onCreate(db: SupportSQLiteDatabase) = createIntegrityIndex(db)
-    override fun onOpen(db: SupportSQLiteDatabase) = createIntegrityIndex(db)
+private fun createFormationGuards(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """CREATE TRIGGER IF NOT EXISTS settlement_groups_one_forming_insert
+           BEFORE INSERT ON settlement_groups
+           WHEN NEW.state = 'FORMING' AND EXISTS (
+               SELECT 1 FROM settlement_groups WHERE state = 'FORMING'
+           )
+           BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END"""
+    )
+    db.execSQL(
+        """CREATE TRIGGER IF NOT EXISTS settlement_groups_one_forming_update
+           BEFORE UPDATE OF state ON settlement_groups
+           WHEN NEW.state = 'FORMING' AND EXISTS (
+               SELECT 1 FROM settlement_groups WHERE state = 'FORMING' AND id != OLD.id
+           )
+           BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END"""
+    )
+}
 
-    private fun createIntegrityIndex(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            "CREATE UNIQUE INDEX IF NOT EXISTS index_settlement_groups_one_forming " +
-                "ON settlement_groups(state) WHERE state = 'FORMING'",
-        )
-    }
+private object IntegrityCallback : RoomDatabase.Callback() {
+    override fun onCreate(db: SupportSQLiteDatabase) = createFormationGuards(db)
+    override fun onOpen(db: SupportSQLiteDatabase) = createFormationGuards(db)
 }
