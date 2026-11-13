@@ -269,10 +269,6 @@ fun OrderEditorScreen(
                         containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
                     Icon(Icons.Default.Delete, null, Modifier.size(20.dp))
                     Text("Удалить заказ", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                    if (state.lines.any { it.images.isNotEmpty() }) {
-                        Spacer(Modifier.width(12.dp))
-                        Icon(Icons.Default.Image, "В заказе есть фотографии", Modifier.size(20.dp))
-                    }
                 }
             }
         }
