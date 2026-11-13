@@ -81,7 +81,9 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
         Dialog(onDismissRequest = { enlarged = null }) {
             val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
             if (bitmap != null) Image(bitmap.asImageBitmap(), "Увеличенная фотография",
-                modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.Fit)
+                modifier = Modifier.fillMaxWidth().combinedClickable(
+                    onClick = {}, onLongClick = { savePhoto = bytes }),
+                contentScale = ContentScale.Fit)
         }
     }
     savePhoto?.let { bytes ->
