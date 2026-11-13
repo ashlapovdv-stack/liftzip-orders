@@ -219,7 +219,7 @@ class OrderEditorViewModel(
         }
     }
 
-    fun addLine() = update { it.copy(lines = it.lines + EditorLineDraft()) }
+    fun addLine() = update { it.copy(lines = listOf(EditorLineDraft()) + it.lines) }
     fun removeLine(index: Int) = update { state ->
         state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
     }
