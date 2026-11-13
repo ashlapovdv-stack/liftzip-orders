@@ -324,6 +324,8 @@ fun OrderEditorScreen(
                             AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
                                 "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
                         }
+                        AppTextField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
+                            "Реальный вес, кг (справочно)", decimal = true)
                         state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                     TextButton(onClick = { deleteLineIndex = index; editingLine = null }, modifier = Modifier.fillMaxWidth(),
