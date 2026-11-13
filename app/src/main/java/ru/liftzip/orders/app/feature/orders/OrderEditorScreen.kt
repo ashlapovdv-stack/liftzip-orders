@@ -1,6 +1,13 @@
 package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
@@ -100,6 +107,15 @@ fun OrderEditorScreen(
         factory = viewModelFactory { initializer { OrderEditorViewModel(repository, orderId) } },
     )
     val state by model.state.collectAsState()
+    val context = LocalContext.current
+    var imageTarget by remember { mutableStateOf<Int?>(null) }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val target = imageTarget
+        if (target != null && uris.isNotEmpty()) {
+            model.addImagesFromGallery(target, uris, context.contentResolver)
+        }
+    }
+
     val linkScope = rememberCoroutineScope()
     var resolvingLink by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
@@ -264,6 +280,20 @@ fun OrderEditorScreen(
                         }
                         AppTextField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
+                        Text("Фотографии товара", style = MaterialTheme.typography.titleSmall)
+                        OutlinedButton(onClick = { imageTarget = index; gallery.launch("image/*") }) {
+                            Text("Добавить из галереи")
+                        }
+                        line.images.forEachIndexed { photoIndex, bytes ->
+                            val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
+                                    modifier = Modifier.size(88.dp), contentScale = ContentScale.Crop)
+                                TextButton(onClick = { model.updateLine(index) { draft ->
+                                    draft.copy(images = draft.images.filterIndexed { n, _ -> n != photoIndex })
+                                } }) { Text("Удалить фото") }
+                            }
+                        }
                         AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
                             "ZIP-код", enabled = !state.salesLocked)
                         AppTextField(line.productUrl, { value ->
