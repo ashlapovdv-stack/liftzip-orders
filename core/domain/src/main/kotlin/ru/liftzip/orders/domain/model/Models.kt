@@ -266,6 +266,7 @@ data class OrderLineDraft(
     val deliveryPlanDate: LocalDate? = null,
     val productUrl: String? = null,
     val actualWeight: BigDecimal? = null,
+    val images: List<ByteArray> = emptyList(),
 )
 
 data class SaveOrderCommand(
