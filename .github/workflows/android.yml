@@ -61,7 +61,7 @@ jobs:
           ./gradlew --version
 
       - name: Domain tests
-        run: ./gradlew :core:domain:test --no-daemon
+        run: ./gradlew :core:domain:test :app:testDebugUnitTest --no-daemon
 
       - name: Android lint
         run: ./gradlew :app:lintDebug --no-daemon
