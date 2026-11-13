@@ -149,12 +149,6 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
                 }
             }
             Text(summary.order.counterparty, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            if (hasDraft) {
-                androidx.compose.material3.Surface(color = Color(0xFFE2F3E8), shape = RoundedCornerShape(8.dp)) {
-                    Text("Письмо сформировано", Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF22633E))
-                }
-            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Продажа: ${summary.calculation.priceForDenis.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text("Оплата: ${summary.order.receivedPayment.format().replace(' ', '\u00a0')}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
@@ -162,6 +156,7 @@ private fun OrderCard(summary: OrderSummary, onClick: () -> Unit, onOpenGroup: (
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
                     OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, compact = true,
+                        mailDraftCreated = hasDraft,
                         captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 0.sp))
                 }
                 TextButton(onClick = onOpenGroup, modifier = Modifier.height(32.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
