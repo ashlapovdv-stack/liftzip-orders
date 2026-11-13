@@ -48,7 +48,10 @@ def compare(db, version):
         expected.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
     if version >= 9:
         expected.execute('ALTER TABLE order_lines ADD COLUMN actualWeight TEXT')
-    for table in definition['entities']:
+    if version >= 10:
+        expected.execute('CREATE TABLE order_line_images (id TEXT NOT NULL PRIMARY KEY, lineId TEXT NOT NULL, position INTEGER NOT NULL, jpeg BLOB NOT NULL, FOREIGN KEY(lineId) REFERENCES order_lines(id) ON UPDATE NO ACTION ON DELETE CASCADE)')
+        expected.execute('CREATE INDEX index_order_line_images_lineId ON order_line_images(lineId)')
+    for table in definition['entities'] + ([{'tableName': 'order_line_images'}] if version >= 10 else []):
         name = table['tableName']
         for pragma in ('table_info', 'foreign_key_list'):
             assert db.execute(f'PRAGMA {pragma}("{name}")').fetchall() == expected.execute(f'PRAGMA {pragma}("{name}")').fetchall(), (version, name, pragma)
