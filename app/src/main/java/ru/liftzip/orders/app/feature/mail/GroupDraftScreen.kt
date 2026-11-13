@@ -3,6 +3,16 @@ package ru.liftzip.orders.app.feature.mail
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -39,6 +49,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
     var busy by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmRefresh by remember { mutableStateOf(false) }
+    var enlargedPhoto by remember { mutableStateOf<File?>(null) }
+    var draftVersion by remember { mutableIntStateOf(0) }
 
     suspend fun load() {
         busy = true
@@ -62,10 +74,14 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
     }
     LaunchedEffect(groupId) { load() }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = { onBack() }) { Text("← Назад") }
-        Text("Письмо заказа", style = MaterialTheme.typography.titleLarge)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", modifier = Modifier.size(28.dp))
+            }
+            Text("Письмо заказа", style = MaterialTheme.typography.titleLarge)
+        }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) CircularProgressIndicator()
         val current = selected?.let { id -> drafts.find { it.orderId == id } }
@@ -81,23 +97,25 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 }
             }
         } else {
-            var subject by remember(current.orderId) { mutableStateOf(current.subject) }
-            var recipient by remember(current.orderId) { mutableStateOf(current.recipient) }
-            var body by remember(current.orderId) { mutableStateOf(current.body) }
+            var subject by remember(current.orderId, draftVersion) { mutableStateOf(current.subject) }
+            var recipient by remember(current.orderId, draftVersion) { mutableStateOf(current.recipient) }
+            var body by remember(current.orderId, draftVersion) { mutableStateOf(current.body) }
             fun save() {
                 store.update(groupId, current.orderId, recipient, subject, body)
                 drafts = store.list(groupId).filter { it.orderId == orderId }
             }
             OutlinedTextField(value = recipient, onValueChange = { recipient = it },
-                label = { Text("Получатель") }, modifier = Modifier.fillMaxWidth())
+                label = { Text("Получатель") }, singleLine = true,
+                textStyle = TextStyle(fontSize = 14.sp), modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp))
             OutlinedTextField(value = subject, onValueChange = { subject = it },
-                label = { Text("Тема") }, modifier = Modifier.fillMaxWidth())
+                label = { Text("Тема") }, singleLine = true,
+                textStyle = TextStyle(fontSize = 14.sp), modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp))
             OutlinedTextField(value = body, onValueChange = { body = it },
-                label = { Text("Текст письма") }, modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 300.dp))
+                label = { Text("Текст письма") }, textStyle = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+                modifier = Modifier.fillMaxWidth().height(340.dp))
             val photos = remember(groupId, current.orderId, current.count) {
                 store.attachments(groupId, current.orderId)
             }
-            Text("Фотографии с номерами: ${photos.size}")
             if (photos.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -108,21 +126,23 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                                 BitmapFactory.decodeFile(photo.absolutePath, options)?.asImageBitmap()
                             }.getOrNull()
                         }
-                        Column {
+                        Box {
                             if (preview != null) {
                                 Image(bitmap = preview, contentDescription = "Фото ${index + 1}, номер позиции нанесён",
-                                    modifier = Modifier.size(104.dp).clip(RoundedCornerShape(8.dp)),
+                                    modifier = Modifier.size(92.dp).clip(RoundedCornerShape(8.dp))
+                                        .clickable { enlargedPhoto = photo },
                                     contentScale = ContentScale.Fit)
                             } else {
                                 Text("Ошибка фото ${index + 1}", color = MaterialTheme.colorScheme.error)
                             }
-                            Text("Фото ${index + 1}", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
             }
-            Button(onClick = { save() }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить черновик") }
-            Button(onClick = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { save() }) { Icon(Icons.Default.Save, contentDescription = "Сохранить черновик") }
+            IconButton(onClick = {
                 save()
                 val files = store.attachments(groupId, current.orderId)
                 val uris = ArrayList<Uri>(files.map {
@@ -145,8 +165,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 }
                 runCatching { context.startActivity(Intent.createChooser(intent, "Поделиться письмом")) }
                     .onFailure { error = it.message }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Поделиться") }
-            OutlinedButton(onClick = {
+            }) { Icon(Icons.Default.Share, contentDescription = "Поделиться письмом") }
+            IconButton(onClick = {
                 save()
                 scope.launch {
                     try {
@@ -162,9 +182,10 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                         context.startActivity(Intent.createChooser(intent, "Экспорт .eml"))
                     } catch (e: Exception) { error = e.message }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Экспорт .eml") }
-            OutlinedButton(onClick = { confirmRefresh = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Обновить из заказа")
+            }) { Icon(Icons.Default.FileDownload, contentDescription = "Экспорт письма в EML") }
+            IconButton(onClick = { confirmRefresh = true }) {
+                Icon(Icons.Default.Refresh, contentDescription = "Обновить черновик из заказа")
+            }
             }
             if (confirmRefresh) {
                 AlertDialog(onDismissRequest = { confirmRefresh = false },
@@ -179,12 +200,25 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                                         ?: kotlin.error("Заказ не найден")
                                     store.refresh(details)
                                 }
-                                drafts = store.list(groupId)
+                                drafts = store.list(groupId).filter { it.orderId == orderId }
+                                draftVersion++
                                 selected = orderId
                             } catch (e: Exception) { error = e.message }
                         }
                     }) { Text("Обновить") } },
                     dismissButton = { TextButton(onClick = { confirmRefresh = false }) { Text("Отмена") } })
+            }
+        }
+    }
+    enlargedPhoto?.let { photo ->
+        Dialog(onDismissRequest = { enlargedPhoto = null }) {
+            val bitmap = remember(photo.absolutePath, photo.lastModified()) {
+                runCatching { BitmapFactory.decodeFile(photo.absolutePath)?.asImageBitmap() }.getOrNull()
+            }
+            Box(Modifier.fillMaxWidth().heightIn(min = 260.dp), contentAlignment = Alignment.Center) {
+                if (bitmap != null) Image(bitmap = bitmap, contentDescription = "Увеличенное фото",
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp), contentScale = ContentScale.Fit)
+                else Text("Не удалось открыть фотографию")
             }
         }
     }
