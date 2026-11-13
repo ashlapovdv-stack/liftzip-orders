@@ -36,7 +36,7 @@ fun OrderFulfillmentActions(
     progress: OrderFulfillment,
     enabled: Boolean = true,
     compact: Boolean = false,
-    mailDraftCreated: Boolean = false,
+    mailDraftCreated: Boolean? = null,
     captionStyle: TextStyle = MaterialTheme.typography.labelSmall,
     onAction: ((OrderAction, Boolean) -> Unit)? = null,
 ) {
@@ -86,15 +86,15 @@ fun OrderFulfillmentActions(
     val mailIndicator: @Composable (Modifier) -> Unit = { layout ->
         val indicator = layout.testTag("order-${orderNumber ?: "new"}-MAIL").semantics {
             role = Role.Checkbox
-            toggleableState = ToggleableState(mailDraftCreated)
+            toggleableState = ToggleableState(mailDraftCreated == true)
             contentDescription = "Письмо сформировано"
         }
         val square: @Composable () -> Unit = {
             Box(Modifier.size(if (compact) 12.dp else 16.dp)
-                .background(if (mailDraftCreated) green else Color.Transparent, RoundedCornerShape(3.dp))
+                .background(if (mailDraftCreated == true) green else Color.Transparent, RoundedCornerShape(3.dp))
                 .border(1.dp, if (mailDraftCreated) green else Color(0xFF9AA3AD), RoundedCornerShape(3.dp)),
                 contentAlignment = Alignment.Center) {
-                if (mailDraftCreated) Icon(Icons.Default.Check, null, tint = Color.White,
+                if (mailDraftCreated == true) Icon(Icons.Default.Check, null, tint = Color.White,
                     modifier = Modifier.size(if (compact) 10.dp else 14.dp))
             }
         }
@@ -116,11 +116,11 @@ fun OrderFulfillmentActions(
     if (compact) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            mailIndicator(Modifier)
+            if (mailDraftCreated != null) mailIndicator(Modifier)
             entries.forEach { render(it, Modifier) }
         }
     } else Row(Modifier.fillMaxWidth()) {
-        mailIndicator(Modifier.weight(1f))
+        if (mailDraftCreated != null) mailIndicator(Modifier.weight(1f))
         entries.forEach { render(it, Modifier.weight(1f)) }
     }
 }
