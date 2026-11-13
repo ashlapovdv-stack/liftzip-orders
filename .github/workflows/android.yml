@@ -102,6 +102,7 @@ jobs:
           name: Orders-verification-${{ github.run_number }}
           path: |
             artifacts/*.png
+            artifacts/taobao-diagnostic.txt
             **/build/reports/androidTests/**
             **/build/test-results/**
           if-no-files-found: error
