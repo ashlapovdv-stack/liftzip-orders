@@ -182,29 +182,35 @@ fun OrderEditorScreen(
             CompactTopBar(state.orderNumber?.let { "Заказ №$it" } ?: "Новый заказ",
                 onBack = { if (model.requestBack()) onBack() }) {
                 if (orderId != null && (hasMailDraft || canFormMail)) {
-                    IconButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
-                        modifier = Modifier.width(64.dp).height(48.dp),
+                    OutlinedButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
+                        modifier = Modifier.width(72.dp).height(44.dp),
                         enabled = state.loaded && !state.saving && !state.actionsSaving &&
-                            !state.dirty && state.groupId != null) {
+                            !state.dirty && state.groupId != null,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center) {
                             Icon(Icons.Default.MailOutline,
                                 contentDescription = if (hasMailDraft) "Открыть черновик" else "Сформировать письмо",
-                                modifier = Modifier.size(22.dp))
-                            Text(if (hasMailDraft) "Открыть" else "Создать", fontSize = 10.sp,
-                                maxLines = 1)
+                                modifier = Modifier.size(20.dp))
+                            Text(if (hasMailDraft) "Открыть" else "Создать",
+                                fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
                         }
                     }
                 }
-                IconButton(onClick = { model.save { onBack() } },
-                    modifier = Modifier.width(72.dp).height(48.dp),
-                    enabled = state.loaded && !state.saving && !state.actionsSaving) {
+                OutlinedButton(onClick = { model.save { onBack() } },
+                    modifier = Modifier.width(72.dp).height(44.dp),
+                    enabled = state.loaded && !state.saving && !state.actionsSaving,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center) {
                         Icon(Icons.Default.Save, contentDescription = "Сохранить заказ",
-                            modifier = Modifier.size(22.dp))
+                            modifier = Modifier.size(20.dp))
                         Text(if (state.saving) "Сохраняю" else "Сохранить",
-                            fontSize = 10.sp, maxLines = 1)
+                            fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
                     }
                 }
 
