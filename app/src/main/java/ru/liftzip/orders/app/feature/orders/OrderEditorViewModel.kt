@@ -298,6 +298,9 @@ class OrderEditorViewModel(
             if (listOf(line.deliveryWeight, line.deliveryTariff, line.actualWeight).any { it.isNotBlank() && it.parseDecimal() == null }) {
                 errors["line_${index}_delivery"] = "Проверьте числовые значения доставки"
             }
+            if (line.actualWeight.isNotBlank() && (line.actualWeight.parseDecimal() == null || line.actualWeight.parseDecimal()!! < BigDecimal.ZERO)) {
+                errors["line_${index}_delivery"] = "Реальный вес должен быть неотрицательным числом"
+            }
             val purchase = line.purchasePrice.parseDecimal()
             if (line.purchasePrice.isNotBlank() && purchase == null) {
                 errors["line_${index}_purchase"] = "Некорректная закупочная цена"
