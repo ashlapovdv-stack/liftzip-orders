@@ -322,14 +322,7 @@ fun OrderEditorScreen(
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("position-editor")) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { deleteLineIndex = index; editingLine = null },
-                            modifier = Modifier.size(40.dp).testTag("delete-position")) {
-                            Icon(Icons.Default.DeleteOutline, "Удалить позицию",
-                                tint = MaterialTheme.colorScheme.error)
-                        }
-                        TextButton(onClick = { editingLine = null }) { Text("Готово") }
-                    }
+                    TextButton(onClick = { editingLine = null }) { Text("Готово") }
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     CompactItemSection {
@@ -339,6 +332,7 @@ fun OrderEditorScreen(
                         }
                         CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
+                        Spacer(Modifier.height(6.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             if (galleryButtonFixed) {
@@ -435,12 +429,7 @@ fun OrderEditorScreen(
                     }
 
                 }
-                TextButton(onClick = { deleteLineIndex = index; editingLine = null },
-                    modifier = Modifier.fillMaxWidth().height(40.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Удалить позицию", Modifier.padding(start = 6.dp))
-                }
+
             }
                 }
             }
