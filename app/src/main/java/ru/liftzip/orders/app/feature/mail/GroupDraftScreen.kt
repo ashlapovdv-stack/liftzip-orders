@@ -38,12 +38,14 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 val details = repository.observeOrder(orderId).first()
                     ?: kotlin.error("Заказ не найден")
                 require(details.order.groupId == groupId) { "Заказ не принадлежит группе" }
-                require(details.order.counterparty.isNotBlank() &&
-                    details.lines.isNotEmpty() &&
-                    details.lines.all { it.productNameSnapshot.isNotBlank() && it.quantity.signum() > 0 }) {
-                    "Для письма нужны название заказа, товары и количество"
+                if (store.get(groupId, orderId) == null) {
+                    require(details.order.counterparty.isNotBlank() &&
+                        details.lines.isNotEmpty() &&
+                        details.lines.all { it.productNameSnapshot.isNotBlank() && it.quantity.signum() > 0 }) {
+                        "Для письма нужны название заказа, товары и количество"
+                    }
+                    store.createIfAbsent(details)
                 }
-                store.createIfAbsent(details)
                 store.list(groupId).filter { it.orderId == orderId }
             }
         } catch (e: Exception) { error = e.message }
