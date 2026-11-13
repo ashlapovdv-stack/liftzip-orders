@@ -11,7 +11,7 @@ CURRENT = int(re.search(r'const val SCHEMA_VERSION = (\d+)', SOURCE)[1])
 assert 'version = OrdersDatabase.SCHEMA_VERSION' in SOURCE, 'Room and backup must use the same version'
 
 def schema(version):
-    return json.loads((SCHEMAS / f'{min(version, 7)}.json').read_text())['database']
+    return json.loads((SCHEMAS / f'{min(version, 6)}.json').read_text())['database']
 
 def create(db, definition):
     for table in definition['entities']:
@@ -44,6 +44,8 @@ def compare(db, version):
     expected = sqlite3.connect(':memory:')
     definition = schema(version)
     create(expected, definition)
+    if version >= 7:
+        expected.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
     for table in definition['entities']:
         name = table['tableName']
         for pragma in ('table_info', 'foreign_key_list'):
