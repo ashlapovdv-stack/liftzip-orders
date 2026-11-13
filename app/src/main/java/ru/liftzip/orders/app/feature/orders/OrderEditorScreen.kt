@@ -127,6 +127,10 @@ fun OrderEditorScreen(
     val context = LocalContext.current
     val mailStore = remember { GroupDraftStore(context.applicationContext) }
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
+    val hasMailDraft = state.groupId?.let { g -> state.orderId?.let { mailStore.get(g, it) != null } } == true
+    val canFormMail = state.counterparty.isNotBlank() && state.lines.isNotEmpty() &&
+        state.lines.all { it.name.isNotBlank() && it.productUrl.isNotBlank() &&
+            it.quantity.toBigDecimalOrNull()?.signum() == 1 }
     var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageTarget by remember { mutableStateOf<Int?>(null) }
     var enlargedPhoto by remember { mutableStateOf<ByteArray?>(null) }
@@ -158,6 +162,14 @@ fun OrderEditorScreen(
         topBar = {
             CompactTopBar(state.orderNumber?.let { "Заказ №$it" } ?: "Новый заказ",
                 onBack = { if (model.requestBack()) onBack() }) {
+                if (orderId != null && (hasMailDraft || canFormMail)) {
+                    TextButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
+                        enabled = state.loaded && !state.saving && !state.actionsSaving &&
+                            !state.dirty && state.groupId != null) {
+                        Text(if (hasMailDraft) "Открыть черновик" else "Сформировать письмо",
+                            fontSize = 11.sp, maxLines = 1)
+                    }
+                }
                 TextButton(onClick = { model.save { onBack() } }, enabled = state.loaded && !state.saving && !state.actionsSaving) {
                     Text(if (state.saving) "Сохраняю…" else "Сохранить", fontWeight = FontWeight.SemiBold)
                 }
@@ -175,29 +187,13 @@ fun OrderEditorScreen(
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
                     "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
             }
-            if (orderId != null) {
-                item {
-                    Button(
-                        onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
-                        enabled = state.loaded && !state.saving && !state.actionsSaving &&
-                            !state.dirty && state.groupId != null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Сформировать письмо / Открыть черновик") }
-                    if (state.dirty) {
-                        Text("Сначала сохраните изменения заказа",
-                            style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
             item {
                 OrderSection {
                     Row(Modifier.fillMaxWidth().testTag("order-actions"), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             OrderFulfillmentActions(state.orderNumber, state.fulfillment,
-                                mailDraftCreated = state.groupId?.let { group ->
-                                    state.orderId?.let { order -> mailStore.get(group, order) != null }
-                                } == true,
+                                mailDraftCreated = hasMailDraft,
                                 enabled = state.loaded && state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
                                 captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp),
                                 onAction = model::setAction)
