@@ -3,6 +3,12 @@ package ru.liftzip.orders.app.feature.mail
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
@@ -74,13 +80,15 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
     }
     LaunchedEffect(groupId) { load() }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    val darkGreen = Color(0xFF195B47)
+    Column(Modifier.fillMaxSize().background(Color.White).verticalScroll(rememberScrollState())
+        .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.dp)) {
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", modifier = Modifier.size(28.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", modifier = Modifier.size(30.dp))
             }
-            Text("Письмо заказа", style = MaterialTheme.typography.titleLarge)
+            Text("Письмо заказа", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) CircularProgressIndicator()
@@ -104,21 +112,33 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 store.update(groupId, current.orderId, recipient, subject, body)
                 drafts = store.list(groupId).filter { it.orderId == orderId }
             }
-            OutlinedTextField(value = recipient, onValueChange = { recipient = it },
-                label = { Text("Получатель") }, singleLine = true,
-                textStyle = TextStyle(fontSize = 14.sp), modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp))
-            OutlinedTextField(value = subject, onValueChange = { subject = it },
-                label = { Text("Тема") }, singleLine = true,
-                textStyle = TextStyle(fontSize = 14.sp), modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp))
-            OutlinedTextField(value = body, onValueChange = { body = it },
-                label = { Text("Текст письма") }, textStyle = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-                modifier = Modifier.fillMaxWidth().height(340.dp))
+            Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                Text("Получатель", color = Color(0xFF777777), fontSize = 13.sp)
+                BasicTextField(value = recipient, onValueChange = { recipient = it },
+                    singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF202020)),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp).padding(top = 8.dp))
+                HorizontalDivider(color = Color(0xFFB8B8B8))
+            }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                Text("Тема", color = Color(0xFF777777), fontSize = 13.sp)
+                BasicTextField(value = subject, onValueChange = { subject = it },
+                    singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF202020)),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp).padding(top = 8.dp))
+                HorizontalDivider(color = Color(0xFFB8B8B8))
+            }
+            Text("Текст письма", color = darkGreen, fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, start = 4.dp))
+            BasicTextField(value = body, onValueChange = { body = it },
+                textStyle = TextStyle(fontSize = 14.sp, lineHeight = 21.sp, color = Color(0xFF202020)),
+                modifier = Modifier.fillMaxWidth().height(330.dp)
+                    .border(1.dp, Color(0xFFCECECE), RoundedCornerShape(10.dp))
+                    .padding(12.dp))
             val photos = remember(groupId, current.orderId, current.count) {
                 store.attachments(groupId, current.orderId)
             }
             if (photos.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     photos.forEachIndexed { index, photo ->
                         val preview = remember(photo.absolutePath, photo.lastModified()) {
                             runCatching {
@@ -129,7 +149,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                         Box {
                             if (preview != null) {
                                 Image(bitmap = preview, contentDescription = "Фото ${index + 1}, номер позиции нанесён",
-                                    modifier = Modifier.size(92.dp).clip(RoundedCornerShape(8.dp))
+                                    modifier = Modifier.size(104.dp).clip(RoundedCornerShape(10.dp))
                                         .clickable { enlargedPhoto = photo },
                                     contentScale = ContentScale.Fit)
                             } else {
@@ -139,10 +159,11 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { save() }) { Icon(Icons.Default.Save, contentDescription = "Сохранить черновик") }
-            IconButton(onClick = {
+            DraftActionButton("Сохранить", Icons.Default.Save, darkGreen) { save() }
+            DraftActionButton("Поделиться", Icons.Default.Share, darkGreen, onClick = {
                 save()
                 val files = store.attachments(groupId, current.orderId)
                 val uris = ArrayList<Uri>(files.map {
@@ -165,8 +186,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 }
                 runCatching { context.startActivity(Intent.createChooser(intent, "Поделиться письмом")) }
                     .onFailure { error = it.message }
-            }) { Icon(Icons.Default.Share, contentDescription = "Поделиться письмом") }
-            IconButton(onClick = {
+            })
+            DraftActionButton("Скачать", Icons.Default.FileDownload, darkGreen, onClick = {
                 save()
                 scope.launch {
                     try {
@@ -182,10 +203,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                         context.startActivity(Intent.createChooser(intent, "Экспорт .eml"))
                     } catch (e: Exception) { error = e.message }
                 }
-            }) { Icon(Icons.Default.FileDownload, contentDescription = "Экспорт письма в EML") }
-            IconButton(onClick = { confirmRefresh = true }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Обновить черновик из заказа")
-            }
+            })
+            DraftActionButton("Обновить", Icons.Default.Refresh, darkGreen) { confirmRefresh = true }
             }
             if (confirmRefresh) {
                 AlertDialog(onDismissRequest = { confirmRefresh = false },
@@ -221,5 +240,21 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 else Text("Не удалось открыть фотографию")
             }
         }
+    }
+}
+
+@Composable
+private fun DraftActionButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        androidx.compose.material3.Surface(onClick = onClick,
+            shape = RoundedCornerShape(14.dp), color = Color(0xFFEAF3EB),
+            modifier = Modifier.size(width = 68.dp, height = 58.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(29.dp))
+            }
+        }
+        Text(label, fontSize = 12.sp, color = Color(0xFF666666), maxLines = 1)
     }
 }
