@@ -64,12 +64,14 @@ for start in range(1, CURRENT):
     create(db, schema(start))
     if start >= 7:
         db.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
+    if start >= 9:
+        db.execute('ALTER TABLE order_lines ADD COLUMN actualWeight TEXT')
     db.execute("INSERT INTO settlement_groups VALUES('group',1,'CALCULATING',0,1,1,1,1)")
     db.execute("INSERT INTO products VALUES('product','Товар',NULL,NULL,NULL,'[]',1,1,1)")
     db.execute("INSERT INTO orders(id,number,date,counterparty,groupId,receivedPaymentMinor,comment,costsConfirmed,calculationState,createdAt,updatedAt,revision) VALUES('order',1,'2026-11-11','Тест','group',500000,'original',0,'INCOMPLETE',1,1,1)")
     db.execute("INSERT INTO order_lines(id,orderId,productId,productNameSnapshot,articleSnapshot,quantity,saleUnitPriceMinor,purchaseUnitPrice,purchaseCurrency,purchaseRate,createdAt,updatedAt,revision) VALUES('line','order','product','Товар',NULL,'2',250000,'100','CNY','13.25',1,1,1)")
     db.execute("INSERT INTO cost_entries VALUES('legacy-delivery','ORDER','order','DELIVERY','350','RUB','1',1,'2026-11-11','legacy',1,1,1)")
-    if start >= 2:
+    if 2 <= start < 8:
         db.execute("CREATE UNIQUE INDEX index_settlement_groups_one_forming ON settlement_groups(state) WHERE state='FORMING'")
     if start >= 3:
         db.execute("UPDATE order_lines SET deliveryWeight='2',deliveryTariff='25',deliveryRate='13.25',deliveryPlanDate='2026-11-11'")
