@@ -306,13 +306,13 @@ fun OrderEditorScreen(
                 Surface(shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                     color = Color(0xFFF6F8F8)) {
             val line = state.lines[index]
-            Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal = 12.dp).testTag("position-editor")) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.fillMaxWidth().fillMaxHeight(0.98f).navigationBarsPadding().padding(horizontal = 12.dp).testTag("position-editor")) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 36.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     TextButton(onClick = { editingLine = null }) { Text("Готово") }
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OrderSection {
+                    CompactItemSection {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Товар", style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { catalogLine = index }, enabled = !state.salesLocked) { Text("Из каталога") }
@@ -374,7 +374,7 @@ fun OrderEditorScreen(
                             AppTextField(line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
                                 "Денису, ₽/шт", Modifier.weight(1.2f), error = state.errors["line_${index}_sale"], enabled = !state.salesLocked, decimal = true)
                         }
-                        Text("Цена для Дениса включает доставку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
                         state.errors["line_${index}_zero"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (line.salePrice.replace(',', '.').toBigDecimalOrNull()?.signum() == 0) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -384,7 +384,7 @@ fun OrderEditorScreen(
                             }
                         }
                     }
-                    OrderSection {
+                    CompactItemSection {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Закупка · справочно", style = MaterialTheme.typography.titleSmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -398,16 +398,16 @@ fun OrderEditorScreen(
                         AppTextField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
                             "Цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"}", error = state.errors["line_${index}_purchase"], decimal = true)
                     }
-                    OrderSection {
+                    CompactItemSection {
                         Text("Доставка · ориентир", style = MaterialTheme.typography.titleSmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
-                                "Вес единицы, кг", Modifier.weight(1f), decimal = true)
+                                "Вес, кг", Modifier.weight(1f), decimal = true)
                             AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
                                 "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
+                            AppTextField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
+                                "Реал. вес, кг", Modifier.weight(1f), decimal = true)
                         }
-                        AppTextField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
-                            "Реальный вес, кг (справочно)", decimal = true)
                         state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                     TextButton(onClick = { deleteLineIndex = index; editingLine = null }, modifier = Modifier.fillMaxWidth(),
@@ -483,5 +483,15 @@ private fun OrderSection(content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
+    }
+}
+
+@Composable
+private fun CompactItemSection(content: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp), content = content)
     }
 }
