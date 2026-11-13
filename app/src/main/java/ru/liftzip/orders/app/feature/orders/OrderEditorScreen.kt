@@ -264,15 +264,15 @@ fun OrderEditorScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                                if (line.images.isNotEmpty()) {
+                            if (line.images.isNotEmpty()) {
+                                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.Image, "К товару прикреплены фотографии",
                                         Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                                if (orderId != null && line.id != null &&
-                                    documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
+                            if (orderId != null && line.id != null &&
+                                documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
+                                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.AttachFile, "Документы товара",
                                         Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 }
