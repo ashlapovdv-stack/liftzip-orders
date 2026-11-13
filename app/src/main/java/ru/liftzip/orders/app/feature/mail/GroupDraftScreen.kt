@@ -153,9 +153,11 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                         Box {
                             if (preview != null) {
                                 Image(bitmap = preview, contentDescription = "Фото ${index + 1}, номер позиции нанесён",
-                                    modifier = Modifier.size(104.dp).clip(RoundedCornerShape(10.dp))
+                                    modifier = Modifier.size(104.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFFEAF3EB))
                                         .clickable { enlargedPhoto = photo },
-                                    contentScale = ContentScale.Fit)
+                                    contentScale = ContentScale.Crop)
                             } else {
                                 Text("Ошибка фото ${index + 1}", color = MaterialTheme.colorScheme.error)
                             }
