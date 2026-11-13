@@ -133,9 +133,12 @@ fun OrderEditorScreen(
     val documentStore = remember { OrderDocumentStore(context.applicationContext) }
     var documentsRevision by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var documentError by remember { mutableStateOf<String?>(null) }
+    var documentLineTarget by remember { mutableStateOf<UUID?>(null) }
+    var confirmDeleteDocument by remember { mutableStateOf<Pair<UUID, java.io.File>?>(null) }
     val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (orderId != null) {
-            runCatching { uris.forEach { documentStore.add(orderId, it) } }
+        val target = documentLineTarget
+        if (orderId != null && target != null) {
+            runCatching { uris.forEach { documentStore.addToLine(orderId, target, it) } }
                 .onSuccess { documentsRevision++ }
                 .onFailure { documentError = it.message }
         }
@@ -198,44 +201,6 @@ fun OrderEditorScreen(
             if (!state.loaded) item { Text("Загрузка…") }
             state.generalError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
             documentError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
-            if (orderId != null) item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { documentPicker.launch(arrayOf("application/pdf",
-                        "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) }) {
-                        Icon(Icons.Default.AttachFile, contentDescription = null)
-                        Text("Прикрепить документ")
-                    }
-                    val documents = documentsRevision.let { documentStore.files(orderId) }
-                    if (documents.isNotEmpty()) Text(" ${documents.size} файл(ов)",
-                        style = MaterialTheme.typography.labelSmall)
-                }
-                val documents = documentsRevision.let { documentStore.files(orderId) }
-                if (documents.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        documents.forEach { file ->
-                            OutlinedButton(onClick = {
-                                val mime = when (file.extension.lowercase()) {
-                                    "pdf" -> "application/pdf"
-                                    "doc" -> "application/msword"
-                                    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    else -> "application/octet-stream"
-                                }
-                                runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(FileProvider.getUriForFile(context,
-                                            "${context.packageName}.files", file), mime)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    })
-                                }.onFailure { documentError = it.message }
-                            }) {
-                                Icon(Icons.Default.AttachFile, contentDescription = null)
-                                Text(file.name.substringAfter('_').take(28), maxLines = 1)
-                            }
-                        }
-                    }
-                }
-            }
             item {
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
                     "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
@@ -276,6 +241,11 @@ fun OrderEditorScreen(
                         }
                         if (line.images.isNotEmpty()) {
                             Icon(Icons.Default.Image, "К товару прикреплены фотографии", Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary)
+                        }
+                        if (orderId != null && line.id != null &&
+                            documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
+                            Icon(Icons.Default.AttachFile, "Документы товара", Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.primary)
                         }
                         IconButton(onClick = { deleteLineIndex = index }, enabled = !state.saving, modifier = Modifier.size(40.dp)) {
