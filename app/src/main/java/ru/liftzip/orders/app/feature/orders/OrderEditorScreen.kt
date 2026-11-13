@@ -300,7 +300,7 @@ fun OrderEditorScreen(
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
         Dialog(
             onDismissRequest = { editingLine = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
         ) {
             Box(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
                 Surface(shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
