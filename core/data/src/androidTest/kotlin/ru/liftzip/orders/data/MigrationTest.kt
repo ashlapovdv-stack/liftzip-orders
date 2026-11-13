@@ -67,7 +67,7 @@ class MigrationTest {
             close()
         }
         helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true,
-            OrdersDatabase.MIGRATION_3_4, OrdersDatabase.MIGRATION_4_5, OrdersDatabase.MIGRATION_5_6, OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8).use { db ->
+            OrdersDatabase.MIGRATION_3_4, OrdersDatabase.MIGRATION_4_5, OrdersDatabase.MIGRATION_5_6, OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8, OrdersDatabase.MIGRATION_8_9).use { db ->
             db.query("SELECT receivedPaymentMinor,manualDeliveryPriceMinor,orderRate,withdrawn,transferred,received FROM orders").use { c ->
                 c.moveToFirst(); assertEquals(500000L, c.getLong(0))
                 assertEquals(true, c.isNull(1)); assertEquals(true, c.isNull(2))
@@ -83,7 +83,7 @@ class MigrationTest {
             execSQL("CREATE UNIQUE INDEX index_settlement_groups_one_forming ON settlement_groups(state) WHERE state='FORMING'")
             close()
         }
-        helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true, OrdersDatabase.MIGRATION_5_6, OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8).use { db ->
+        helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true, OrdersDatabase.MIGRATION_5_6, OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8, OrdersDatabase.MIGRATION_8_9).use { db ->
             db.query("SELECT orderRate,manualDeliveryPriceMinor,withdrawn,transferred,received FROM orders").use { c ->
                 c.moveToFirst(); assertEquals("13.25", c.getString(0)); assertEquals(0L, c.getLong(1))
                 for (index in 2..4) assertEquals(0, c.getInt(index))
