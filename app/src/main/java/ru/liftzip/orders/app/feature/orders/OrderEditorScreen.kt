@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Save
 import ru.liftzip.orders.app.SettingsStore
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.horizontalScroll
@@ -195,8 +196,16 @@ fun OrderEditorScreen(
                         }
                     }
                 }
-                TextButton(onClick = { model.save { onBack() } }, enabled = state.loaded && !state.saving && !state.actionsSaving) {
-                    Text(if (state.saving) "Сохраняю…" else "Сохранить", fontWeight = FontWeight.SemiBold)
+                IconButton(onClick = { model.save { onBack() } },
+                    modifier = Modifier.width(72.dp).height(48.dp),
+                    enabled = state.loaded && !state.saving && !state.actionsSaving) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center) {
+                        Icon(Icons.Default.Save, contentDescription = "Сохранить заказ",
+                            modifier = Modifier.size(22.dp))
+                        Text(if (state.saving) "Сохраняю" else "Сохранить",
+                            fontSize = 10.sp, maxLines = 1)
+                    }
                 }
 
             }
@@ -422,43 +431,52 @@ fun OrderEditorScreen(
                             }
                         }
                         if (orderId != null && line.id != null) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            val docs = documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedButton(onClick = {
                                     documentLineTarget = line.id
                                     documentPicker.launch(arrayOf("application/pdf", "application/msword",
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                                }) {
-                                    Icon(Icons.Default.AttachFile, null, Modifier.size(18.dp))
-                                    Text("Добавить документ")
+                                }, modifier = Modifier.size(76.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center) {
+                                        Icon(Icons.Default.AttachFile, contentDescription = "Добавить документ",
+                                            modifier = Modifier.size(28.dp))
+                                        Text("Добавить", style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
-                            }
-                            val docs = documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
-                            if (docs.isNotEmpty()) {
-                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    docs.forEach { file ->
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            OutlinedButton(onClick = {
-                                                val mime = when (file.extension.lowercase()) {
-                                                    "pdf" -> "application/pdf"
-                                                    "doc" -> "application/msword"
-                                                    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                                    else -> "application/octet-stream"
-                                                }
-                                                runCatching {
-                                                    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                                                        setDataAndType(FileProvider.getUriForFile(context,
-                                                            "${context.packageName}.files", file), mime)
-                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                    })
-                                                }.onFailure { documentError = it.message }
-                                            }) {
-                                                Icon(Icons.Default.AttachFile, null, Modifier.size(18.dp))
-                                                Text(file.extension.uppercase())
+                                docs.forEach { file ->
+                                    Box(Modifier.size(76.dp).background(Color(0xFFEAF3EB), RoundedCornerShape(10.dp))) {
+                                        Column(Modifier.fillMaxSize().clickable {
+                                            val mime = when (file.extension.lowercase()) {
+                                                "pdf" -> "application/pdf"
+                                                "doc" -> "application/msword"
+                                                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                                else -> "application/octet-stream"
                                             }
-                                            IconButton(onClick = { confirmDeleteDocument = line.id to file }) {
-                                                Icon(Icons.Default.DeleteOutline, "Удалить документ", tint = Color(0xFFB71C1C))
-                                            }
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(FileProvider.getUriForFile(context,
+                                                        "${context.packageName}.files", file), mime)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                })
+                                            }.onFailure { documentError = it.message }
+                                        }, horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.AttachFile, contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
+                                            Text(file.extension.uppercase(), style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(onClick = { confirmDeleteDocument = line.id to file },
+                                            modifier = Modifier.align(Alignment.TopEnd).size(22.dp)) {
+                                            Icon(Icons.Default.DeleteOutline, "Удалить документ",
+                                                modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
                                         }
                                     }
                                 }
