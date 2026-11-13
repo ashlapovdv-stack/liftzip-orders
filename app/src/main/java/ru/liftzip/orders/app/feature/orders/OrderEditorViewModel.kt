@@ -60,6 +60,7 @@ data class EditorLineDraft(
     val deliveryTariff: String = "",
     val deliveryRate: String = "",
     val deliveryPlanDate: LocalDate = LocalDate.now(),
+    val productUrl: String = "",
 )
 
 data class OrderEditorState(
@@ -304,7 +305,7 @@ class OrderEditorViewModel(
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
                 id = line.id, productId = line.productId, productName = name,
-                article = line.article.ifBlank { null }, quantity = quantity ?: BigDecimal.ONE,
+                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, quantity = quantity ?: BigDecimal.ONE,
                 saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
@@ -406,7 +407,7 @@ class OrderEditorViewModel(
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
         id = line.id, productId = line.productId, name = line.productNameSnapshot,
-        article = line.articleSnapshot.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
+        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
         salePrice = line.saleUnitPrice.toBigDecimal().toPlainString(), zeroSalePriceConfirmed = true,
         purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
