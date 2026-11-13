@@ -198,8 +198,8 @@ fun OrderEditorScreen(
                                 fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
                         }
                     }
+                    Spacer(Modifier.width(8.dp))
                 }
-                Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = { model.save { onBack() } },
                     modifier = Modifier.width(72.dp).height(44.dp),
                     enabled = state.loaded && !state.saving && !state.actionsSaving,
