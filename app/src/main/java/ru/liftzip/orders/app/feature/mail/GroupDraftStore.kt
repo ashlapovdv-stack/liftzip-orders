@@ -15,7 +15,7 @@ import java.io.File
 import java.util.UUID
 
 /** Private, persistent draft snapshots. Original order photos are never modified. */
-class GroupDraftStore(context: Context) {
+class GroupDraftStore(private val context: Context) {
     private val root = File(context.filesDir, "mail_drafts").apply { mkdirs() }
 
     data class Draft(val orderId: UUID, val subject: String, val recipient: String, val body: String, val count: Int)
@@ -56,6 +56,9 @@ class GroupDraftStore(context: Context) {
             output.recycle()
             bitmap.recycle()
         }
+        OrderDocumentStore(context).files(draft.orderId).forEachIndexed { index, document ->
+            document.copyTo(File(staged, "doc_${index + 1}_${document.name.substringAfter('_')}"), overwrite = true)
+        }
         val metadata = JSONObject()
             .put("orderId", draft.orderId.toString())
             .put("subject", draft.subject)
@@ -79,6 +82,10 @@ class GroupDraftStore(context: Context) {
     fun attachments(groupId: UUID, orderId: UUID): List<File> =
         File(folder(groupId), orderId.toString()).listFiles { f -> f.extension == "jpg" }
             ?.sortedBy { it.nameWithoutExtension.toIntOrNull() ?: Int.MAX_VALUE } ?: emptyList()
+
+    fun documents(groupId: UUID, orderId: UUID): List<File> =
+        File(folder(groupId), orderId.toString()).listFiles { f -> f.isFile && f.name.startsWith("doc_") }
+            ?.sortedBy { it.name } ?: emptyList()
 
     private fun atomicWrite(target: File, value: String) {
         val temp = File(target.parentFile, target.name + ".tmp")
