@@ -70,8 +70,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
         if (busy) CircularProgressIndicator()
         val current = selected?.let { id -> drafts.find { it.orderId == id } }
         if (current == null) {
-            LazyColumn {
-                items(drafts, key = { it.orderId }) { draft ->
+            Column { 
+                drafts.forEach { draft ->
                     ListItem(
                         headlineContent = { Text(draft.subject) },
                         supportingContent = { Text("Вложений: ${draft.count} · Черновик") },
