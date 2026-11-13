@@ -108,14 +108,14 @@ fun OrdersApp(container: AppContainer) {
             }
         }
         composable("order/new") {
-            OrderEditorScreen(container.repository, null, onBack = { nav.popBackStack() })
+            OrderEditorScreen(container.repository, container.settings, null, onBack = { nav.popBackStack() })
         }
         composable(
             "order/{id}",
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
             val id = UUID.fromString(entry.arguments?.getString("id"))
-            OrderEditorScreen(container.repository, id, onBack = { nav.popBackStack() })
+            OrderEditorScreen(container.repository, container.settings, id, onBack = { nav.popBackStack() })
         }
         composable(
             "group/{id}",
