@@ -406,9 +406,9 @@ class GroupDetailScreenTest {
         showScreen(1f)
         compose.onNodeWithText("Название заказа").performTextReplacement("Заказ Taobao UI")
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
-        compose.onNodeWithText("Название товара").performTextReplacement("Товар Taobao UI")
-        compose.onNodeWithText("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
-        compose.onNodeWithText("Ссылка Taobao").performScrollTo().performTextReplacement(
+        compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар Taobao UI")
+        compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithContentDescription("Ссылка Taobao").performScrollTo().performTextReplacement(
             "https://item.taobao.com/item.htm?id=45184215152&spm=abc",
         )
         compose.waitUntil(10_000) {
@@ -438,12 +438,12 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Название заказа").performTextReplacement("Заказ с отметками")
         compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("10")
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
-        compose.onNodeWithText("Название товара").performTextReplacement("Товар с отметками")
-        compose.onNodeWithText("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
-        compose.onNodeWithText("Вес единицы, кг").performScrollTo().performTextReplacement("0.2")
-        compose.onNodeWithText("Тариф, ¥/кг").performTextReplacement("55")
+        compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар с отметками")
+        compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithContentDescription("Вес, кг").performScrollTo().performTextReplacement("0.2")
+        compose.onNodeWithContentDescription("Тариф, ¥/кг").performTextReplacement("55")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
-        compose.onNodeWithText("Название товара").performScrollTo()
+        compose.onNodeWithContentDescription("Название товара").performScrollTo()
         captureSheet("position-editor.png")
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
