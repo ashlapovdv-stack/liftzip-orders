@@ -1,5 +1,12 @@
 package ru.liftzip.orders.app.feature.orders
 
+import android.content.ContentResolver
+import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -177,6 +184,39 @@ class OrderEditorViewModel(
 
     fun updateLine(index: Int, transform: (EditorLineDraft) -> EditorLineDraft) = update { state ->
         state.copy(lines = state.lines.mapIndexed { i, line -> if (i == index) transform(line) else line })
+    }
+
+    fun addImagesFromGallery(index: Int, uris: List<Uri>, resolver: ContentResolver) {
+        viewModelScope.launch {
+            try {
+                val compressed = withContext(Dispatchers.IO) {
+                    uris.take(8).mapNotNull { uri ->
+                        resolver.openInputStream(uri)?.use { input ->
+                            val source = BitmapFactory.decodeStream(input) ?: return@use null
+                            try {
+                                val maxSide = maxOf(source.width, source.height)
+                                val scale = (1280f / maxSide).coerceAtMost(1f)
+                                val resized = if (scale < 1f) Bitmap.createScaledBitmap(
+                                    source, (source.width * scale).toInt().coerceAtLeast(1),
+                                    (source.height * scale).toInt().coerceAtLeast(1), true
+                                ) else source
+                                try {
+                                    ByteArrayOutputStream().use { output ->
+                                        resized.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                                        output.toByteArray().takeIf { it.size <= 1_500_000 }
+                                    }
+                                } finally {
+                                    if (resized !== source) resized.recycle()
+                                }
+                            } finally { source.recycle() }
+                        }
+                    }
+                }
+                updateLine(index) { it.copy(images = (it.images + compressed).take(8)) }
+            } catch (error: Exception) {
+                _state.update { it.copy(generalError = "Не удалось прочитать изображение: ${error.message}") }
+            }
+        }
     }
 
     fun addLine() = update { it.copy(lines = it.lines + EditorLineDraft()) }
