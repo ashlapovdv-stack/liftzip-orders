@@ -32,6 +32,21 @@ object EmlExporter {
                 out.append(Base64.encodeToString(photo.readBytes(), Base64.CRLF))
                 out.append("\r\n")
             }
+            store.documents(groupId, orderId).forEach { document ->
+                val name = document.name.substringAfter("doc_").substringAfter('_')
+                    .replace('"', '_').replace('\r', '_').replace('\n', '_')
+                val mime = when (document.extension.lowercase()) {
+                    "pdf" -> "application/pdf"
+                    "doc" -> "application/msword"
+                    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    else -> "application/octet-stream"
+                }
+                out.append("--$boundary\r\nContent-Type: $mime; name=\"$name\"\r\n")
+                out.append("Content-Disposition: attachment; filename=\"$name\"\r\n")
+                out.append("Content-Transfer-Encoding: base64\r\n\r\n")
+                out.append(Base64.encodeToString(document.readBytes(), Base64.CRLF))
+                out.append("\r\n")
+            }
             out.append("--$boundary--\r\n")
         }
         return file
