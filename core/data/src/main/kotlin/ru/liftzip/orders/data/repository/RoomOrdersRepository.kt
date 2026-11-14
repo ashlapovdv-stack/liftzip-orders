@@ -199,6 +199,7 @@ class RoomOrdersRepository(
                             linesById[record.sourceLineId]?.deliveryTariff?.decimal(),
                             linesById[record.sourceLineId]?.actualWeight?.decimal(),
                             linesById[record.sourceLineId]?.productUrl,
+                            linesById[record.sourceLineId]?.temporaryProductUrl,
                             imagesByLine[record.sourceLineId].orEmpty().map { image -> image.jpeg })
                     }
                 },
