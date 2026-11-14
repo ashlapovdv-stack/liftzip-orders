@@ -2,6 +2,10 @@ package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
 import android.content.Intent
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -163,6 +167,7 @@ fun OrderEditorScreen(
     val linkScope = rememberCoroutineScope()
     var resolvingLink by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
+    var browserLink by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var editingLine by remember { mutableStateOf<Int?>(null) }
     var catalogLine by remember { mutableStateOf<Int?>(null) }
     var historyExpanded by remember { mutableStateOf(false) }
@@ -538,6 +543,12 @@ fun OrderEditorScreen(
                             model.updateLine(index) { it.copy(productUrl = value) }
                         }, "Постоянная ссылка", enabled = !state.salesLocked)
                         if (resolvingLink) Text("Преобразование ссылки…", style = MaterialTheme.typography.labelSmall)
+                        if (!state.salesLocked && line.temporaryProductUrl.isNotBlank() &&
+                            line.productUrl.isBlank() && !resolvingLink) {
+                            TextButton(onClick = { browserLink = index to line.temporaryProductUrl }) {
+                                Text("Открыть ссылку для определения товара")
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CompactPositionField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
                                 "Количество", Modifier.weight(0.8f), error = state.errors["line_${index}_quantity"], enabled = !state.salesLocked, decimal = true)
@@ -588,6 +599,60 @@ fun OrderEditorScreen(
                 }
 
             }
+                }
+            }
+        }
+    }
+
+    browserLink?.let { (lineIndex, shareText) ->
+        val initial = remember(shareText) { TaobaoLinks.sharedUrl(shareText)?.toString() }
+        var foundUrl by remember(shareText) { mutableStateOf<String?>(null) }
+        Dialog(onDismissRequest = { browserLink = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
+                .navigationBarsPadding().padding(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Определение ссылки", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { browserLink = null }) { Text("Закрыть") }
+                }
+                Text("Откройте карточку товара. Адрес сохраняется только после подтверждения.",
+                    style = MaterialTheme.typography.bodySmall)
+                if (initial != null) {
+                    AndroidView(factory = { ctx ->
+                        WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                    val url = request.url.toString()
+                                    TaobaoLinks.sharedUrl(url)?.let { uri ->
+                                        TaobaoLinks.canonicalUrl(uri)?.let { foundUrl = it }
+                                    }
+                                    return !request.url.scheme.equals("https", ignoreCase = true) ||
+                                        TaobaoLinks.sharedUrl(url) == null
+                                }
+                                override fun onPageFinished(view: WebView, url: String) {
+                                    TaobaoLinks.sharedUrl(url)?.let { uri ->
+                                        TaobaoLinks.canonicalUrl(uri)?.let { foundUrl = it }
+                                    }
+                                }
+                            }
+                            loadUrl(initial)
+                        }
+                    }, modifier = Modifier.weight(1f).fillMaxWidth(),
+                        onRelease = { it.stopLoading(); it.destroy() })
+                } else Text("Некорректная ссылка", modifier = Modifier.weight(1f))
+                Text(foundUrl ?: "Идентификатор товара пока не получен",
+                    style = MaterialTheme.typography.bodySmall)
+                Button(onClick = {
+                    val url = foundUrl
+                    if (url != null && model.state.value.lines.getOrNull(lineIndex)?.temporaryProductUrl == shareText) {
+                        model.updateLine(lineIndex) { it.copy(productUrl = url) }
+                        browserLink = null
+                    }
+                }, enabled = foundUrl != null, modifier = Modifier.fillMaxWidth()) {
+                    Text("Использовать постоянную ссылку")
                 }
             }
         }
