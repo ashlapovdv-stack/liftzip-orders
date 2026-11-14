@@ -51,6 +51,8 @@ def compare(db, version):
     if version >= 10:
         expected.execute('CREATE TABLE order_line_images (id TEXT NOT NULL PRIMARY KEY, lineId TEXT NOT NULL, position INTEGER NOT NULL, jpeg BLOB NOT NULL, FOREIGN KEY(lineId) REFERENCES order_lines(id) ON UPDATE NO ACTION ON DELETE CASCADE)')
         expected.execute('CREATE INDEX index_order_line_images_lineId ON order_line_images(lineId)')
+    if version >= 11:
+        expected.execute('ALTER TABLE order_lines ADD COLUMN temporaryProductUrl TEXT')
     for table in definition['entities'] + ([{'tableName': 'order_line_images'}] if version >= 10 else []):
         name = table['tableName']
         for pragma in ('table_info', 'foreign_key_list'):
@@ -69,6 +71,8 @@ for start in range(1, CURRENT):
         db.execute('ALTER TABLE order_lines ADD COLUMN productUrl TEXT')
     if start >= 9:
         db.execute('ALTER TABLE order_lines ADD COLUMN actualWeight TEXT')
+    if start >= 11:
+        db.execute('ALTER TABLE order_lines ADD COLUMN temporaryProductUrl TEXT')
     if start >= 8:
         db.executescript("""
             CREATE TRIGGER settlement_groups_one_forming_insert BEFORE INSERT ON settlement_groups
