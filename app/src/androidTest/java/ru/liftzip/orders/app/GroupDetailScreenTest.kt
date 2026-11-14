@@ -408,7 +408,7 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар Taobao UI")
         compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
-        compose.onNodeWithContentDescription("Ссылка Taobao").performScrollTo().performTextReplacement(
+        compose.onNodeWithContentDescription("Временная ссылка").performScrollTo().performTextReplacement(
             "https://item.taobao.com/item.htm?id=45184215152&spm=abc",
         )
         compose.waitUntil(10_000) {
@@ -424,6 +424,7 @@ class GroupDetailScreenTest {
                 .single { it.order.counterparty == "Заказ Taobao UI" }.order.id
             repository.observeOrder(id).first()!!
         }
+        assertEquals("https://item.taobao.com/item.htm?id=45184215152&spm=abc", saved.lines.single().temporaryProductUrl)
         assertEquals("https://item.taobao.com/item.htm?id=45184215152", saved.lines.single().productUrl)
     }
 
