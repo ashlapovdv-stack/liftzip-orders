@@ -622,7 +622,7 @@ fun OrderEditorScreen(
         val startUrl = remember(shareText) { TaobaoLinks.sharedUrl(shareText)?.toString() }
         androidx.compose.runtime.LaunchedEffect(lineIndex, shareText) {
             delay(12_000)
-            if (automaticBrowser == lineIndex to shareText) automaticBrowser = null
+            if (automaticBrowser == (lineIndex to shareText)) automaticBrowser = null
         }
         if (startUrl != null) {
             AndroidView(factory = { ctx ->
