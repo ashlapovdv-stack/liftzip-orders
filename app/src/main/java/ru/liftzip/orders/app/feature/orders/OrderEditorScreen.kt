@@ -621,8 +621,8 @@ fun OrderEditorScreen(
                 if (initial != null) {
                     AndroidView(factory = { ctx ->
                         WebView(ctx).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
+                            this.settings.javaScriptEnabled = true
+                            this.settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                     val url = request.url.toString()
