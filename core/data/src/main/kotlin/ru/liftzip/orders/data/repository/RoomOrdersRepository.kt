@@ -320,6 +320,7 @@ class RoomOrdersRepository(
                     deliveryRate = if (draft.deliveryWeight != null || draft.deliveryTariff != null || draft.deliveryPlanDate != null)
                         command.orderRate?.canonical() else null,
                     deliveryPlanDate = draft.deliveryPlanDate?.toString(), productUrl = draft.productUrl,
+                    temporaryProductUrl = draft.temporaryProductUrl,
                     actualWeight = draft.actualWeight?.canonical(),
                 )
             }
