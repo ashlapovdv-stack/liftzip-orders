@@ -555,7 +555,19 @@ fun OrderEditorScreen(
                         }
                     }
                     CompactItemSection {
-                        Text("Доставка · ориентир / Закупка · справочно", style = MaterialTheme.typography.titleSmall)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Факт, Закупка - справочно", style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Currency.entries.forEach { currency ->
+                                    FilterChip(selected = line.purchaseCurrency == currency,
+                                        onClick = { model.updateLine(index) { it.copy(purchaseCurrency = currency) } },
+                                        label = { Text(if (currency == Currency.RUB) "₽" else "¥") })
+                                }
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.Bottom) {
                             CompactPositionField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
@@ -565,13 +577,6 @@ fun OrderEditorScreen(
                             CompactPositionField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
                                 "Факт, кг", Modifier.weight(1f), decimal = true)
                             Column(Modifier.weight(1.2f)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Currency.entries.forEach { currency ->
-                                        FilterChip(selected = line.purchaseCurrency == currency,
-                                            onClick = { model.updateLine(index) { it.copy(purchaseCurrency = currency) } },
-                                            label = { Text(if (currency == Currency.RUB) "₽" else "¥") })
-                                    }
-                                }
                                 CompactPositionField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
                                     "Закупка, " + (if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"),
                                     error = state.errors["line_" + index + "_purchase"], decimal = true)
