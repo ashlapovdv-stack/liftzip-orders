@@ -137,8 +137,13 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                             Text("Количество: ${source.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
                             Text("Вес единицы: ${source.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
                             source.actualWeight?.let { Text("Реальный вес: ${it.formatDecimal()} кг", style = MaterialTheme.typography.bodySmall) }
-                            source.productUrl?.let { url ->
-                                Text("Ссылка: $url", modifier = Modifier.combinedClickable(
+                            source.temporaryProductUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                Text("Временная ссылка: $url", modifier = Modifier.combinedClickable(
+                                    onClick = {}, onLongClick = { linkActions = url }),
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            source.productUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                Text("Постоянная ссылка: $url", modifier = Modifier.combinedClickable(
                                     onClick = {}, onLongClick = { linkActions = url }),
                                     style = MaterialTheme.typography.bodySmall)
                             }
