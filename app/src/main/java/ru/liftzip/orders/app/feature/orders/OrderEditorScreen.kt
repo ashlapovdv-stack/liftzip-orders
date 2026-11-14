@@ -557,7 +557,7 @@ fun OrderEditorScreen(
                     CompactItemSection {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Факт, Закупка - справочно", style = MaterialTheme.typography.titleSmall,
+                            Text("Факт, Закупка - справочно", style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.weight(1f))
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
