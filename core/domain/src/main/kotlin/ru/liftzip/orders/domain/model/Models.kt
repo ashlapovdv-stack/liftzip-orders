@@ -119,6 +119,7 @@ data class OrderLine(
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
     val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
     val actualWeight: BigDecimal? = null,
     val images: List<ByteArray> = emptyList(),
 )
@@ -208,6 +209,7 @@ data class PriceRecordView(
     val deliveryTariff: BigDecimal? = null,
     val actualWeight: BigDecimal? = null,
     val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
     val images: List<ByteArray> = emptyList(),
 )
 
@@ -265,6 +267,7 @@ data class OrderLineDraft(
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
     val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
     val actualWeight: BigDecimal? = null,
     val images: List<ByteArray> = emptyList(),
 )
