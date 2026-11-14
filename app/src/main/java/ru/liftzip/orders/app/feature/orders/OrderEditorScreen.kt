@@ -3,6 +3,9 @@ package ru.liftzip.orders.app.feature.orders
 import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.webkit.WebView
+import android.webkit.WebSettings
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
 import androidx.compose.ui.viewinterop.AndroidView
@@ -168,6 +171,8 @@ fun OrderEditorScreen(
     var resolvingLink by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
     var browserLink by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var automaticBrowser by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var resolveJob by remember { mutableStateOf<Job?>(null) }
     var editingLine by remember { mutableStateOf<Int?>(null) }
     var catalogLine by remember { mutableStateOf<Int?>(null) }
     var historyExpanded by remember { mutableStateOf(false) }
@@ -523,16 +528,25 @@ fun OrderEditorScreen(
                             model.updateLine(index) { it.copy(temporaryProductUrl = value) }
                             linkError = null
                             if (!state.salesLocked && value.isNotBlank()) {
-                                linkScope.launch {
+                                resolveJob?.cancel()
+                                automaticBrowser = null
+                                resolveJob = linkScope.launch {
+                                    delay(600)
+                                    if (TaobaoLinks.sharedUrl(value) == null) return@launch
                                     resolvingLink = true
                                     try {
                                         val resolved = TaobaoLinkResolver.resolve(value)
-                                        if (resolved != null &&
-                                            model.state.value.lines.getOrNull(index)?.temporaryProductUrl == value) {
-                                            model.updateLine(index) { it.copy(productUrl = resolved) }
+                                        if (model.state.value.lines.getOrNull(index)?.temporaryProductUrl == value) {
+                                            if (resolved != null) {
+                                                model.updateLine(index) { it.copy(productUrl = resolved) }
+                                            } else {
+                                                automaticBrowser = index to value
+                                            }
                                         }
                                     } catch (_: Exception) {
-                                        // Keep the temporary link; permanent URL remains editable.
+                                        if (model.state.value.lines.getOrNull(index)?.temporaryProductUrl == value) {
+                                            automaticBrowser = index to value
+                                        }
                                     } finally {
                                         resolvingLink = false
                                     }
@@ -601,6 +615,41 @@ fun OrderEditorScreen(
             }
                 }
             }
+        }
+    }
+
+    automaticBrowser?.let { (lineIndex, shareText) ->
+        val startUrl = remember(shareText) { TaobaoLinks.sharedUrl(shareText)?.toString() }
+        androidx.compose.runtime.LaunchedEffect(lineIndex, shareText) {
+            delay(12_000)
+            if (automaticBrowser == lineIndex to shareText) automaticBrowser = null
+        }
+        if (startUrl != null) {
+            AndroidView(factory = { ctx ->
+                WebView(ctx).apply {
+                    this.settings.javaScriptEnabled = true
+                    this.settings.domStorageEnabled = true
+                    this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    webViewClient = object : WebViewClient() {
+                        private fun capture(url: String) {
+                            val canonical = TaobaoLinks.sharedUrl(url)?.let(TaobaoLinks::canonicalUrl)
+                            if (canonical != null &&
+                                model.state.value.lines.getOrNull(lineIndex)?.temporaryProductUrl == shareText) {
+                                model.updateLine(lineIndex) { it.copy(productUrl = canonical) }
+                                automaticBrowser = null
+                            }
+                        }
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val url = request.url.toString()
+                            capture(url)
+                            return !request.url.scheme.equals("https", ignoreCase = true) ||
+                                TaobaoLinks.sharedUrl(url) == null
+                        }
+                        override fun onPageFinished(view: WebView, url: String) { capture(url) }
+                    }
+                    loadUrl(startUrl)
+                }
+            }, modifier = Modifier.size(1.dp), onRelease = { it.stopLoading(); it.destroy() })
         }
     }
 
