@@ -25,7 +25,7 @@ import java.time.Instant
 import java.util.UUID
 
 class MainViewModel(private val settings: SettingsStore) : ViewModel() {
-    val selectedTab = settings.selectedTab.stateIn(viewModelScope, SharingStarted.Eagerly, 2)
+    val selectedTab = settings.selectedTab.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     fun selectTab(index: Int) = viewModelScope.launch { settings.selectTab(index) }
 }
 

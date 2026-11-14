@@ -1,5 +1,34 @@
 package ru.liftzip.orders.app.feature.prices
 
+import android.graphics.BitmapFactory
+import android.content.ContentValues
+import android.content.Intent
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,6 +65,7 @@ import ru.liftzip.orders.domain.model.PriceRecordView
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.util.UUID
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: () -> Unit) {
     val model = viewModel<ProductDetailViewModel>(
@@ -43,6 +73,43 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
         factory = viewModelFactory { initializer { ProductDetailViewModel(repository, productId) } },
     )
     val history by model.history.collectAsState()
+    val context = LocalContext.current
+    var enlarged by remember { mutableStateOf<ByteArray?>(null) }
+    var savePhoto by remember { mutableStateOf<ByteArray?>(null) }
+    var linkActions by remember { mutableStateOf<String?>(null) }
+    enlarged?.let { bytes ->
+        Dialog(onDismissRequest = { enlarged = null }) {
+            val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+            if (bitmap != null) Image(bitmap.asImageBitmap(), "Увеличенная фотография",
+                modifier = Modifier.fillMaxWidth().combinedClickable(
+                    onClick = {}, onLongClick = { savePhoto = bytes }),
+                contentScale = ContentScale.Fit)
+        }
+    }
+    savePhoto?.let { bytes ->
+        AlertDialog(onDismissRequest = { savePhoto = null },
+            title = { Text("Сохранить фотографию?") },
+            confirmButton = { TextButton(onClick = {
+                val saved = saveHistoryPhoto(context, bytes)
+                Toast.makeText(context, if (saved) "Фотография сохранена" else "Не удалось сохранить", Toast.LENGTH_SHORT).show()
+                savePhoto = null
+            }) { Text("Сохранить") } },
+            dismissButton = { TextButton(onClick = { savePhoto = null }) { Text("Отмена") } })
+    }
+    linkActions?.let { url ->
+        AlertDialog(onDismissRequest = { linkActions = null },
+            title = { Text("Ссылка товара") }, text = { Text(url) },
+            confirmButton = { TextButton(onClick = {
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    .onFailure { Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show() }
+                linkActions = null
+            }) { Text("Открыть") } },
+            dismissButton = { TextButton(onClick = {
+                (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                    .setPrimaryClip(ClipData.newPlainText("Ссылка товара", url))
+                linkActions = null
+            }) { Text("Копировать") } })
+    }
     Scaffold(topBar = { CompactTopBar("История цен", onBack) }) { padding ->
         val current = history
         LazyColumn(Modifier.fillMaxSize().padding(padding),
@@ -69,12 +136,34 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                             }
                             Text("Количество: ${source.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
                             Text("Вес единицы: ${source.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
+                            source.actualWeight?.let { Text("Реальный вес: ${it.formatDecimal()} кг", style = MaterialTheme.typography.bodySmall) }
+                            source.temporaryProductUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                Text("Временная ссылка: $url", modifier = Modifier.combinedClickable(
+                                    onClick = {}, onLongClick = { linkActions = url }),
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            source.productUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                Text("Постоянная ссылка: $url", modifier = Modifier.combinedClickable(
+                                    onClick = {}, onLongClick = { linkActions = url }),
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
                             val rate = source.orderRate
                             if (rate != null) Text("Курс заказа: ${rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             else entry.purchase?.takeIf { it.record.currency == Currency.CNY }?.let {
                                 Text("Курс закупки: ${it.record.rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             }
                             source.deliveryTariff?.let { Text("Тариф доставки: ${it.formatDecimal()} ¥/кг", style = MaterialTheme.typography.bodySmall) }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                source.images.forEachIndexed { index, bytes ->
+                                    val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                                    if (bitmap != null) Image(bitmap.asImageBitmap(), "Фото ${index + 1}",
+                                        modifier = Modifier.size(76.dp).combinedClickable(
+                                            onClick = { enlarged = bytes },
+                                            onLongClick = { savePhoto = bytes }),
+                                        contentScale = ContentScale.Crop)
+                                }
+                            }
                         }
                     }
                 }
@@ -93,3 +182,27 @@ private fun HistoryValue(label: String, value: String, modifier: Modifier) {
 
 private fun PriceRecordView.priceText(): String =
     "${record.price.formatDecimal()} ${if (record.currency == Currency.RUB) "₽" else "¥"}"
+
+private fun saveHistoryPhoto(context: Context, bytes: ByteArray): Boolean = runCatching {
+    val values = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, "LiftZIP_${System.currentTimeMillis()}.jpg")
+        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/LiftZIP")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+    }
+    val resolver = context.contentResolver
+    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        ?: error("Cannot create image")
+    try {
+        resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Cannot write image")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+        }
+    } catch (error: Exception) {
+        resolver.delete(uri, null, null)
+        throw error
+    }
+    true
+}.getOrDefault(false)

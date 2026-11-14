@@ -1,7 +1,39 @@
 package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
+import android.content.Intent
+import android.webkit.WebView
+import android.webkit.WebSettings
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Save
+import ru.liftzip.orders.app.SettingsStore
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.CardDefaults
 import ru.liftzip.orders.app.ui.CompactTopBar
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -71,6 +104,10 @@ import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.PriceSearchViewModel
 import ru.liftzip.orders.app.ui.OrderFulfillmentActions
+import ru.liftzip.orders.app.feature.mail.GroupDraftStore
+import ru.liftzip.orders.app.feature.mail.OrderDocumentStore
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.MailOutline
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.SectionTitle
 import ru.liftzip.orders.app.ui.StatusBadge
@@ -90,30 +127,103 @@ import java.util.UUID
 @Composable
 fun OrderEditorScreen(
     repository: OrdersRepository,
+    settings: SettingsStore,
     orderId: UUID?,
     onBack: () -> Unit,
+    onOpenDraft: (UUID, UUID) -> Unit = { _, _ -> },
 ) {
     val model = viewModel<OrderEditorViewModel>(
         key = "order-${orderId ?: "new"}",
         factory = viewModelFactory { initializer { OrderEditorViewModel(repository, orderId) } },
     )
     val state by model.state.collectAsState()
+    val context = LocalContext.current
+    val mailStore = remember { GroupDraftStore(context.applicationContext) }
+    val documentStore = remember { OrderDocumentStore(context.applicationContext) }
+    var documentsRevision by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var documentError by remember { mutableStateOf<String?>(null) }
+    var documentLineTarget by remember { mutableStateOf<UUID?>(null) }
+    var confirmDeleteDocument by remember { mutableStateOf<Pair<UUID, java.io.File>?>(null) }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val target = documentLineTarget
+        if (orderId != null && target != null) {
+            runCatching { uris.forEach { documentStore.addToLine(orderId, target, it) } }
+                .onSuccess { documentsRevision++ }
+                .onFailure { documentError = it.message }
+        }
+    }
+    val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
+    val hasMailDraft = state.groupId?.let { g -> state.orderId?.let { mailStore.get(g, it) != null } } == true
+    val canFormMail = state.counterparty.isNotBlank() && state.lines.isNotEmpty() &&
+        state.lines.all { it.name.isNotBlank() && it.productUrl.isNotBlank() &&
+            it.quantity.toBigDecimalOrNull()?.signum() == 1 }
+    var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var imageTarget by remember { mutableStateOf<Int?>(null) }
+    var enlargedPhoto by remember { mutableStateOf<ByteArray?>(null) }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val target = imageTarget
+        if (target != null && uris.isNotEmpty()) {
+            model.addImagesFromGallery(target, uris, context.contentResolver)
+        }
+    }
+
+    val linkScope = rememberCoroutineScope()
+    var resolvingLink by remember { mutableStateOf(false) }
+    var linkError by remember { mutableStateOf<String?>(null) }
+    var browserLink by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var automaticBrowser by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var resolveJob by remember { mutableStateOf<Job?>(null) }
     var editingLine by remember { mutableStateOf<Int?>(null) }
     var catalogLine by remember { mutableStateOf<Int?>(null) }
     var historyExpanded by remember { mutableStateOf(false) }
     var confirmDeleteOrder by remember { mutableStateOf(false) }
     var deleteLineIndex by remember { mutableStateOf<Int?>(null) }
 
-    BackHandler { if (model.requestBack()) onBack() }
+    BackHandler(enabled = enlargedPhoto == null) {
+        when {
+            confirmDeletePhoto != null -> confirmDeletePhoto = null
+            editingLine != null -> editingLine = null
+            else -> if (model.requestBack()) onBack()
+        }
+    }
 
     Scaffold(
         topBar = {
             CompactTopBar(state.orderNumber?.let { "Заказ №$it" } ?: "Новый заказ",
                 onBack = { if (model.requestBack()) onBack() }) {
-                TextButton(onClick = { model.save { onBack() } }, enabled = state.loaded && !state.saving && !state.actionsSaving) {
-                    Text(if (state.saving) "Сохраняю…" else "Сохранить", fontWeight = FontWeight.SemiBold)
+                if (orderId != null && (hasMailDraft || canFormMail)) {
+                    OutlinedButton(onClick = { state.groupId?.let { onOpenDraft(it, orderId) } },
+                        modifier = Modifier.width(70.dp).height(44.dp),
+                        enabled = state.loaded && !state.saving && !state.actionsSaving &&
+                            !state.dirty && state.groupId != null,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.MailOutline,
+                                contentDescription = if (hasMailDraft) "Открыть черновик" else "Сформировать письмо",
+                                modifier = Modifier.size(20.dp))
+                            Text(if (hasMailDraft) "Открыть" else "Создать",
+                                fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                 }
-
+                OutlinedButton(onClick = { model.save { onBack() } },
+                    modifier = Modifier.width(72.dp).height(44.dp),
+                    enabled = state.loaded && !state.saving && !state.actionsSaving,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center) {
+                        Icon(Icons.Default.Save, contentDescription = "Сохранить заказ",
+                            modifier = Modifier.size(20.dp))
+                        Text(if (state.saving) "Сохраняю" else "Сохранить",
+                            fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
+                    }
+                }
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -123,6 +233,7 @@ fun OrderEditorScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!state.loaded) item { Text("Загрузка…") }
             state.generalError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
+            documentError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
             item {
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
                     "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
@@ -133,6 +244,7 @@ fun OrderEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             OrderFulfillmentActions(state.orderNumber, state.fulfillment,
+                                mailDraftCreated = hasMailDraft,
                                 enabled = state.loaded && state.orderId != null && state.groupState != GroupState.FORMING && !state.saving && !state.actionsSaving,
                                 captionStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.sp),
                                 onAction = model::setAction)
@@ -160,14 +272,32 @@ fun OrderEditorScreen(
                             Text("${line.quantity} × ${line.salePrice.ifBlank { "—" }} ₽", style = MaterialTheme.typography.bodySmall)
                             if (state.errors.keys.any { it.startsWith("line_${index}_") }) Text("Проверьте поля позиции", color = MaterialTheme.colorScheme.error)
                         }
-                        IconButton(onClick = { deleteLineIndex = index }, enabled = !state.saving, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.Delete, "Удалить позицию ${index + 1}", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (line.images.isNotEmpty()) {
+                                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Image, "К товару прикреплены фотографии",
+                                        Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            if (orderId != null && line.id != null &&
+                                documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
+                                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.AttachFile, "Документы товара",
+                                        Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            IconButton(onClick = { deleteLineIndex = index },
+                                enabled = !state.saving, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, "Удалить позицию ${index + 1}",
+                                    Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }
             }
             if (!state.salesLocked) item {
-                OutlinedButton(onClick = { model.addLine(); editingLine = state.lines.size }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Добавить позицию") }
+                OutlinedButton(onClick = { model.addLine(); editingLine = 0 }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Text("Добавить позицию") }
             }
             item {
                 OrderSection {
@@ -238,36 +368,208 @@ fun OrderEditorScreen(
             dismissButton = { TextButton(onClick = { deleteLineIndex = null }) { Text("Отмена") } })
     }
 
+    confirmDeleteDocument?.let { (lineId, file) ->
+        AlertDialog(onDismissRequest = { confirmDeleteDocument = null },
+            title = { Text("Удалить документ?") },
+            text = { Text(file.name.substringAfter('_')) },
+            confirmButton = { TextButton(onClick = {
+                if (orderId != null) {
+                    runCatching { check(documentStore.delete(orderId, lineId, file)) { "Не удалось удалить документ" } }
+                        .onSuccess { documentsRevision++ }
+                        .onFailure { documentError = it.message }
+                }
+                confirmDeleteDocument = null
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteDocument = null }) { Text("Отмена") } })
+    }
+
+    confirmDeletePhoto?.let { (lineIndex, photoIndex) ->
+        AlertDialog(
+            onDismissRequest = { confirmDeletePhoto = null },
+            title = { Text("Удалить фотографию?") },
+            text = { Text("Фотография будет удалена из позиции после сохранения заказа.") },
+            confirmButton = { TextButton(onClick = {
+                model.updateLine(lineIndex) { draft ->
+                    draft.copy(images = draft.images.filterIndexed { n, _ -> n != photoIndex })
+                }
+                confirmDeletePhoto = null
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { confirmDeletePhoto = null }) { Text("Отмена") } },
+        )
+    }
+
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
-        ModalBottomSheet(
+        Dialog(
             onDismissRequest = { editingLine = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = Color(0xFFF6F8F8),
-            modifier = Modifier.imePadding(),
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
         ) {
+            Box(Modifier.fillMaxSize().imePadding().navigationBarsPadding(),
+                contentAlignment = Alignment.BottomCenter) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    color = Color(0xFFF6F8F8),
+                ) {
             val line = state.lines[index]
-            Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).navigationBarsPadding().padding(horizontal = 12.dp).testTag("position-editor")) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("position-editor")) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     TextButton(onClick = { editingLine = null }) { Text("Готово") }
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OrderSection {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CompactItemSection {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Товар", style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { catalogLine = index }, enabled = !state.salesLocked) { Text("Из каталога") }
                         }
-                        AppTextField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
+                        CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
-                        AppTextField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
-                            "Артикул", enabled = !state.salesLocked)
+                        Spacer(Modifier.height(6.dp))
+                        val docs = if (orderId != null && line.id != null) {
+                            documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
+                        } else emptyList()
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (galleryButtonFixed) {
+                                GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
+                                if (orderId != null && line.id != null) {
+                                    OutlinedButton(onClick = {
+                                        documentLineTarget = line.id
+                                        documentPicker.launch(arrayOf("application/pdf", "application/msword",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                    }, modifier = Modifier.size(76.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.AttachFile, contentDescription = "Добавить документ",
+                                                modifier = Modifier.size(28.dp))
+                                            Text("Добавить", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                if (!galleryButtonFixed) {
+                                    GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
+                                    if (orderId != null && line.id != null) {
+                                OutlinedButton(onClick = {
+                                    documentLineTarget = line.id
+                                    documentPicker.launch(arrayOf("application/pdf", "application/msword",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                                }, modifier = Modifier.size(76.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center) {
+                                        Icon(Icons.Default.AttachFile, contentDescription = "Добавить документ",
+                                            modifier = Modifier.size(28.dp))
+                                        Text("Добавить", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                    }
+                                }
+                            line.images.forEachIndexed { photoIndex, bytes ->
+                                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                                Box(Modifier.size(76.dp)) {
+                                    if (bitmap != null) Image(
+                                        bitmap.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
+                                        modifier = Modifier.fillMaxSize().clickable { enlargedPhoto = bytes }, contentScale = ContentScale.Crop,
+                                    )
+                                    IconButton(
+                                        onClick = { confirmDeletePhoto = index to photoIndex },
+                                        modifier = Modifier.align(Alignment.TopEnd).size(22.dp)
+                                            .background(Color.Transparent),
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, "Удалить фото ${photoIndex + 1}",
+                                            modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
+                                    }
+                                }
+                            }
+                                docs.forEach { file ->
+                                    Box(Modifier.size(76.dp).background(Color(0xFFEAF3EB), RoundedCornerShape(10.dp))) {
+                                        Column(Modifier.fillMaxSize().clickable {
+                                            val mime = when (file.extension.lowercase()) {
+                                                "pdf" -> "application/pdf"
+                                                "doc" -> "application/msword"
+                                                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                                else -> "application/octet-stream"
+                                            }
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(FileProvider.getUriForFile(context,
+                                                        "${context.packageName}.files", file), mime)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                })
+                                            }.onFailure { documentError = it.message }
+                                        }, horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center) {
+                                            Icon(Icons.Default.AttachFile, contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
+                                            Text(file.extension.uppercase(), style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(onClick = { line.id?.let { documentId -> confirmDeleteDocument = documentId to file } },
+                                            modifier = Modifier.align(Alignment.TopEnd).size(22.dp)) {
+                                            Icon(Icons.Default.DeleteOutline, "Удалить документ",
+                                                modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        CompactPositionField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
+                            "ZIP-код", enabled = !state.salesLocked)
+                        CompactPositionField(line.temporaryProductUrl, { value ->
+                            model.updateLine(index) { it.copy(temporaryProductUrl = value) }
+                            linkError = null
+                            if (!state.salesLocked && value.isNotBlank()) {
+                                resolveJob?.cancel()
+                                automaticBrowser = null
+                                resolveJob = linkScope.launch {
+                                    delay(600)
+                                    if (TaobaoLinks.sharedUrl(value) == null) return@launch
+                                    resolvingLink = true
+                                    try {
+                                        val resolved = TaobaoLinkResolver.resolve(value)
+                                        if (model.state.value.lines.getOrNull(index)?.temporaryProductUrl == value) {
+                                            if (resolved != null) {
+                                                model.updateLine(index) { it.copy(productUrl = resolved) }
+                                            } else {
+                                                automaticBrowser = index to value
+                                            }
+                                        }
+                                    } catch (_: Exception) {
+                                        if (model.state.value.lines.getOrNull(index)?.temporaryProductUrl == value) {
+                                            automaticBrowser = index to value
+                                        }
+                                    } finally {
+                                        resolvingLink = false
+                                    }
+                                }
+                            }
+                        }, "Временная ссылка", enabled = !state.salesLocked)
+                        CompactPositionField(line.productUrl, { value ->
+                            model.updateLine(index) { it.copy(productUrl = value) }
+                        }, "Постоянная ссылка", enabled = !state.salesLocked)
+                        if (resolvingLink) Text("Преобразование ссылки…", style = MaterialTheme.typography.labelSmall)
+                        if (!state.salesLocked && line.temporaryProductUrl.isNotBlank() &&
+                            line.productUrl.isBlank() && !resolvingLink) {
+                            TextButton(onClick = { browserLink = index to line.temporaryProductUrl }) {
+                                Text("Открыть ссылку для определения товара")
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppTextField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
+                            CompactPositionField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
                                 "Количество", Modifier.weight(0.8f), error = state.errors["line_${index}_quantity"], enabled = !state.salesLocked, decimal = true)
-                            AppTextField(line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
+                            CompactPositionField(line.salePrice, { value -> model.updateLine(index) { it.copy(salePrice = value) } },
                                 "Денису, ₽/шт", Modifier.weight(1.2f), error = state.errors["line_${index}_sale"], enabled = !state.salesLocked, decimal = true)
                         }
-                        Text("Цена для Дениса включает доставку", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
                         state.errors["line_${index}_zero"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (line.salePrice.replace(',', '.').toBigDecimalOrNull()?.signum() == 0) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -277,10 +579,13 @@ fun OrderEditorScreen(
                             }
                         }
                     }
-                    OrderSection {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Закупка · справочно", style = MaterialTheme.typography.titleSmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CompactItemSection {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Факт, Закупка - справочно", style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.weight(1f))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
                                 Currency.entries.forEach { currency ->
                                     FilterChip(selected = line.purchaseCurrency == currency,
                                         onClick = { model.updateLine(index) { it.copy(purchaseCurrency = currency) } },
@@ -288,24 +593,134 @@ fun OrderEditorScreen(
                                 }
                             }
                         }
-                        AppTextField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
-                            "Цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"}", error = state.errors["line_${index}_purchase"], decimal = true)
-                    }
-                    OrderSection {
-                        Text("Доставка · ориентир", style = MaterialTheme.typography.titleSmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppTextField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
-                                "Вес единицы, кг", Modifier.weight(1f), decimal = true)
-                            AppTextField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.Bottom) {
+                            CompactPositionField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
+                                "Вес, кг", Modifier.weight(1f), decimal = true)
+                            CompactPositionField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
                                 "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
+                            CompactPositionField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
+                                "Факт, кг", Modifier.weight(1f), decimal = true)
+                            Column(Modifier.weight(1.2f)) {
+                                CompactPositionField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
+                                    "Закупка, " + (if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"),
+                                    error = state.errors["line_" + index + "_purchase"], decimal = true)
+                            }
                         }
-                        state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-                    TextButton(onClick = { deleteLineIndex = index; editingLine = null }, modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Удалить позицию", Modifier.padding(start = 6.dp))
+
+                }
+
+            }
+                }
+            }
+        }
+    }
+
+    automaticBrowser?.let { (lineIndex, shareText) ->
+        val startUrl = remember(shareText) { TaobaoLinks.sharedUrl(shareText)?.toString() }
+        androidx.compose.runtime.LaunchedEffect(lineIndex, shareText) {
+            delay(12_000)
+            if (automaticBrowser == (lineIndex to shareText)) automaticBrowser = null
+        }
+        if (startUrl != null) {
+            AndroidView(factory = { ctx ->
+                WebView(ctx).apply {
+                    this.settings.javaScriptEnabled = true
+                    this.settings.domStorageEnabled = true
+                    this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    webViewClient = object : WebViewClient() {
+                        private fun capture(url: String) {
+                            val canonical = TaobaoLinks.sharedUrl(url)?.let(TaobaoLinks::canonicalUrl)
+                            if (canonical != null &&
+                                model.state.value.lines.getOrNull(lineIndex)?.temporaryProductUrl == shareText) {
+                                model.updateLine(lineIndex) { it.copy(productUrl = canonical) }
+                                automaticBrowser = null
+                            }
+                        }
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val url = request.url.toString()
+                            capture(url)
+                            return !request.url.scheme.equals("https", ignoreCase = true) ||
+                                TaobaoLinks.sharedUrl(url) == null
+                        }
+                        override fun onPageFinished(view: WebView, url: String) { capture(url) }
                     }
+                    loadUrl(startUrl)
+                }
+            }, modifier = Modifier.size(1.dp), onRelease = { it.stopLoading(); it.destroy() })
+        }
+    }
+
+    browserLink?.let { (lineIndex, shareText) ->
+        val initial = remember(shareText) { TaobaoLinks.sharedUrl(shareText)?.toString() }
+        var foundUrl by remember(shareText) { mutableStateOf<String?>(null) }
+        Dialog(onDismissRequest = { browserLink = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
+                .navigationBarsPadding().padding(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Определение ссылки", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { browserLink = null }) { Text("Закрыть") }
+                }
+                Text("Откройте карточку товара. Адрес сохраняется только после подтверждения.",
+                    style = MaterialTheme.typography.bodySmall)
+                if (initial != null) {
+                    AndroidView(factory = { ctx ->
+                        WebView(ctx).apply {
+                            this.settings.javaScriptEnabled = true
+                            this.settings.domStorageEnabled = true
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                    val url = request.url.toString()
+                                    TaobaoLinks.sharedUrl(url)?.let { uri ->
+                                        TaobaoLinks.canonicalUrl(uri)?.let { foundUrl = it }
+                                    }
+                                    return !request.url.scheme.equals("https", ignoreCase = true) ||
+                                        TaobaoLinks.sharedUrl(url) == null
+                                }
+                                override fun onPageFinished(view: WebView, url: String) {
+                                    TaobaoLinks.sharedUrl(url)?.let { uri ->
+                                        TaobaoLinks.canonicalUrl(uri)?.let { foundUrl = it }
+                                    }
+                                }
+                            }
+                            loadUrl(initial)
+                        }
+                    }, modifier = Modifier.weight(1f).fillMaxWidth(),
+                        onRelease = { it.stopLoading(); it.destroy() })
+                } else Text("Некорректная ссылка", modifier = Modifier.weight(1f))
+                Text(foundUrl ?: "Идентификатор товара пока не получен",
+                    style = MaterialTheme.typography.bodySmall)
+                Button(onClick = {
+                    val url = foundUrl
+                    if (url != null && model.state.value.lines.getOrNull(lineIndex)?.temporaryProductUrl == shareText) {
+                        model.updateLine(lineIndex) { it.copy(productUrl = url) }
+                        browserLink = null
+                    }
+                }, enabled = foundUrl != null, modifier = Modifier.fillMaxWidth()) {
+                    Text("Использовать постоянную ссылку")
+                }
+            }
+        }
+    }
+
+    enlargedPhoto?.let { bytes ->
+        Dialog(onDismissRequest = { enlargedPhoto = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(Modifier.fillMaxSize().background(Color(0xED101010))
+                .clickable { enlargedPhoto = null }, contentAlignment = Alignment.Center) {
+                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                if (bitmap != null) {
+                    Image(bitmap.asImageBitmap(), contentDescription = "Увеличенное фото товара",
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f),
+                        contentScale = ContentScale.Fit)
+                }
+                TextButton(onClick = { enlargedPhoto = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
+                    Text("Закрыть", color = Color.White)
                 }
             }
         }
@@ -372,5 +787,69 @@ private fun OrderSection(content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
+    }
+}
+
+@Composable
+private fun CompactItemSection(content: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp), content = content)
+    }
+}
+
+@Composable
+private fun GalleryAddTile(onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.size(76.dp),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Добавить фото из галереи",
+                modifier = Modifier.size(28.dp))
+            Text("Добавить", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun CompactPositionField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    error: String? = null,
+    enabled: Boolean = true,
+    decimal: Boolean = false,
+    minLines: Int = 1,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(9.dp), color = Color.White,
+            border = BorderStroke(1.dp, if (error != null) MaterialTheme.colorScheme.error else Color(0xFF888888))) {
+            BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled,
+                singleLine = minLines <= 1,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                                  else KeyboardOptions.Default,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                    .padding(horizontal = 10.dp, vertical = 10.dp)
+                    .semantics { contentDescription = label },
+                decorationBox = { inner ->
+                    Box {
+                        if (value.isEmpty()) Text(label, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                        inner()
+                    }
+                })
+        }
+        if (error != null) Text(error, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error)
     }
 }

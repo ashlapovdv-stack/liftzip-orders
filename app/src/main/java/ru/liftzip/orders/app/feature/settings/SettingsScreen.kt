@@ -21,6 +21,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -44,6 +49,8 @@ import java.time.Instant
 fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () -> Unit) {
     val model = viewModel<SettingsViewModel>(factory = viewModelFactory { initializer { SettingsViewModel(backup, settings) } })
     val lastBackup by model.lastBackup.collectAsState()
+    val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
+    val scope = rememberCoroutineScope()
     val busy by model.busy.collectAsState()
     val message by model.message.collectAsState()
     val pending by model.pendingImport.collectAsState()
@@ -67,6 +74,29 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Card(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Закрепить кнопку добавления фото",
+                            style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (galleryButtonFixed) "Кнопка остаётся слева при прокрутке фотографий"
+                            else "Кнопка прокручивается вместе с фотографиями",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = galleryButtonFixed,
+                        onCheckedChange = { fixed ->
+                            scope.launch { settings.setGalleryButtonFixed(fixed) }
+                        },
+                    )
+                }
+            }
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Локальные данные", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

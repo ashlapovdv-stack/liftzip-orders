@@ -1,5 +1,13 @@
 package ru.liftzip.orders.app.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +49,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ru.liftzip.orders.app.AppContainer
+import ru.liftzip.orders.app.feature.mail.GroupDraftScreen
 import ru.liftzip.orders.app.feature.groups.GroupDetailScreen
 import ru.liftzip.orders.app.feature.groups.GroupsScreen
 import ru.liftzip.orders.app.feature.orders.OrderEditorScreen
@@ -57,8 +66,33 @@ private val tabIcons = listOf(Icons.Default.ShoppingCart, Icons.Default.List, Ic
 @Composable
 fun OrdersApp(container: AppContainer) {
     val nav = rememberNavController()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val mainModel = viewModel<MainViewModel>(factory = viewModelFactory { initializer { MainViewModel(container.settings) } })
     val selectedTab by mainModel.selectedTab.collectAsState()
+    val currentEntry by nav.currentBackStackEntryAsState()
+    var confirmExit by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { mainModel.selectTab(0) }
+    BackHandler {
+        when {
+            currentEntry?.destination?.route != "main" -> {
+                nav.popBackStack("main", false)
+                mainModel.selectTab(0)
+            }
+            selectedTab != 0 -> mainModel.selectTab(0)
+            else -> confirmExit = true
+        }
+    }
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text("Выйти из приложения?") },
+            confirmButton = { TextButton(onClick = {
+                confirmExit = false
+                (context as? android.app.Activity)?.finish()
+            }) { Text("Выйти") } },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("Отмена") } },
+        )
+    }
 
     NavHost(navController = nav, startDestination = "main", modifier = Modifier.fillMaxSize()) {
         composable("main") {
@@ -75,14 +109,15 @@ fun OrdersApp(container: AppContainer) {
             }
         }
         composable("order/new") {
-            OrderEditorScreen(container.repository, null, onBack = { nav.popBackStack() })
+            OrderEditorScreen(container.repository, container.settings, null, onBack = { nav.popBackStack() })
         }
         composable(
             "order/{id}",
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
             val id = UUID.fromString(entry.arguments?.getString("id"))
-            OrderEditorScreen(container.repository, id, onBack = { nav.popBackStack() })
+            OrderEditorScreen(container.repository, container.settings, id, onBack = { nav.popBackStack() },
+                onOpenDraft = { groupId, orderId -> nav.navigate("draft/$groupId/$orderId") })
         }
         composable(
             "group/{id}",
@@ -93,6 +128,14 @@ fun OrdersApp(container: AppContainer) {
                 container.repository, id, onBack = { nav.popBackStack() },
                 onOpenOrder = { nav.navigate("order/$it") },
             )
+        }
+        composable("draft/{groupId}/{orderId}", arguments = listOf(
+            navArgument("groupId") { type = NavType.StringType },
+            navArgument("orderId") { type = NavType.StringType },
+        )) { entry ->
+            val groupId = UUID.fromString(entry.arguments?.getString("groupId"))
+            val orderId = UUID.fromString(entry.arguments?.getString("orderId"))
+            GroupDraftScreen(container.repository, groupId, orderId, onBack = { nav.popBackStack() })
         }
         composable(
             "product/{id}",

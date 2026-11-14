@@ -23,6 +23,7 @@ import ru.liftzip.orders.data.database.CostEntryEntity
 import ru.liftzip.orders.data.database.GroupCommandEntity
 import ru.liftzip.orders.data.database.OrderCommandEntity
 import ru.liftzip.orders.data.database.OrderEntity
+import ru.liftzip.orders.data.database.OrderLineImageEntity
 import ru.liftzip.orders.data.database.OrderLineEntity
 import ru.liftzip.orders.data.database.OrdersDao
 import ru.liftzip.orders.data.database.OrdersDatabase
@@ -188,13 +189,18 @@ class RoomOrdersRepository(
             val linesById = lines.associateBy { it.id }
             val orderIds = records.map { it.orderId }.distinct()
             val orders = if (orderIds.isEmpty()) emptyList() else dao.getOrdersByIds(orderIds)
+            val imagesByLine = dao.getImagesForLines(lines.map { it.id }).groupBy { it.lineId }
             ProductPriceHistory(
                 product = product.toDomain(),
                 records = records.mapNotNull { record ->
                     orders.firstOrNull { it.id == record.orderId }?.let {
                         PriceRecordView(record.toDomain(), it.number,
                             linesById[record.sourceLineId]?.deliveryWeight?.decimal(), it.orderRate?.decimal(),
-                            linesById[record.sourceLineId]?.deliveryTariff?.decimal())
+                            linesById[record.sourceLineId]?.deliveryTariff?.decimal(),
+                            linesById[record.sourceLineId]?.actualWeight?.decimal(),
+                            linesById[record.sourceLineId]?.productUrl,
+                            linesById[record.sourceLineId]?.temporaryProductUrl,
+                            imagesByLine[record.sourceLineId].orEmpty().map { image -> image.jpeg })
                     }
                 },
             )
@@ -314,7 +320,9 @@ class RoomOrdersRepository(
                     deliveryWeight = draft.deliveryWeight?.canonical(), deliveryTariff = draft.deliveryTariff?.canonical(),
                     deliveryRate = if (draft.deliveryWeight != null || draft.deliveryTariff != null || draft.deliveryPlanDate != null)
                         command.orderRate?.canonical() else null,
-                    deliveryPlanDate = draft.deliveryPlanDate?.toString(),
+                    deliveryPlanDate = draft.deliveryPlanDate?.toString(), productUrl = draft.productUrl,
+                    temporaryProductUrl = draft.temporaryProductUrl,
+                    actualWeight = draft.actualWeight?.canonical(),
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.
@@ -322,6 +330,10 @@ class RoomOrdersRepository(
             dao.deleteRemovedLines(orderId, resolvedLines.map { it.id })
             resolvedLines.forEach { line ->
                 if (oldLines.any { it.id == line.id }) dao.updateLine(line) else dao.insertLine(line)
+                dao.deleteLineImages(line.id)
+                command.lines[resolvedLines.indexOf(line)].images.forEachIndexed { position, bytes ->
+                    dao.insertLineImage(OrderLineImageEntity(UUID.randomUUID().toString(), line.id, position, bytes))
+                }
                 syncPriceRecords(order, line, now)
             }
             syncOrderCosts(orderId, command.costs, command.lines, resolvedLines, oldCosts, now)
@@ -406,7 +418,9 @@ class RoomOrdersRepository(
 
     private suspend fun loadOrderDetails(order: OrderEntity, group: SettlementGroupEntity): OrderDetails = OrderDetails(
         order = order.toDomain(), group = group.toDomain(),
-        lines = dao.getOrderLines(order.id).map { it.toDomain() },
+        lines = dao.getOrderLines(order.id).map { line ->
+            line.toDomain().copy(images = dao.getLineImages(line.id).map { it.jpeg })
+        },
         costs = dao.getOrderCosts(order.id).map { it.toDomain() },
         history = dao.getOrderHistory(order.id).map { it.toDomain() },
     )

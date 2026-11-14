@@ -3,6 +3,7 @@ package ru.liftzip.orders.app
 import android.app.Application
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -39,6 +40,9 @@ private val Context.settingsDataStore by preferencesDataStore(name = "orders_set
 
 class SettingsStore(context: Context) {
     private val dataStore = context.settingsDataStore
+    private val galleryButtonFixedKey = booleanPreferencesKey("gallery_button_fixed")
+    val galleryButtonFixed: Flow<Boolean> = dataStore.data.map { it[galleryButtonFixedKey] ?: true }
+    suspend fun setGalleryButtonFixed(fixed: Boolean) { dataStore.edit { it[galleryButtonFixedKey] = fixed } }
     private val selectedTabKey = intPreferencesKey("selected_tab")
     private val lastBackupKey = longPreferencesKey("last_successful_backup")
 

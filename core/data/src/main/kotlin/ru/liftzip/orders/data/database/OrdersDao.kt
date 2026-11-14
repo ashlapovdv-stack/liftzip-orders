@@ -9,6 +9,18 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface OrdersDao {
+    @Query("SELECT * FROM order_line_images WHERE lineId = :lineId ORDER BY position, id")
+    suspend fun getLineImages(lineId: String): List<OrderLineImageEntity>
+
+    @Query("SELECT * FROM order_line_images WHERE lineId IN (:lineIds) ORDER BY position, id")
+    suspend fun getImagesForLines(lineIds: List<String>): List<OrderLineImageEntity>
+
+    @Insert
+    suspend fun insertLineImage(image: OrderLineImageEntity)
+
+    @Query("DELETE FROM order_line_images WHERE lineId = :lineId")
+    suspend fun deleteLineImages(lineId: String)
+
     @Query("""
         SELECT o.* FROM orders o
         WHERE (:filter = 'ALL' OR o.calculationState = 'INCOMPLETE')

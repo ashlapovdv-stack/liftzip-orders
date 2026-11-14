@@ -400,6 +400,34 @@ class GroupDetailScreenTest {
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
     }
 
+    @Test fun taobaoLinkCanBeCanonicalizedAndSavedFromPositionEditor() {
+        showOrder = true
+        newOrderPreview = true
+        showScreen(1f)
+        compose.onNodeWithText("Название заказа").performTextReplacement("Заказ Taobao UI")
+        compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар Taobao UI")
+        compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithContentDescription("Временная ссылка").performScrollTo().performTextReplacement(
+            "https://item.taobao.com/item.htm?id=45184215152&spm=abc",
+        )
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("https://item.taobao.com/item.htm?id=45184215152").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Готово").performClick()
+        compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) {
+            runBlocking { repository.observeOrders("", OrdersFilter.ALL, 50).first().any { it.order.counterparty == "Заказ Taobao UI" } }
+        }
+        val saved = runBlocking {
+            val id = repository.observeOrders("", OrdersFilter.ALL, 50).first()
+                .single { it.order.counterparty == "Заказ Taobao UI" }.order.id
+            repository.observeOrder(id).first()!!
+        }
+        assertEquals("https://item.taobao.com/item.htm?id=45184215152&spm=abc", saved.lines.single().temporaryProductUrl)
+        assertEquals("https://item.taobao.com/item.htm?id=45184215152", saved.lines.single().productUrl)
+    }
+
     @Test fun newOrderCannotSetMarksBeforeItsFirstSave() {
         showOrder = true
         newOrderPreview = true
@@ -411,12 +439,12 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Название заказа").performTextReplacement("Заказ с отметками")
         compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("10")
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
-        compose.onNodeWithText("Название товара").performTextReplacement("Товар с отметками")
-        compose.onNodeWithText("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
-        compose.onNodeWithText("Вес единицы, кг").performScrollTo().performTextReplacement("0.2")
-        compose.onNodeWithText("Тариф, ¥/кг").performTextReplacement("55")
+        compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар с отметками")
+        compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithContentDescription("Вес, кг").performScrollTo().performTextReplacement("0.2")
+        compose.onNodeWithContentDescription("Тариф, ¥/кг").performTextReplacement("55")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
-        compose.onNodeWithText("Название товара").performScrollTo()
+        compose.onNodeWithContentDescription("Название товара").performScrollTo()
         captureSheet("position-editor.png")
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
@@ -553,7 +581,7 @@ class GroupDetailScreenTest {
                             if (openedProduct != null) ProductDetailScreen(repository, openedProduct!!,
                                 onBack = { openedProduct = null })
                             else if (showPrices) PricesScreen(repository, onOpenProduct = { openedProduct = it })
-                            else if (showOrder) OrderEditorScreen(repository, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
+                            else if (showOrder) OrderEditorScreen(repository, ApplicationProvider.getApplicationContext<OrdersApplication>().container.settings, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
                             else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
                                 OrdersScreen(repository,
                                     onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},

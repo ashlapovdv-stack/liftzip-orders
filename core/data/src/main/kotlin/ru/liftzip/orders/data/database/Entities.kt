@@ -105,6 +105,9 @@ data class OrderLineEntity(
     val deliveryTariff: String? = null,
     val deliveryRate: String? = null,
     val deliveryPlanDate: String? = null,
+    val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
+    val actualWeight: String? = null,
 )
 
 @Serializable
@@ -230,4 +233,17 @@ data class GroupCommandEntity(
 data class AppMetadataEntity(
     @PrimaryKey val key: String,
     val value: String,
+)
+
+@Entity(
+    tableName = "order_line_images",
+    foreignKeys = [ForeignKey(entity = OrderLineEntity::class, parentColumns = ["id"],
+        childColumns = ["lineId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("lineId")],
+)
+data class OrderLineImageEntity(
+    @PrimaryKey val id: String,
+    val lineId: String,
+    val position: Int,
+    val jpeg: ByteArray,
 )

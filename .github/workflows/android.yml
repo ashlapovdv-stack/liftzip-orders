@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, diagnostics/taobao-short-link]
   pull_request:
   workflow_dispatch:
 
@@ -61,7 +61,7 @@ jobs:
           ./gradlew --version
 
       - name: Domain tests
-        run: ./gradlew :core:domain:test --no-daemon
+        run: ./gradlew :core:domain:test :app:testDebugUnitTest --no-daemon
 
       - name: Android lint
         run: ./gradlew :app:lintDebug --no-daemon
@@ -102,6 +102,7 @@ jobs:
           name: Orders-verification-${{ github.run_number }}
           path: |
             artifacts/*.png
+            artifacts/taobao-diagnostic.txt
             **/build/reports/androidTests/**
             **/build/test-results/**
           if-no-files-found: error

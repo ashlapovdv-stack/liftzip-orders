@@ -1,5 +1,12 @@
 package ru.liftzip.orders.app.feature.orders
 
+import android.content.ContentResolver
+import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +67,10 @@ data class EditorLineDraft(
     val deliveryTariff: String = "",
     val deliveryRate: String = "",
     val deliveryPlanDate: LocalDate = LocalDate.now(),
+    val productUrl: String = "",
+    val temporaryProductUrl: String = "",
+    val actualWeight: String = "",
+    val images: List<ByteArray> = emptyList(),
 )
 
 data class OrderEditorState(
@@ -176,7 +187,40 @@ class OrderEditorViewModel(
         state.copy(lines = state.lines.mapIndexed { i, line -> if (i == index) transform(line) else line })
     }
 
-    fun addLine() = update { it.copy(lines = it.lines + EditorLineDraft()) }
+    fun addImagesFromGallery(index: Int, uris: List<Uri>, resolver: ContentResolver) {
+        viewModelScope.launch {
+            try {
+                val compressed = withContext(Dispatchers.IO) {
+                    uris.take(8).mapNotNull { uri ->
+                        resolver.openInputStream(uri)?.use { input ->
+                            val source = BitmapFactory.decodeStream(input) ?: return@use null
+                            try {
+                                val maxSide = maxOf(source.width, source.height)
+                                val scale = (1280f / maxSide).coerceAtMost(1f)
+                                val resized = if (scale < 1f) Bitmap.createScaledBitmap(
+                                    source, (source.width * scale).toInt().coerceAtLeast(1),
+                                    (source.height * scale).toInt().coerceAtLeast(1), true
+                                ) else source
+                                try {
+                                    ByteArrayOutputStream().use { output ->
+                                        resized.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                                        output.toByteArray().takeIf { it.size <= 1_500_000 }
+                                    }
+                                } finally {
+                                    if (resized !== source) resized.recycle()
+                                }
+                            } finally { source.recycle() }
+                        }
+                    }
+                }
+                updateLine(index) { it.copy(images = (it.images + compressed).take(8)) }
+            } catch (error: Exception) {
+                _state.update { it.copy(generalError = "Не удалось прочитать изображение: ${error.message}") }
+            }
+        }
+    }
+
+    fun addLine() = update { it.copy(lines = listOf(EditorLineDraft()) + it.lines) }
     fun removeLine(index: Int) = update { state ->
         state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
     }
@@ -293,8 +337,11 @@ class OrderEditorViewModel(
             if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
             }
-            if (listOf(line.deliveryWeight, line.deliveryTariff).any { it.isNotBlank() && it.parseDecimal() == null }) {
+            if (listOf(line.deliveryWeight, line.deliveryTariff, line.actualWeight).any { it.isNotBlank() && it.parseDecimal() == null }) {
                 errors["line_${index}_delivery"] = "Проверьте числовые значения доставки"
+            }
+            if (line.actualWeight.isNotBlank() && (line.actualWeight.parseDecimal() == null || line.actualWeight.parseDecimal()!! < BigDecimal.ZERO)) {
+                errors["line_${index}_delivery"] = "Реальный вес должен быть неотрицательным числом"
             }
             val purchase = line.purchasePrice.parseDecimal()
             if (line.purchasePrice.isNotBlank() && purchase == null) {
@@ -304,7 +351,7 @@ class OrderEditorViewModel(
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
                 id = line.id, productId = line.productId, productName = name,
-                article = line.article.ifBlank { null }, quantity = quantity ?: BigDecimal.ONE,
+                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity ?: BigDecimal.ONE,
                 saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
@@ -402,11 +449,12 @@ class OrderEditorViewModel(
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
         deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
+        productUrl = productUrl.ifBlank { null }, temporaryProductUrl = temporaryProductUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(), images = images,
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
         id = line.id, productId = line.productId, name = line.productNameSnapshot,
-        article = line.articleSnapshot.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
+        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), temporaryProductUrl = line.temporaryProductUrl.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
         salePrice = line.saleUnitPrice.toBigDecimal().toPlainString(), zeroSalePriceConfirmed = true,
         purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
@@ -414,6 +462,7 @@ class OrderEditorViewModel(
         costs = emptyList(), deliveryWeight = line.deliveryWeight?.toPlainString().orEmpty(),
         deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = "",
         deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
+        actualWeight = line.actualWeight?.toPlainString().orEmpty(), images = line.images,
     )
 
     fun deliveryPreview(): Money? = try {
