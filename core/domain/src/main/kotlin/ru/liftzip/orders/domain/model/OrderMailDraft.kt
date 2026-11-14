@@ -28,7 +28,8 @@ object OrderMailDraftFactory {
         val text = lines.mapIndexed { index, line ->
             buildString {
                 append(index + 1).append(".\n")
-                append("Ссылка: ").append(line.productUrl.orEmpty()).append("\n")
+                append("Временная ссылка: ").append(line.temporaryProductUrl.orEmpty()).append("\n")
+                append("Постоянная ссылка: ").append(line.productUrl.orEmpty()).append("\n")
                 append("Наименование: ").append(line.productNameSnapshot).append("\n")
                 append("Количество: ").append(line.quantity.stripTrailingZeros().toPlainString())
             }
