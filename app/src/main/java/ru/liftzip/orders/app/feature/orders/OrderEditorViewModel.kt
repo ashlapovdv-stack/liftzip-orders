@@ -68,6 +68,7 @@ data class EditorLineDraft(
     val deliveryRate: String = "",
     val deliveryPlanDate: LocalDate = LocalDate.now(),
     val productUrl: String = "",
+    val temporaryProductUrl: String = "",
     val actualWeight: String = "",
     val images: List<ByteArray> = emptyList(),
 )
@@ -350,7 +351,7 @@ class OrderEditorViewModel(
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
                 id = line.id, productId = line.productId, productName = name,
-                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity ?: BigDecimal.ONE,
+                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity ?: BigDecimal.ONE,
                 saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
@@ -448,12 +449,12 @@ class OrderEditorViewModel(
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
         deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
-        productUrl = productUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(), images = images,
+        productUrl = productUrl.ifBlank { null }, temporaryProductUrl = temporaryProductUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(), images = images,
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
         id = line.id, productId = line.productId, name = line.productNameSnapshot,
-        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
+        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), temporaryProductUrl = line.temporaryProductUrl.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
         salePrice = line.saleUnitPrice.toBigDecimal().toPlainString(), zeroSalePriceConfirmed = true,
         purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
