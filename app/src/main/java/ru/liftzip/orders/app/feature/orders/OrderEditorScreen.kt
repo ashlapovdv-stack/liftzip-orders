@@ -514,25 +514,29 @@ fun OrderEditorScreen(
                         }
                         CompactPositionField(line.article, { value -> model.updateLine(index) { it.copy(article = value, productId = null) } },
                             "ZIP-код", enabled = !state.salesLocked)
-                        CompactPositionField(line.productUrl, { value ->
-                            model.updateLine(index) { it.copy(productUrl = value) }
+                        CompactPositionField(line.temporaryProductUrl, { value ->
+                            model.updateLine(index) { it.copy(temporaryProductUrl = value) }
                             linkError = null
-                            if (!state.salesLocked && value.isNotBlank() && (value.contains("taobao.com") || value.contains("tb.cn"))) {
+                            if (!state.salesLocked && value.isNotBlank()) {
                                 linkScope.launch {
                                     resolvingLink = true
                                     try {
                                         val resolved = TaobaoLinkResolver.resolve(value)
-                                        if (resolved != null && model.state.value.lines.getOrNull(index)?.productUrl == value) {
+                                        if (resolved != null &&
+                                            model.state.value.lines.getOrNull(index)?.temporaryProductUrl == value) {
                                             model.updateLine(index) { it.copy(productUrl = resolved) }
                                         }
                                     } catch (_: Exception) {
-                                        // Preserve the original link when resolution fails.
+                                        // Keep the temporary link; permanent URL remains editable.
                                     } finally {
                                         resolvingLink = false
                                     }
                                 }
                             }
-                        }, "Ссылка Taobao", enabled = !state.salesLocked)
+                        }, "Временная ссылка", enabled = !state.salesLocked)
+                        CompactPositionField(line.productUrl, { value ->
+                            model.updateLine(index) { it.copy(productUrl = value) }
+                        }, "Постоянная ссылка", enabled = !state.salesLocked)
                         if (resolvingLink) Text("Преобразование ссылки…", style = MaterialTheme.typography.labelSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CompactPositionField(line.quantity, { value -> model.updateLine(index) { it.copy(quantity = value) } },
