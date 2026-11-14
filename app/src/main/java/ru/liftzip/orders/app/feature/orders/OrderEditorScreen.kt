@@ -555,30 +555,33 @@ fun OrderEditorScreen(
                         }
                     }
                     CompactItemSection {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Закупка · справочно", style = MaterialTheme.typography.titleSmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Currency.entries.forEach { currency ->
-                                    FilterChip(selected = line.purchaseCurrency == currency,
-                                        onClick = { model.updateLine(index) { it.copy(purchaseCurrency = currency) } },
-                                        label = { Text(if (currency == Currency.RUB) "₽" else "¥") })
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Закупка · справочно", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            Text("Доставка · ориентир", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Currency.entries.forEach { currency ->
+                                        FilterChip(selected = line.purchaseCurrency == currency,
+                                            onClick = { model.updateLine(index) { it.copy(purchaseCurrency = currency) } },
+                                            label = { Text(if (currency == Currency.RUB) "₽" else "¥") })
+                                    }
                                 }
+                                CompactPositionField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
+                                    "Цена, " + (if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"),
+                                    error = state.errors["line_" + index + "_purchase"], decimal = true)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                CompactPositionField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
+                                    "Вес, кг", decimal = true)
+                                CompactPositionField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
+                                    "Тариф, ¥/кг", decimal = true)
+                                CompactPositionField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
+                                    "Факт, кг", decimal = true)
                             }
                         }
-                        CompactPositionField(line.purchasePrice, { value -> model.updateLine(index) { it.copy(purchasePrice = value) } },
-                            "Цена за единицу, ${if (line.purchaseCurrency == Currency.RUB) "₽" else "¥"}", error = state.errors["line_${index}_purchase"], decimal = true)
-                    }
-                    CompactItemSection {
-                        Text("Доставка · ориентир", style = MaterialTheme.typography.titleSmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            CompactPositionField(line.deliveryWeight, { value -> model.updateLine(index) { it.copy(deliveryWeight = value, deliveryPlanDate = LocalDate.now()) } },
-                                "Вес, кг", Modifier.weight(1f), decimal = true)
-                            CompactPositionField(line.deliveryTariff, { value -> model.updateLine(index) { it.copy(deliveryTariff = value, deliveryPlanDate = LocalDate.now()) } },
-                                "Тариф, ¥/кг", Modifier.weight(1f), decimal = true)
-                            CompactPositionField(line.actualWeight, { value -> model.updateLine(index) { it.copy(actualWeight = value) } },
-                                "Факт, кг", Modifier.weight(1f), decimal = true)
-                        }
-                        state.errors["line_${index}_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
 
                 }
