@@ -2,10 +2,6 @@ package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
 import android.content.Intent
-import android.view.WindowManager
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.runtime.DisposableEffect
 import android.webkit.WebView
 import android.webkit.WebSettings
 import kotlinx.coroutines.Job
@@ -66,14 +62,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -413,22 +402,9 @@ fun OrderEditorScreen(
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
         Dialog(
             onDismissRequest = { editingLine = null },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                dismissOnClickOutside = false,
-                decorFitsSystemWindows = false,
-            ),
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
         ) {
-            val dialogView = LocalView.current
-            DisposableEffect(dialogView) {
-                val window = (dialogView.parent as? DialogWindowProvider)?.window
-                val previousMode = window?.attributes?.softInputMode
-                window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-                onDispose {
-                    if (previousMode != null) window.setSoftInputMode(previousMode)
-                }
-            }
-            Box(Modifier.fillMaxSize().imePadding().navigationBarsPadding(),
+            Box(Modifier.fillMaxSize().navigationBarsPadding(),
                 contentAlignment = Alignment.BottomCenter) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
@@ -840,7 +816,6 @@ private fun GalleryAddTile(onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CompactPositionField(
     value: String,
@@ -852,14 +827,7 @@ private fun CompactPositionField(
     decimal: Boolean = false,
     minLines: Int = 1,
 ) {
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    var isFocused by remember { mutableStateOf(false) }
-    val density = LocalDensity.current
-    val keyboardBottom = WindowInsets.ime.getBottom(density)
-    LaunchedEffect(isFocused, keyboardBottom) {
-        if (isFocused) bringIntoViewRequester.bringIntoView()
-    }
-    Column(modifier.bringIntoViewRequester(bringIntoViewRequester),
+    Column(modifier,
         verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -872,7 +840,6 @@ private fun CompactPositionField(
                 keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
                                   else KeyboardOptions.Default,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
-                    .onFocusChanged { isFocused = it.isFocused }
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .semantics { contentDescription = label },
                 decorationBox = { inner ->
