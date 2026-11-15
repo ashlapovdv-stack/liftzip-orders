@@ -62,6 +62,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.snapshotFlow
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -826,7 +835,18 @@ private fun CompactPositionField(
     decimal: Boolean = false,
     minLines: Int = 1,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    var isFocused by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    LaunchedEffect(isFocused) {
+        if (isFocused) {
+            snapshotFlow { WindowInsets.ime.getBottom(density) }
+                .first { it > 0 }
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
+    Column(modifier.bringIntoViewRequester(bringIntoViewRequester),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -838,6 +858,7 @@ private fun CompactPositionField(
                 keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
                                   else KeyboardOptions.Default,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                    .onFocusChanged { isFocused = it.isFocused }
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .semantics { contentDescription = label },
                 decorationBox = { inner ->
