@@ -404,7 +404,7 @@ fun OrderEditorScreen(
             onDismissRequest = { editingLine = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
         ) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding(),
+            Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding(),
                 contentAlignment = Alignment.BottomCenter) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
