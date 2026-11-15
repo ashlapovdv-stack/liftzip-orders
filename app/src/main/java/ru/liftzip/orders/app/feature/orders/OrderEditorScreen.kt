@@ -413,7 +413,11 @@ fun OrderEditorScreen(
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
         Dialog(
             onDismissRequest = { editingLine = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnClickOutside = false,
+                decorFitsSystemWindows = false,
+            ),
         ) {
             val dialogView = LocalView.current
             DisposableEffect(dialogView) {
