@@ -69,8 +69,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.snapshotFlow
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -824,6 +823,7 @@ private fun GalleryAddTile(onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CompactPositionField(
     value: String,
@@ -838,12 +838,9 @@ private fun CompactPositionField(
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     var isFocused by remember { mutableStateOf(false) }
     val density = LocalDensity.current
-    LaunchedEffect(isFocused) {
-        if (isFocused) {
-            snapshotFlow { WindowInsets.ime.getBottom(density) }
-                .first { it > 0 }
-            bringIntoViewRequester.bringIntoView()
-        }
+    val keyboardBottom = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(isFocused, keyboardBottom) {
+        if (isFocused) bringIntoViewRequester.bringIntoView()
     }
     Column(modifier.bringIntoViewRequester(bringIntoViewRequester),
         verticalArrangement = Arrangement.spacedBy(2.dp)) {
