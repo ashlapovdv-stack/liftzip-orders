@@ -610,7 +610,8 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-
+                    // Part of scrollable content, not padding outside verticalScroll.
+                    Spacer(Modifier.height(32.dp))
                 }
 
             }
