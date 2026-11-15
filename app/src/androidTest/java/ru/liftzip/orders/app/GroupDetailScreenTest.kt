@@ -442,7 +442,13 @@ class GroupDetailScreenTest {
         try {
             purchase.assertIsDisplayed()
         } catch (failure: AssertionError) {
-            throw AssertionError("POSITION_EDITOR: purchase field remains outside visible viewport after performScrollTo with IME open", failure)
+            val fieldBounds = purchase.fetchSemanticsNode().boundsInRoot
+            val editorBounds = compose.onNodeWithTag("position-editor").fetchSemanticsNode().boundsInRoot
+            val doneBounds = compose.onNodeWithText("Готово").fetchSemanticsNode().boundsInRoot
+            throw AssertionError(
+                "POSITION_EDITOR: purchase outside viewport; purchase=$fieldBounds, editor=$editorBounds, done=$doneBounds",
+                failure,
+            )
         }
         purchase.performClick()
         purchase.performTextReplacement("1050")
