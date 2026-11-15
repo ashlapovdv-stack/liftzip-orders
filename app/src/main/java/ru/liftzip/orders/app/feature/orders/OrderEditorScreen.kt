@@ -400,17 +400,15 @@ fun OrderEditorScreen(
     }
 
     editingLine?.takeIf { it in state.lines.indices }?.let { index ->
-        Dialog(
+        val positionSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
             onDismissRequest = { editingLine = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+            sheetState = positionSheetState,
+            modifier = Modifier.fillMaxHeight(0.96f),
+            dragHandle = null,
+            containerColor = Color(0xFFF6F8F8),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         ) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding(),
-                contentAlignment = Alignment.BottomCenter) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    color = Color(0xFFF6F8F8),
-                ) {
             val line = state.lines[index]
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("position-editor")) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -613,9 +611,6 @@ fun OrderEditorScreen(
 
                 }
 
-            }
-                }
-            }
         }
     }
 
