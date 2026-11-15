@@ -2,6 +2,10 @@ package ru.liftzip.orders.app.feature.orders
 
 import androidx.activity.compose.BackHandler
 import android.content.Intent
+import android.view.WindowManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.runtime.DisposableEffect
 import android.webkit.WebView
 import android.webkit.WebSettings
 import kotlinx.coroutines.Job
@@ -411,6 +415,15 @@ fun OrderEditorScreen(
             onDismissRequest = { editingLine = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
         ) {
+            val dialogView = LocalView.current
+            DisposableEffect(dialogView) {
+                val window = (dialogView.parent as? DialogWindowProvider)?.window
+                val previousMode = window?.attributes?.softInputMode
+                window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                onDispose {
+                    if (previousMode != null) window.setSoftInputMode(previousMode)
+                }
+            }
             Box(Modifier.fillMaxSize().imePadding().navigationBarsPadding(),
                 contentAlignment = Alignment.BottomCenter) {
                 Surface(
