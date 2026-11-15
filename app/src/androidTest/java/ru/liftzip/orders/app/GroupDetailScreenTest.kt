@@ -439,11 +439,19 @@ class GroupDetailScreenTest {
         // Keep the numeric IME open while attempting to reach the final input.
         val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
         purchase.performScrollTo()
-        purchase.assertIsDisplayed()
+        try {
+            purchase.assertIsDisplayed()
+        } catch (failure: AssertionError) {
+            throw AssertionError("POSITION_EDITOR: purchase field remains outside visible viewport after performScrollTo with IME open", failure)
+        }
         purchase.performClick()
         purchase.performTextReplacement("1050")
         compose.onNodeWithContentDescription("Закупка, ₽").assertTextContains("1050")
-        compose.onNodeWithText("Готово").assertIsDisplayed()
+        try {
+            compose.onNodeWithText("Готово").assertIsDisplayed()
+        } catch (failure: AssertionError) {
+            throw AssertionError("POSITION_EDITOR: fixed Done header is hidden after scrolling to purchase with IME open", failure)
+        }
     }
 
     @Test fun newOrderCannotSetMarksBeforeItsFirstSave() {
