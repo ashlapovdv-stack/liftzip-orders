@@ -435,6 +435,14 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Тариф, ¥/кг").performScrollTo().performClick()
         compose.waitForIdle()
+        // A focused text field does not guarantee that the emulator actually opened its IME.
+        // Wait for the window inset instead of racing the keyboard animation.
+        compose.waitUntil(timeoutMillis = 10_000) {
+            val insets = compose.activity.window.decorView.rootWindowInsets
+            insets != null && insets.isVisible(android.view.WindowInsets.Type.ime())
+        }
+        val imeInsets = compose.activity.window.decorView.rootWindowInsets
+        val imeHeight = imeInsets.getInsets(android.view.WindowInsets.Type.ime()).bottom
 
         // Keep the numeric IME open while attempting to reach the final input.
         val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
@@ -446,7 +454,7 @@ class GroupDetailScreenTest {
             val editorBounds = compose.onNodeWithTag("position-editor").fetchSemanticsNode().boundsInRoot
             val doneBounds = compose.onNodeWithText("Готово").fetchSemanticsNode().boundsInRoot
             throw AssertionError(
-                "POSITION_EDITOR: purchase outside viewport; purchase=$fieldBounds, editor=$editorBounds, done=$doneBounds",
+                "POSITION_EDITOR: purchase outside viewport; imeHeight=$imeHeight, purchase=$fieldBounds, editor=$editorBounds, done=$doneBounds",
                 failure,
             )
         }
