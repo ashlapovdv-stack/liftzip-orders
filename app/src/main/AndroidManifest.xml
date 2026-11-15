@@ -19,6 +19,7 @@
         </provider>
         <activity
             android:name="ru.liftzip.orders.app.MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
