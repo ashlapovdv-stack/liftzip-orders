@@ -428,6 +428,24 @@ class GroupDetailScreenTest {
         assertEquals("https://item.taobao.com/item.htm?id=45184215152", saved.lines.single().productUrl)
     }
 
+    @Test fun positionEditorScrollsToPurchaseWithNumericKeyboardOpen() {
+        showOrder = true
+        newOrderPreview = true
+        showScreen(1f)
+        compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Тариф, ¥/кг").performScrollTo().performClick()
+        compose.waitForIdle()
+
+        // Keep the numeric IME open while attempting to reach the final input.
+        val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
+        purchase.performScrollTo()
+        purchase.assertIsDisplayed()
+        purchase.performClick()
+        purchase.performTextReplacement("1050")
+        compose.onNodeWithContentDescription("Закупка, ₽").assertTextContains("1050")
+        compose.onNodeWithText("Готово").assertIsDisplayed()
+    }
+
     @Test fun newOrderCannotSetMarksBeforeItsFirstSave() {
         showOrder = true
         newOrderPreview = true
