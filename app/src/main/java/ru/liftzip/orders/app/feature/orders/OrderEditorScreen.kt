@@ -59,6 +59,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -405,7 +408,7 @@ fun OrderEditorScreen(
             onDismissRequest = { editingLine = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false, decorFitsSystemWindows = false),
         ) {
-            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(),
+            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
                 contentAlignment = Alignment.BottomCenter) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
@@ -611,6 +614,8 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
+                    // Keep the final fields scrollable above the IME even if the dialog window is not resized.
+                    Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime))
                 }
 
             }
