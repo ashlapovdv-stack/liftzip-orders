@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -614,8 +615,8 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-                    // Keep the final fields scrollable above the IME even if the dialog window is not resized.
-                    Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime))
+                    // Reserve actual IME height in scroll content; imePadding consumes insets for child modifiers.
+                    Spacer(Modifier.height(with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }))
                 }
 
             }
