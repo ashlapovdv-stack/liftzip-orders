@@ -9,7 +9,7 @@ import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.cyrillic.CyrillicTextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -93,7 +93,7 @@ class InvoicePdfReader {
         val descriptor = resolver.openFileDescriptor(uri, "r") ?: error("Не удалось открыть PDF")
         descriptor.use { fd ->
             PdfRenderer(fd).use { renderer ->
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                val recognizer = TextRecognition.getClient(CyrillicTextRecognizerOptions.DEFAULT_OPTIONS)
                 try {
                     val all = mutableListOf<InvoiceItem>()
                     for (pageIndex in 0 until renderer.pageCount.coerceAtMost(8)) {
