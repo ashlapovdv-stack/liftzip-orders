@@ -33,7 +33,10 @@ object OrderMailDraftFactory {
                 append("Наименование: ").append(line.productNameSnapshot).append("\n")
                 append("Количество: ").append(line.quantity?.stripTrailingZeros()?.toPlainString() ?: "—")
             }
-        }.joinToString("\n\n")
+        }.joinToString("\n\n").let { positions ->
+            val comment = order.comment.trim()
+            if (comment.isEmpty()) positions else "$positions\n\nКомментарий к заказу:\n$comment"
+        }
         return OrderMailDraft(
             orderId = order.id,
             groupId = order.groupId,
