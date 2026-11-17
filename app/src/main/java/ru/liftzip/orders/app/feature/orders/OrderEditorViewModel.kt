@@ -441,8 +441,8 @@ class OrderEditorViewModel(
     private fun EditorLineDraft.toDomain(orderId: UUID, index: Int) = OrderLine(
         id = id ?: UUID.nameUUIDFromBytes("$orderId-preview-$index".toByteArray()), orderId = orderId,
         productId = productId ?: orderId, productNameSnapshot = name, articleSnapshot = article.ifBlank { null },
-        quantity = quantity.parseDecimal() ?: BigDecimal.ONE,
-        saleUnitPrice = Money.fromRubles(salePrice.parseDecimal() ?: BigDecimal.ZERO),
+        quantity = quantity.parseDecimal(),
+        saleUnitPrice = salePrice.parseDecimal()?.let(Money::fromRubles),
         purchaseUnitPrice = purchasePrice.parseDecimal(),
         purchaseCurrency = if (purchasePrice.isBlank()) null else purchaseCurrency,
         purchaseRate = if (purchasePrice.isBlank()) null else if (purchaseCurrency == Currency.RUB) BigDecimal.ONE else _state.value.orderRate.parseDecimal(),
@@ -454,8 +454,8 @@ class OrderEditorViewModel(
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
         id = line.id, productId = line.productId, name = line.productNameSnapshot,
-        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), temporaryProductUrl = line.temporaryProductUrl.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
-        salePrice = line.saleUnitPrice.toBigDecimal().toPlainString(), zeroSalePriceConfirmed = true,
+        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), temporaryProductUrl = line.temporaryProductUrl.orEmpty(), quantity = line.quantity?.stripTrailingZeros()?.toPlainString().orEmpty(),
+        salePrice = line.saleUnitPrice?.toBigDecimal()?.toPlainString().orEmpty(), zeroSalePriceConfirmed = true,
         purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
         purchaseRate = line.purchaseRate?.toPlainString() ?: "1",
