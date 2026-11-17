@@ -14,10 +14,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -624,6 +620,8 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
+                    // Reserve actual IME height in scroll content; imePadding consumes insets for child modifiers.
+                    Spacer(Modifier.height(with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }))
                 }
 
             }
@@ -829,7 +827,6 @@ private fun GalleryAddTile(onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CompactPositionField(
     value: String,
@@ -841,14 +838,7 @@ private fun CompactPositionField(
     decimal: Boolean = false,
     minLines: Int = 1,
 ) {
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    var focused by remember { mutableStateOf(false) }
-    LaunchedEffect(focused, imeBottom > 0) {
-        if (focused && imeBottom > 0) bringIntoViewRequester.bringIntoView()
-    }
-    Column(modifier.bringIntoViewRequester(bringIntoViewRequester),
+    Column(modifier,
         verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -861,7 +851,6 @@ private fun CompactPositionField(
                 keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
                                   else KeyboardOptions.Default,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
-                    .onFocusChanged { focused = it.isFocused }
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .semantics { contentDescription = label },
                 decorationBox = { inner ->
