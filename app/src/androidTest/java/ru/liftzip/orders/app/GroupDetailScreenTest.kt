@@ -397,7 +397,7 @@ class GroupDetailScreenTest {
         }
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.COMPLETED } }
         clickAction("Товар получен", 4)
-        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.ACCEPTED } }
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.IN_DELIVERY } }
     }
 
     @Test fun taobaoLinkCanBeCanonicalizedAndSavedFromPositionEditor() {
