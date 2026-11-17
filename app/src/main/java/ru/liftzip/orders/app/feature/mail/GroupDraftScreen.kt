@@ -71,7 +71,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 if (store.get(groupId, orderId) == null) {
                     require(details.order.counterparty.isNotBlank() &&
                         details.lines.isNotEmpty() &&
-                        details.lines.all { it.productNameSnapshot.isNotBlank() && !it.productUrl.isNullOrBlank() && it.quantity.signum() > 0 }) {
+                        details.lines.all { it.productNameSnapshot.isNotBlank() && !it.productUrl.isNullOrBlank() && it.quantity?.signum()?.let { sign -> sign > 0 } == true }) {
                         "Для письма нужны название заказа, товары, ссылки и количество"
                     }
                     store.createIfAbsent(details)
