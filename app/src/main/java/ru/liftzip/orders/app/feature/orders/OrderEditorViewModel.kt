@@ -321,10 +321,6 @@ class OrderEditorViewModel(
 
     private fun buildCommand(state: OrderEditorState): SaveOrderCommand? {
         val errors = mutableMapOf<String, String>()
-        if (state.lines.isEmpty()) {
-            _state.update { it.copy(generalError = "Добавьте хотя бы одну позицию или удалите заказ") }
-            return null
-        }
         if (state.counterparty.isBlank()) errors["counterparty"] = "Укажите название заказа"
         val payment = state.payment.parseDecimal() ?: BigDecimal.ZERO
         val lines = state.lines.mapIndexed { index, line ->
