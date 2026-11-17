@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -69,6 +70,7 @@ import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.domain.model.OrderSummary
+import ru.liftzip.orders.domain.model.OrderStage
 import ru.liftzip.orders.domain.model.OrdersFilter
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.util.UUID
@@ -91,6 +93,8 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
     val query by model.currentQuery.collectAsState()
     val filter by model.currentFilter.collectAsState()
     val limit by model.currentLimit.collectAsState()
+    var deliveryOnly by remember { mutableStateOf(false) }
+    val visibleOrders = if (deliveryOnly) orders.filter { it.order.fulfillment.stage == OrderStage.IN_DELIVERY } else orders
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -110,10 +114,16 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
                         onClick = { model.filter(OrdersFilter.NEEDS_CALCULATION) },
                         label = { Text("Нужен расчёт", style = MaterialTheme.typography.labelMedium) },
                     )
+                    FilterChip(
+                        modifier = Modifier.height(32.dp),
+                        selected = deliveryOnly,
+                        onClick = { deliveryOnly = !deliveryOnly },
+                        label = { Text("Доставка", style = MaterialTheme.typography.labelMedium) },
+                    )
                 }
             }
-            if (orders.isEmpty()) item { EmptyState("Заказов нет. Создайте первый оплаченный заказ") }
-            items(orders, key = { it.order.id }) { summary ->
+            if (visibleOrders.isEmpty()) item { EmptyState(if (deliveryOnly) "Заказов на доставке нет" else "Заказов нет") }
+            items(visibleOrders, key = { it.order.id }) { summary ->
                 OrderCard(summary, onClick = { onOpenOrder(summary.order.id) }, onOpenGroup = { onOpenGroup(summary.order.groupId) },
                     hasDraft = draftRevision.let { draftStore.get(summary.order.groupId, summary.order.id) != null })
             }
