@@ -92,21 +92,21 @@ internal object InvoiceTableParser {
 internal object InvoiceTextParser {
     private val stop = Regex("""^(?:итого|всего|ндс|к оплате|в том числе)""", RegexOption.IGNORE_CASE)
     private val header = Regex("""(?:наименован|товары|работы, услуги)""", RegexOption.IGNORE_CASE)
-    private val numbered = Regex("""^\\s*\\|?\\s*(\\d{1,3})[.)]?\\s*[|\\[]?\\s+(.+)$""")
-    private val money = Regex("""\\d[\\d ]*[.,]\\d{2}""")
-    private val unit = Regex("""(?:шт\\.?|штук|компл\\.?|pcs?\\.?)""", RegexOption.IGNORE_CASE)
+    private val numbered = Regex("""^\s*\|?\s*(\d{1,3})[.)]?\s*[|\[]?\s+(.+)$""")
+    private val money = Regex("""\d[\d ]*[.,]\d{2}""")
+    private val unit = Regex("""(?:шт\.?|штук|компл\.?|pcs?\.?)""", RegexOption.IGNORE_CASE)
     private val tail = Regex(
-        """\\s+\\d[\\d ]*[.,]\\d{2}(?:\\s+(\\d{1,6}))?\\s*(?:шт\\.?|штук|компл\\.?|pcs?\\.?)[!|]?\\s*\\d[\\d ]*[.,]\\d{2}\\s*$""",
+        """\s+\d[\d ]*[.,]\d{2}(?:\s+(\d{1,6}))?\s*(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}\s*$""",
         RegexOption.IGNORE_CASE
     )
     // Some scans lose both quantity and the price column, but keep unit + total.
     private val unitTotal = Regex(
-        """\\s+(?:шт\\.?|штук|компл\\.?|pcs?\\.?)[!|]?\\s*\\d[\\d ]*[.,]\\d{2}\\s*$""",
+        """\s+(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}\s*$""",
         RegexOption.IGNORE_CASE
     )
 
     fun parse(text: String): List<InvoiceItem> {
-        val lines = text.lines().map { it.trim().replace(Regex("""\\s+"""), " ") }
+        val lines = text.lines().map { it.trim().replace(Regex("""\s+"""), " ") }
         val headerIndex = lines.indexOfFirst { header.containsMatchIn(it) &&
             (it.contains("кол", true) || it.contains("цена", true) || it.contains("сумма", true)) }
         // A corrupted table header can be skipped by OCR. A numbered product line
@@ -121,7 +121,7 @@ internal object InvoiceTextParser {
         var active = false
         fun finish(quantity: String = "") {
             val name = pending.joinToString(" ").trim().trim('[', '|', ' ', '‚', '_')
-                .replace(Regex("""\\s+"""), " ")
+                .replace(Regex("""\s+"""), " ")
             if (name.length >= 4 && name.any(Char::isLetter)) result += InvoiceItem(name, quantity)
             pending.clear()
             active = false
