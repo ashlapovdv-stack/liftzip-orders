@@ -45,8 +45,8 @@ internal object InvoiceTableParser {
         val numberHeader = header.firstOrNull { it.text == "№" || it.text == "N" }
         val qtyX = qtyHeader.x + qtyHeader.width / 2
         val nameX = nameHeader.x
-        val nameRight = if (qtyX > nameX) qtyHeader.x else
-            header.filter { it.x > nameX && it.x < qtyHeader.x }.minOfOrNull { it.x } ?: Int.MAX_VALUE
+        val nameRight = header.filter { it.x > nameX + nameHeader.width }
+            .minOfOrNull { it.x } ?: Int.MAX_VALUE
         val results = mutableListOf<InvoiceItem>()
         var currentName = StringBuilder()
         var currentQuantity = ""
