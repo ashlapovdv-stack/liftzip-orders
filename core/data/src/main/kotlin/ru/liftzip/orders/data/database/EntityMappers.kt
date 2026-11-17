@@ -55,7 +55,7 @@ fun OrderEntity.toDomain(): Order = Order(
 fun OrderLineEntity.toDomain(): OrderLine = OrderLine(
     id = id.uuid(), orderId = orderId.uuid(), productId = productId.uuid(),
     productNameSnapshot = productNameSnapshot, articleSnapshot = articleSnapshot,
-    quantity = quantity.decimal(), saleUnitPrice = Money(saleUnitPriceMinor),
+    quantity = quantity?.decimal(), saleUnitPrice = saleUnitPriceMinor?.let(::Money),
     purchaseUnitPrice = purchaseUnitPrice?.decimal(), purchaseCurrency = purchaseCurrency?.let(Currency::valueOf),
     purchaseRate = purchaseRate?.decimal(), createdAt = createdAt.instant(), updatedAt = updatedAt.instant(),
     revision = revision, deliveryWeight = deliveryWeight?.decimal(), deliveryTariff = deliveryTariff?.decimal(),
