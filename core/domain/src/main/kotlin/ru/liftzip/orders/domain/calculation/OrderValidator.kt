@@ -11,7 +11,7 @@ import java.text.Normalizer
 object OrderValidator {
     fun validate(command: SaveOrderCommand) {
         if (command.counterparty.isBlank()) fail("Укажите клиента или менеджера")
-        if (command.lines.isEmpty()) fail("Добавьте хотя бы одну позицию")
+        // An order may be saved before its first line has been entered.
         if (command.receivedPayment < BigDecimal.ZERO) fail("Оплата не может быть отрицательной")
         if (command.receivedPayment.stripTrailingZeros().scale() > 2) fail("Оплата задаётся с точностью до копеек")
         Money.fromRubles(command.receivedPayment)
