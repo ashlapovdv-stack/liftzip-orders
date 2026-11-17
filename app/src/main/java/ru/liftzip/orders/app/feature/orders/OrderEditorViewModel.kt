@@ -220,6 +220,15 @@ class OrderEditorViewModel(
         }
     }
 
+    fun importLines(items: List<InvoiceItem>) {
+        if (items.isEmpty() || _state.value.salesLocked) return
+        update { current ->
+            val imported = items.map { EditorLineDraft(name = it.name.trim(), quantity = it.quantity) }
+            val existing = current.lines.filterNot { it.id == null && it.name.isBlank() && it.article.isBlank() && it.productUrl.isBlank() && it.images.isEmpty() }
+            current.copy(lines = imported + existing)
+        }
+    }
+
     fun addLine() = update { it.copy(lines = listOf(EditorLineDraft()) + it.lines) }
     fun removeLine(index: Int) = update { state ->
         state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
