@@ -5,8 +5,20 @@ import org.junit.Test
 import ru.liftzip.orders.domain.model.OrderStage
 import ru.liftzip.orders.domain.model.OrderAction
 import ru.liftzip.orders.domain.model.OrderFulfillment
+import ru.liftzip.orders.domain.model.GroupState
+import ru.liftzip.orders.domain.model.groupProgressState
 
 class OrderFulfillmentTest {
+    @Test fun groupStatusFollowsEarliestMissingActionAcrossAllOrders() {
+        val delivery = OrderFulfillment(true, true, false)
+        val done = OrderFulfillment(true, true, true)
+        assertEquals(GroupState.IN_DELIVERY, groupProgressState(listOf(delivery, done)))
+        assertEquals(GroupState.AWAITING_PAYMENT, groupProgressState(listOf(delivery, OrderFulfillment(true, false, true))))
+        assertEquals(GroupState.ACCEPTED, groupProgressState(listOf(delivery, OrderFulfillment(false, true, true))))
+        assertEquals(GroupState.COMPLETED, groupProgressState(listOf(done, done)))
+        assertEquals(GroupState.ACCEPTED, groupProgressState(emptyList()))
+    }
+
     @Test fun `only all three independent actions complete an order`() {
         for (mask in 0..7) {
             val progress = OrderFulfillment(mask and 1 != 0, mask and 2 != 0, mask and 4 != 0)
