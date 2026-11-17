@@ -92,11 +92,11 @@ internal object InvoiceTextParser {
     private val startNumber = Regex("^\\d{1,3}[.)]?\\s+")
     private val price = Regex("\\d[\\d ]*[.,]\\d{2}")
     private val endOfRow = Regex(
-        """\\s+\\d[\\d ]*[.,]\\d{2}\\s+(\\d{1,6})\\s+(?:шт\\.?|штук|компл\\.?|pcs?\\.?)\\s+\\d[\\d ]*[.,]\\d{2}\\s*$""",
+        """\s+\d[\d ]*[.,]\d{2}\s+(\d{1,6})\s+(?:шт\.?|штук|компл\.?|pcs?\.?)\s+\d[\d ]*[.,]\d{2}\s*$""",
         RegexOption.IGNORE_CASE
     )
     private val nameWithUnit = Regex(
-        """\\s+(?:шт\\.?|штук|компл\\.?|pcs?\\.?)\\s+\\d[\\d ]*[.,]\\d{2}\\s+\\d[\\d ]*[.,]\\d{2}\\s*$""",
+        """\s+(?:шт\.?|штук|компл\.?|pcs?\.?)\s+\d[\d ]*[.,]\d{2}\s+\d[\d ]*[.,]\d{2}\s*$""",
         RegexOption.IGNORE_CASE
     )
     fun parse(text: String): List<InvoiceItem> {
