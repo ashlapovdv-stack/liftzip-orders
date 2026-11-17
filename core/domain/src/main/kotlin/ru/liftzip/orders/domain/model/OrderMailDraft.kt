@@ -33,7 +33,14 @@ object OrderMailDraftFactory {
                 append("Наименование: ").append(line.productNameSnapshot).append("\n")
                 append("Количество: ").append(line.quantity?.stripTrailingZeros()?.toPlainString() ?: "—")
             }
-        }.joinToString("\n\n").let { positions ->
+        }.joinToString("\n\n")
+        val bodyWithComment = buildString {
+            append(text)
+            if (order.comment.isNotBlank()) {
+                if (isNotEmpty()) append("\n\n")
+                append("Комментарий к заказу: ").append(order.comment)
+            }
+        }.let { positions ->
             val comment = order.comment.trim()
             if (comment.isEmpty()) positions else "$positions\n\nКомментарий к заказу:\n$comment"
         }
@@ -41,7 +48,7 @@ object OrderMailDraftFactory {
             orderId = order.id,
             groupId = order.groupId,
             subject = order.counterparty,
-            body = text,
+            body = bodyWithComment,
             attachments = lines.flatMapIndexed { index, line ->
                 line.images.indices.map { imageIndex ->
                     OrderMailAttachment(line.id, index + 1, imageIndex)
