@@ -107,17 +107,17 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(modifier = Modifier.height(32.dp), selected = filter == OrdersFilter.ALL, onClick = { model.filter(OrdersFilter.ALL) }, label = { Text("Все", style = MaterialTheme.typography.labelMedium) })
+                    FilterChip(modifier = Modifier.height(32.dp), selected = !deliveryOnly && filter == OrdersFilter.ALL, onClick = { deliveryOnly = false; model.filter(OrdersFilter.ALL) }, label = { Text("Все", style = MaterialTheme.typography.labelMedium) })
                     FilterChip(
                         modifier = Modifier.height(32.dp),
-                        selected = filter == OrdersFilter.NEEDS_CALCULATION,
-                        onClick = { model.filter(OrdersFilter.NEEDS_CALCULATION) },
+                        selected = !deliveryOnly && filter == OrdersFilter.NEEDS_CALCULATION,
+                        onClick = { deliveryOnly = false; model.filter(OrdersFilter.NEEDS_CALCULATION) },
                         label = { Text("Нужен расчёт", style = MaterialTheme.typography.labelMedium) },
                     )
                     FilterChip(
                         modifier = Modifier.height(32.dp),
                         selected = deliveryOnly,
-                        onClick = { deliveryOnly = !deliveryOnly },
+                        onClick = { val next = !deliveryOnly; model.filter(OrdersFilter.ALL); deliveryOnly = next },
                         label = { Text("Доставка", style = MaterialTheme.typography.labelMedium) },
                     )
                 }
