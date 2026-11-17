@@ -311,8 +311,8 @@ class RoomOrdersRepository(
                 OrderLineEntity(
                     id = old?.id ?: UUID.randomUUID().toString(), orderId = orderId, productId = product.id,
                     productNameSnapshot = draft.productName.trim(), articleSnapshot = draft.article?.trim()?.ifEmpty { null },
-                    quantity = draft.quantity.stripTrailingZeros().toPlainString(),
-                    saleUnitPriceMinor = Money.fromRubles(draft.saleUnitPrice).minorUnits,
+                    quantity = draft.quantity?.stripTrailingZeros()?.toPlainString(),
+                    saleUnitPriceMinor = draft.saleUnitPrice?.let { Money.fromRubles(it).minorUnits },
                     purchaseUnitPrice = draft.purchaseUnitPrice?.canonical(),
                     purchaseCurrency = draft.purchaseCurrency?.name, purchaseRate = draft.purchaseRate?.canonical(),
                     createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
@@ -492,8 +492,12 @@ class RoomOrdersRepository(
     }
 
     private suspend fun syncPriceRecords(order: OrderEntity, line: OrderLineEntity, now: Instant) {
-        upsertPriceRecord(order, line, PriceEventType.SALE, now)
-        if (line.purchaseUnitPrice != null && line.purchaseCurrency != null && line.purchaseRate != null) {
+        if (line.saleUnitPriceMinor != null && line.quantity != null) {
+            upsertPriceRecord(order, line, PriceEventType.SALE, now)
+        } else {
+            dao.deletePriceRecord(line.id, PriceEventType.SALE.name)
+        }
+        if (line.quantity != null && line.purchaseUnitPrice != null && line.purchaseCurrency != null && line.purchaseRate != null) {
             upsertPriceRecord(order, line, PriceEventType.PURCHASE, now)
         } else {
             dao.deletePriceRecord(line.id, PriceEventType.PURCHASE.name)
@@ -512,9 +516,9 @@ class RoomOrdersRepository(
             id = old?.id ?: UUID.randomUUID().toString(), productId = line.productId, sourceLineId = line.id,
             orderId = order.id, type = type.name,
             eventAt = java.time.LocalDate.parse(order.date).atStartOfDay().toInstant(ZoneOffset.UTC).epoch(),
-            price = if (isSale) Money(line.saleUnitPriceMinor).toBigDecimal().canonical() else line.purchaseUnitPrice!!,
+            price = if (isSale) Money(requireNotNull(line.saleUnitPriceMinor)).toBigDecimal().canonical() else line.purchaseUnitPrice!!,
             currency = if (isSale) Currency.RUB.name else line.purchaseCurrency!!,
-            rate = if (isSale) "1" else line.purchaseRate!!, quantity = line.quantity,
+            rate = if (isSale) "1" else line.purchaseRate!!, quantity = requireNotNull(line.quantity),
             preliminary = !isSale, createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
             revision = (old?.revision ?: 0) + 1,
         )
@@ -562,8 +566,8 @@ class RoomOrdersRepository(
             old.id == new.id?.toString() && old.productId == new.productId?.toString() &&
                 old.productNameSnapshot == new.productName.trim() &&
                 old.articleSnapshot == new.article?.trim()?.ifEmpty { null } &&
-                old.quantity.decimal().compareTo(new.quantity) == 0 &&
-                old.saleUnitPriceMinor == Money.fromRubles(new.saleUnitPrice).minorUnits
+                (old.quantity?.decimal()?.compareTo(new.quantity) == 0 || (old.quantity == null && new.quantity == null)) &&
+                old.saleUnitPriceMinor == new.saleUnitPrice?.let { Money.fromRubles(it).minorUnits }
         }
         if (existing.date != command.date.toString() || existing.counterparty != command.counterparty.trim() ||
             existing.receivedPaymentMinor != Money.fromRubles(command.receivedPayment).minorUnits || !sameLines
