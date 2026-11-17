@@ -82,7 +82,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
     LaunchedEffect(groupId) { load() }
 
     val darkGreen = Color(0xFF195B47)
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.White).verticalScroll(rememberScrollState())
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().background(Color.White).verticalScroll(rememberScrollState())
         .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 2.dp)) {
