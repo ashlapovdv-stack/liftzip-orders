@@ -30,7 +30,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 11
+        const val SCHEMA_VERSION = 12
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -110,6 +110,17 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE order_lines_new (id TEXT NOT NULL PRIMARY KEY, orderId TEXT NOT NULL, productId TEXT NOT NULL, productNameSnapshot TEXT NOT NULL, articleSnapshot TEXT, quantity TEXT, saleUnitPriceMinor INTEGER, purchaseUnitPrice TEXT, purchaseCurrency TEXT, purchaseRate TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, revision INTEGER NOT NULL, deliveryWeight TEXT, deliveryTariff TEXT, deliveryRate TEXT, deliveryPlanDate TEXT, productUrl TEXT, temporaryProductUrl TEXT, actualWeight TEXT, FOREIGN KEY(orderId) REFERENCES orders(id) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(productId) REFERENCES products(id) ON UPDATE NO ACTION ON DELETE RESTRICT)")
+                db.execSQL("INSERT INTO order_lines_new SELECT * FROM order_lines")
+                db.execSQL("DROP TABLE order_lines")
+                db.execSQL("ALTER TABLE order_lines_new RENAME TO order_lines")
+                db.execSQL("CREATE INDEX index_order_lines_orderId ON order_lines(orderId)")
+                db.execSQL("CREATE INDEX index_order_lines_productId ON order_lines(productId)")
+            }
+        }
+
         fun create(context: Context): OrdersDatabase {
             preserveBeforeMigration(context)
             return Room.databaseBuilder(
@@ -117,7 +128,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             DATABASE_NAME,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
             .addCallback(IntegrityCallback)
             .build()
         }
