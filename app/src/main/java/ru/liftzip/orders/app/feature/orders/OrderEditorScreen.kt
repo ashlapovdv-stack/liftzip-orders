@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Save
@@ -160,9 +161,7 @@ fun OrderEditorScreen(
     }
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     val hasMailDraft = state.groupId?.let { g -> state.orderId?.let { mailStore.get(g, it) != null } } == true
-    val canFormMail = state.counterparty.isNotBlank() && state.lines.isNotEmpty() &&
-        state.lines.all { it.name.isNotBlank() && it.productUrl.isNotBlank() &&
-            it.quantity.toBigDecimalOrNull()?.signum() == 1 }
+    val canFormMail = state.lines.isNotEmpty()
     var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageTarget by remember { mutableStateOf<Int?>(null) }
     var enlargedPhoto by remember { mutableStateOf<ByteArray?>(null) }
@@ -280,6 +279,12 @@ fun OrderEditorScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
+                            if (line.temporaryProductUrl.isNotBlank()) {
+                                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Link, "У товара есть временная ссылка",
+                                        Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                             if (line.images.isNotEmpty()) {
                                 Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.Image, "К товару прикреплены фотографии",
