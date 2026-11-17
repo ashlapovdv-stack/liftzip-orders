@@ -25,6 +25,11 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    // Room exports the current schema during KSP. Package it only after KSP completes.
+    // Otherwise AndroidTest can silently contain only the committed historical schemas.
+    tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
+        dependsOn("kspDebugKotlin")
+    }
 }
 
 ksp {
