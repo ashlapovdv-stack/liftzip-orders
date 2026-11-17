@@ -28,7 +28,7 @@ class InvoiceTextParserTest {
         assertEquals(
             listOf(
                 InvoiceItem("Датчик индуктивный ND8-S3-M12S в сборе с кабелем коннектором V1-W-5M- РУС PEPPERL+FUCHS PNP.", "4"),
-                InvoiceItem("ю Датчик наличия ступени эскалатора X0508 PNP NO M30 15 mm ND15-S3- M30S", "4")
+                InvoiceItem("Датчик наличия ступени эскалатора X0508 PNP NO M30 15 mm ND15-S3- M30S", "4")
             ),
             InvoiceTextParser.parse(ocr)
         )
