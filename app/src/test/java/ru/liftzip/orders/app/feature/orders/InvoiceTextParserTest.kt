@@ -34,6 +34,26 @@ class InvoiceTextParserTest {
         )
     }
 
+
+    @Test fun damagedHeaderAndMissingQuantityStillYieldTwoEditableRows() {
+        val ocr = """
+            Счет № 123
+            Покупатель Тест
+            В ее
+            1 Датчик индуктивный X1 в
+            сборе с кабелем K2-
+            ‚ _ |PNP 4900,00 шт! 19600,00
+            2 | Датчик ступени эскалатора
+            X0508 PNP M30
+            M30S 3200,00 шт 12800,00
+            Итого: 32400,00
+        """.trimIndent()
+        assertEquals(listOf(
+            InvoiceItem("Датчик индуктивный X1 в сборе с кабелем K2- PNP", ""),
+            InvoiceItem("Датчик ступени эскалатора X0508 PNP M30 M30S", "")
+        ), InvoiceTextParser.parse(ocr))
+    }
+
     @Test fun doesNotReadBankingInformationAsProducts() {
         assertEquals(emptyList<InvoiceItem>(), InvoiceTextParser.parse("Счёт № 123\nБанк 123456\nИтого: 1"))
     }
