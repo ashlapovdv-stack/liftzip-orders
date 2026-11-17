@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.FileOpen
 import ru.liftzip.orders.app.SettingsStore
+import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -188,6 +189,7 @@ fun OrderEditorScreen(
                     if (items.isEmpty()) invoiceError = "Не удалось распознать строки счёта. Проверьте качество PDF."
                     else invoiceItems = items
                 } catch (error: Exception) {
+                    InvoiceDiagnostics.record(context, "error", "${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
                     invoiceError = "Ошибка чтения счёта: ${error.message ?: "неизвестная ошибка"}"
                 } finally { invoiceLoading = false }
             }
