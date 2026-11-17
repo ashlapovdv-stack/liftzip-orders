@@ -39,6 +39,8 @@ interface OrdersDao {
 
     @Query("SELECT * FROM settlement_groups ORDER BY number DESC")
     fun observeGroups(): Flow<List<SettlementGroupEntity>>
+    @Query("SELECT * FROM settlement_groups ORDER BY number DESC")
+    suspend fun getGroups(): List<SettlementGroupEntity>
 
     @Query("SELECT * FROM orders")
     fun observeAllOrders(): Flow<List<OrderEntity>>
