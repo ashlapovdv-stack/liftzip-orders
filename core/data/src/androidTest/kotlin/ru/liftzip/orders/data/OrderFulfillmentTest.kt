@@ -35,16 +35,16 @@ class OrderFulfillmentTest {
         val group = repository.observeOrder(first).first()!!.group
         repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), group.id))
         for (action in OrderAction.entries) repository.setOrderAction(first, action, true)
-        assertEquals(GroupState.CALCULATING, repository.observeOrder(first).first()!!.group.state)
+        assertEquals(GroupState.ACCEPTED, repository.observeOrder(first).first()!!.group.state)
         repository.setOrderAction(second, OrderAction.RECEIVED, true)
         repository.setOrderAction(second, OrderAction.TRANSFERRED, true)
-        assertEquals(GroupState.CALCULATING, repository.observeOrder(second).first()!!.group.state)
+        assertEquals(GroupState.ACCEPTED, repository.observeOrder(second).first()!!.group.state)
         repository.setOrderAction(second, OrderAction.WITHDRAWN, true)
         assertEquals(GroupState.COMPLETED, repository.observeOrder(first).first()!!.group.state)
         assertEquals(1, repository.observeGroups().first().count { it.group.state == GroupState.FORMING })
         repository.setOrderAction(first, OrderAction.TRANSFERRED, false)
         val reopened = repository.observeOrder(first).first()!!
-        assertEquals(GroupState.CALCULATING, reopened.group.state)
+        assertEquals(GroupState.AWAITING_PAYMENT, reopened.group.state)
         assertTrue(reopened.order.fulfillment.withdrawn)
         assertFalse(reopened.order.fulfillment.transferred)
         assertTrue(reopened.order.fulfillment.received)
@@ -91,12 +91,12 @@ class OrderFulfillmentTest {
         assertEquals(GroupState.FORMING, blocked.group.state)
         val finish = FinishGroupCommand(UUID.randomUUID(), before.group.id)
         val result = repository.finishGroup(finish)
-        assertEquals(GroupState.CALCULATING, repository.observeOrder(id).first()!!.group.state)
+        assertEquals(GroupState.ACCEPTED, repository.observeOrder(id).first()!!.group.state)
         OrderAction.entries.forEach { repository.setOrderAction(id, it, true) }
         assertEquals(GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
         assertEquals(result.nextGroupId, repository.finishGroup(finish).nextGroupId)
         repository.setOrderAction(id, OrderAction.RECEIVED, false)
-        assertEquals(GroupState.CALCULATING, repository.observeOrder(id).first()!!.group.state)
+        assertEquals(GroupState.IN_DELIVERY, repository.observeOrder(id).first()!!.group.state)
     }
 
     private fun command() = SaveOrderCommand(
