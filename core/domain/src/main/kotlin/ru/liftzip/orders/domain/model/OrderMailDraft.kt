@@ -31,7 +31,7 @@ object OrderMailDraftFactory {
                 append("Временная ссылка: ").append(line.temporaryProductUrl.orEmpty()).append("\n")
                 append("Постоянная ссылка: ").append(line.productUrl.orEmpty()).append("\n")
                 append("Наименование: ").append(line.productNameSnapshot).append("\n")
-                append("Количество: ").append(line.quantity.stripTrailingZeros().toPlainString())
+                append("Количество: ").append(line.quantity?.stripTrailingZeros()?.toPlainString() ?: "—")
             }
         }.joinToString("\n\n")
         return OrderMailDraft(
