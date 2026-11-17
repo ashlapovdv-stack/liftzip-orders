@@ -209,7 +209,7 @@ class BackupManager(
                 orderLines.forEach { line ->
                     if (line.productId !in products) throw BackupException("Позиция ссылается на отсутствующий товар")
                     val domain = line.toDomain()
-                    if ((domain.quantity != null && domain.quantity <= java.math.BigDecimal.ZERO) || (line.saleUnitPriceMinor != null && line.saleUnitPriceMinor < 0)) {
+                    if ((domain.quantity?.let { it <= java.math.BigDecimal.ZERO } == true) || (line.saleUnitPriceMinor != null && line.saleUnitPriceMinor < 0)) {
                         throw BackupException("Некорректное количество или цена продажи")
                     }
                     val purchaseParts = listOfNotNull(line.purchaseUnitPrice, line.purchaseCurrency, line.purchaseRate)
