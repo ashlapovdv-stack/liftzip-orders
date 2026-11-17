@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.FileOpen
 import ru.liftzip.orders.app.SettingsStore
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.horizontalScroll
@@ -173,6 +174,25 @@ fun OrderEditorScreen(
     }
 
     val linkScope = rememberCoroutineScope()
+    var invoiceLoading by remember { mutableStateOf(false) }
+    var invoiceError by remember { mutableStateOf<String?>(null) }
+    var invoiceItems by remember { mutableStateOf<List<InvoiceItem>?>(null) }
+    val invoiceReader = remember { InvoicePdfReader() }
+    val invoicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            invoiceLoading = true
+            invoiceError = null
+            linkScope.launch {
+                try {
+                    val items = invoiceReader.read(context.contentResolver, uri)
+                    if (items.isEmpty()) invoiceError = "Не удалось распознать строки счёта. Проверьте качество PDF."
+                    else invoiceItems = items
+                } catch (error: Exception) {
+                    invoiceError = "Ошибка чтения счёта: ${error.message ?: "неизвестная ошибка"}"
+                } finally { invoiceLoading = false }
+            }
+        }
+    }
     var resolvingLink by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
     var browserLink by remember { mutableStateOf<Pair<Int, String>?>(null) }
@@ -215,6 +235,19 @@ fun OrderEditorScreen(
                     }
                     Spacer(Modifier.width(8.dp))
                 }
+                OutlinedButton(onClick = { invoicePicker.launch(arrayOf("application/pdf")) },
+                    modifier = Modifier.width(70.dp).height(44.dp),
+                    enabled = state.loaded && !state.saving && !state.salesLocked && !invoiceLoading,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center) {
+                        Icon(Icons.Default.FileOpen, contentDescription = "Импорт счёта PDF", modifier = Modifier.size(20.dp))
+                        Text(if (invoiceLoading) "Читаю" else "Импорт", fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
+                    }
+                }
+                Spacer(Modifier.width(6.dp))
                 OutlinedButton(onClick = { model.save { onBack() } },
                     modifier = Modifier.width(72.dp).height(44.dp),
                     enabled = state.loaded && !state.saving && !state.actionsSaving,
@@ -239,6 +272,7 @@ fun OrderEditorScreen(
             if (!state.loaded) item { Text("Загрузка…") }
             state.generalError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
             documentError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
+            invoiceError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
             item {
                 AppTextField(state.counterparty, { value -> model.update { it.copy(counterparty = value) } },
                     "Название заказа", error = state.errors["counterparty"], enabled = !state.salesLocked)
@@ -364,6 +398,40 @@ fun OrderEditorScreen(
                 }
             }
         }
+    }
+
+    invoiceItems?.let { items ->
+        AlertDialog(
+            onDismissRequest = { invoiceItems = null },
+            title = { Text("Импорт товаров из счёта") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Проверьте наименования и количество. Цены и другие поля не импортируются.",
+                        style = MaterialTheme.typography.bodySmall)
+                    items.forEachIndexed { index, item ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            AppTextField(item.name, { value ->
+                                invoiceItems = invoiceItems?.mapIndexed { i, row -> if (i == index) row.copy(name = value) else row }
+                            }, "Наименование ${index + 1}")
+                            AppTextField(item.quantity, { value ->
+                                invoiceItems = invoiceItems?.mapIndexed { i, row -> if (i == index) row.copy(quantity = value) else row }
+                            }, "Количество", decimal = false)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val valid = items.filter { it.name.isNotBlank() && it.quantity.toIntOrNull()?.let { q -> q > 0 } == true }
+                    if (valid.size == items.size && valid.isNotEmpty()) {
+                        model.importLines(valid)
+                        invoiceItems = null
+                    } else invoiceError = "Исправьте пустые названия и количество (целое число больше нуля)"
+                }) { Text("Добавить ${items.size}") }
+            },
+            dismissButton = { TextButton(onClick = { invoiceItems = null }) { Text("Отмена") } },
+        )
     }
 
     if (confirmDeleteOrder) AlertDialog(onDismissRequest = { confirmDeleteOrder = false },
