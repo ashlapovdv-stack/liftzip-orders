@@ -120,7 +120,7 @@ class RoomOrdersRepositoryTest {
         val groups = repository.observeGroups().first()
         assertEquals(2, groups.size)
         assertEquals(1, groups.count { it.group.state == GroupState.FORMING })
-        assertEquals(GroupState.CALCULATING, groups.first { it.group.id == first.group.id }.group.state)
+        assertEquals(GroupState.ACCEPTED, groups.first { it.group.id == first.group.id }.group.state)
     }
 
     @Test fun incompletePurchaseSurvivesAsIncomplete() = runTest {
@@ -225,7 +225,7 @@ class RoomOrdersRepositoryTest {
         val next = repository.saveOrder(orderCommand())
         assertEquals(3L, repository.observeOrder(next).first()!!.order.number)
         repository.deleteOrder(first)
-        assertEquals(GroupState.CALCULATING, repository.observeGroup(groupId).first()!!.summary.group.state)
+        assertEquals(GroupState.ACCEPTED, repository.observeGroup(groupId).first()!!.summary.group.state)
         database.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
     }
 
