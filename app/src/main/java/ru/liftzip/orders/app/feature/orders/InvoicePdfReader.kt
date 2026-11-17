@@ -1,20 +1,17 @@
 package ru.liftzip.orders.app.feature.orders
 
+import android.content.Context
 import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.Text
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.googlecode.tesseract.android.TessBaseAPI
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 /** Candidate rows are never saved without user review. */
 data class InvoiceItem(val name: String, val quantity: String)
@@ -88,43 +85,94 @@ internal object InvoiceTableParser {
     }
 }
 
-class InvoicePdfReader {
-    suspend fun read(resolver: ContentResolver, uri: Uri): List<InvoiceItem> = withContext(Dispatchers.IO) {
-        val descriptor = resolver.openFileDescriptor(uri, "r") ?: error("Не удалось открыть PDF")
-        descriptor.use { fd ->
-            PdfRenderer(fd).use { renderer ->
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-                try {
-                    val all = mutableListOf<InvoiceItem>()
-                    for (pageIndex in 0 until renderer.pageCount.coerceAtMost(8)) {
-                        renderer.openPage(pageIndex).use { page ->
-                            val scale = (1800f / page.width).coerceAtMost(3f)
-                            val bitmap = Bitmap.createBitmap(
-                                (page.width * scale).toInt().coerceAtLeast(1),
-                                (page.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888
-                            )
-                            try {
-                                bitmap.eraseColor(Color.WHITE)
-                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                val recognized = suspendCancellableCoroutine<Text> { continuation ->
-                                    recognizer.process(InputImage.fromBitmap(bitmap, 0))
-                                        .addOnSuccessListener { if (continuation.isActive) continuation.resume(it) }
-                                        .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
-                                }
-                                val words = recognized.textBlocks.flatMap { block ->
-                                    block.lines.flatMap { line -> line.elements.mapNotNull { element ->
-                                        element.boundingBox?.let { box ->
-                                            InvoiceWord(element.text, box.left, box.top, box.width(), box.height())
-                                        }
-                                    } }
-                                }
-                                all += InvoiceTableParser.parse(words)
-                            } finally { bitmap.recycle() }
-                        }
-                    }
-                    all
-                } finally { recognizer.close() }
+
+/** Parse the OCR text conservatively. Uncertain rows are edited before insertion. */
+internal object InvoiceTextParser {
+    private val number = Regex("^\\d{1,3}[.)]?$")
+    private val qty = Regex("^\\d{1,6}(?:[.,]0+)?$")
+    fun parse(text: String): List<InvoiceItem> {
+        val result = mutableListOf<InvoiceItem>()
+        var inTable = false
+        for (line in text.lines()) {
+            val cleaned = line.trim().replace(Regex("\\s+"), " ")
+            val lower = cleaned.lowercase()
+            if (!inTable) {
+                if (lower.contains("наименован") || lower.contains("товар")) inTable = true
+                continue
+            }
+            if (listOf("итого", "всего", "всего к оплате", "ндс").any { lower.startsWith(it) }) break
+            val tokens = cleaned.split(' ').filter { it.isNotBlank() }
+            if (tokens.size < 3) continue
+            val start = if (number.matches(tokens.first())) 1 else 0
+            val end = tokens.indexOfLast { qty.matches(it) }
+            if (end <= start) continue
+            // Quantity may precede price; only accept a numeric token followed by
+            // a recognizable unit or another numeric price column.
+            val index = (start until end).firstOrNull { i ->
+                qty.matches(tokens[i]) && (tokens.getOrNull(i + 1)?.lowercase() in
+                    setOf("шт", "шт.", "штук", "компл", "компл.", "pcs", "pc") ||
+                    (i + 2 < tokens.size && qty.matches(tokens[i + 1])))
+            } ?: continue
+            val name = tokens.subList(start, index).joinToString(" ").trim()
+            val quantity = tokens[index].replace(Regex("[.,]0+$"), "")
+            if (name.length > 3 && quantity.matches(Regex("[1-9]\\d{0,5}"))) {
+                result += InvoiceItem(name, quantity)
             }
         }
+        return result
     }
+}
+
+/** OCR stays on-device. Language packs are downloaded once, then cached privately. */
+class InvoicePdfReader {
+    suspend fun read(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
+        withContext(Dispatchers.IO) {
+            val base = File(context.filesDir, "invoice-ocr")
+            val models = File(base, "tessdata").apply { mkdirs() }
+            for (language in listOf("rus", "eng")) {
+                val target = File(models, "$language.traineddata")
+                if (!target.exists() || target.length() < 100_000) {
+                    val temp = File(models, "$language.download")
+                    try {
+                        val url = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$language.traineddata")
+                        val connection = url.openConnection() as HttpURLConnection
+                        connection.connectTimeout = 15000
+                        connection.readTimeout = 45000
+                        try {
+                            if (connection.responseCode != 200) error("Не удалось загрузить языковую модель $language")
+                            connection.inputStream.use { input -> temp.outputStream().use { input.copyTo(it) } }
+                        } finally { connection.disconnect() }
+                        if (temp.length() < 100_000 || !temp.renameTo(target)) error("Не удалось сохранить языковую модель")
+                    } finally { temp.delete() }
+                }
+            }
+            val tess = TessBaseAPI()
+            try {
+                if (!tess.init(base.absolutePath, "rus+eng")) error("Не удалось запустить распознавание")
+                val descriptor = resolver.openFileDescriptor(uri, "r") ?: error("Не удалось открыть PDF")
+                descriptor.use { fd ->
+                    PdfRenderer(fd).use { renderer ->
+                        val all = mutableListOf<InvoiceItem>()
+                        for (index in 0 until renderer.pageCount.coerceAtMost(8)) {
+                            renderer.openPage(index).use { page ->
+                                val scale = (2200f / page.width).coerceAtMost(3f)
+                                val bitmap = Bitmap.createBitmap(
+                                    (page.width * scale).toInt().coerceAtLeast(1),
+                                    (page.height * scale).toInt().coerceAtLeast(1),
+                                    Bitmap.Config.ARGB_8888
+                                )
+                                try {
+                                    bitmap.eraseColor(Color.WHITE)
+                                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                    tess.setImage(bitmap)
+                                    all += InvoiceTextParser.parse(tess.utF8Text ?: "")
+                                    tess.clear()
+                                } finally { bitmap.recycle() }
+                            }
+                        }
+                        all
+                    }
+                }
+            } finally { tess.recycle() }
+        }
 }
