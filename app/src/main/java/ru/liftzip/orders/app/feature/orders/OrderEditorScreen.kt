@@ -326,7 +326,7 @@ fun OrderEditorScreen(
             model.preview()?.let { calculation -> item {
                 OrderSection {
                     Text("Итого", style = MaterialTheme.typography.titleSmall)
-                    listOf("Цена для Дениса" to calculation.priceForDenis.format(),
+                    listOf("Цена для Дениса" to (calculation.priceForDenis?.format() ?: "—"),
                         "Д · без доставки" to (calculation.income?.format() ?: "—"),
                         "К · закупка" to (calculation.purchaseCost?.format() ?: "—"),
                         "∆ · прибыль" to (calculation.profit?.format() ?: "—"))
