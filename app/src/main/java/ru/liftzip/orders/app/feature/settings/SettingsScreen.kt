@@ -43,6 +43,11 @@ import ru.liftzip.orders.app.ui.SettingsViewModel
 import ru.liftzip.orders.app.ui.formatDateTime
 import ru.liftzip.orders.data.backup.BackupManager
 import java.time.Instant
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +56,21 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
     val lastBackup by model.lastBackup.collectAsState()
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var diagnosticsEnabled by remember { mutableStateOf(InvoiceDiagnostics.enabled(context)) }
+    var diagnosticMessage by remember { mutableStateOf<String?>(null) }
+    val diagnosticsExport = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(InvoiceDiagnostics.read(context).toByteArray(Charsets.UTF_8))
+                } ?: error("Не удалось открыть файл для записи")
+            }.onSuccess { diagnosticMessage = "Диагностика экспортирована" }
+                .onFailure { diagnosticMessage = "Ошибка экспорта: ${it.message}" }
+        }
+    }
     val busy by model.busy.collectAsState()
     val message by model.message.collectAsState()
     val pending by model.pendingImport.collectAsState()
@@ -95,6 +115,25 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
                             scope.launch { settings.setGalleryButtonFixed(fixed) }
                         },
                     )
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Диагностика импорта PDF", style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Записывать диагностику", modifier = Modifier.weight(1f))
+                        Switch(checked = diagnosticsEnabled, onCheckedChange = {
+                            diagnosticsEnabled = it
+                            InvoiceDiagnostics.setEnabled(context, it)
+                        })
+                    }
+                    Text("По умолчанию выключена. При включении сохраняется распознанный текст счетов, который может содержать личные и коммерческие данные. Файлы остаются на устройстве, пока вы не экспортируете их вручную.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = { diagnosticsExport.launch("Заказы-диагностика-PDF.txt") },
+                        modifier = Modifier.fillMaxWidth()) { Text("Выгрузить диагностику") }
+                    OutlinedButton(onClick = {
+                        InvoiceDiagnostics.clear(context)
+                        diagnosticMessage = "Диагностические записи удалены"
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Очистить диагностику") }
                 }
             }
             Card {
@@ -143,6 +182,12 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
             confirmButton = { TextButton(onClick = model::confirmImport) { Text("Заменить данные") } },
             dismissButton = { TextButton(onClick = model::cancelImport) { Text("Отмена") } },
         )
+    }
+    diagnosticMessage?.let { text ->
+        AlertDialog(onDismissRequest = { diagnosticMessage = null },
+            text = { Text(text) }, confirmButton = {
+                TextButton(onClick = { diagnosticMessage = null }) { Text("Понятно") }
+            })
     }
     message?.let { text ->
         AlertDialog(
