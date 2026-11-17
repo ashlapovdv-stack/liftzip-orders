@@ -233,7 +233,7 @@ fun OrderEditorScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding),
+        LazyColumn(Modifier.fillMaxSize().padding(padding).imePadding(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!state.loaded) item { Text("Загрузка…") }
