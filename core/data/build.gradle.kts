@@ -25,11 +25,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
-    // Room exports the current schema during KSP. Package it only after KSP completes.
-    // Otherwise AndroidTest can silently contain only the committed historical schemas.
-    tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
-        dependsOn("kspDebugKotlin")
-    }
 }
 
 ksp {
@@ -51,4 +46,19 @@ dependencies {
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+}
+
+// A fresh CI checkout contains historical schemas only. Force the current Room
+// schema to exist before assembling instrumented migration tests.
+tasks.register("verifyCurrentRoomSchema") {
+    dependsOn("kspDebugKotlin")
+    doLast {
+        val schema = file("schemas/ru.liftzip.orders.data.database.OrdersDatabase/12.json")
+        check(schema.isFile && schema.length() > 100) {
+            "Room 12.json missing after KSP: ${schema.absolutePath}"
+        }
+    }
+}
+tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
+    dependsOn("verifyCurrentRoomSchema")
 }
