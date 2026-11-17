@@ -62,3 +62,10 @@ tasks.register("verifyCurrentRoomSchema") {
 tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
     dependsOn("verifyCurrentRoomSchema")
 }
+
+// Room writes schemas outside Gradle's standard build directory. KSP cache hits
+// may skip schema export on a fresh CI checkout, leaving migration tests broken.
+tasks.matching { it.name == "kspDebugKotlin" }.configureEach {
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+}
