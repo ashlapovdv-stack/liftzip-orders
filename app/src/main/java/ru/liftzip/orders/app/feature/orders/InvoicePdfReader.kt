@@ -208,7 +208,26 @@ class InvoicePdfReader {
                                     val recognized = tess.getUTF8Text() ?: ""
                                     val parsed = InvoiceTextParser.parse(recognized)
                                     if (diagnostics) InvoiceDiagnostics.record(context, "page", "page=${index + 1}; chars=${recognized.length}; items=${parsed.size}\nOCR text:\n$recognized")
-                                    all += parsed
+                                    if (parsed.isEmpty()) {
+                                        // Re-run OCR on the middle table region when full-page
+                                        // recognition lost the small product row among page noise.
+                                        // No PDF templates or invoice-specific coordinates.
+                                        val top = (bitmap.height * 0.27f).toInt()
+                                        val height = (bitmap.height * 0.58f).toInt()
+                                            .coerceAtMost(bitmap.height - top)
+                                        val tableBitmap = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, height)
+                                        try {
+                                            tess.clear()
+                                            tess.setImage(tableBitmap)
+                                            val tableText = tess.getUTF8Text() ?: ""
+                                            val tableItems = InvoiceTextParser.parse(tableText)
+                                            if (diagnostics) InvoiceDiagnostics.record(context, "table_retry",
+                                                "page=${index + 1}; chars=${tableText.length}; items=${tableItems.size}\\nOCR text:\\n$tableText")
+                                            all += tableItems
+                                        } finally { tableBitmap.recycle() }
+                                    } else {
+                                        all += parsed
+                                    }
                                     tess.clear()
                                 } finally { bitmap.recycle() }
                             }
