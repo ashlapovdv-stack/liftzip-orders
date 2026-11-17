@@ -624,8 +624,6 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-                    // Reserve actual IME height in scroll content; imePadding consumes insets for child modifiers.
-                    Spacer(Modifier.height(with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }))
                 }
 
             }
@@ -847,7 +845,7 @@ private fun CompactPositionField(
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     var focused by remember { mutableStateOf(false) }
-    LaunchedEffect(focused, imeBottom) {
+    LaunchedEffect(focused, imeBottom > 0) {
         if (focused && imeBottom > 0) bringIntoViewRequester.bringIntoView()
     }
     Column(modifier.bringIntoViewRequester(bringIntoViewRequester),
