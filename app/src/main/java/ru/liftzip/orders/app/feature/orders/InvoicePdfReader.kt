@@ -100,6 +100,7 @@ internal object InvoiceTextParser {
         RegexOption.IGNORE_CASE
     )
     // Some scans lose both quantity and the price column, but keep unit + total.
+    private val unitPriceTotal = Regex("""\s+(?:шт\.?|штук|компл\.?|pcs?\.?)\s+\d[\d ]*[.,]\d{2}\s+\d[\d ]*[.,]\d{2}\s*$""", RegexOption.IGNORE_CASE)
     private val unitTotal = Regex(
         """\s+(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}\s*$""",
         RegexOption.IGNORE_CASE
@@ -146,7 +147,7 @@ internal object InvoiceTextParser {
                 finish(tailMatch.groupValues[1])
                 continue
             }
-            val unitMatch = unitTotal.find(stripped)
+            val unitMatch = unitPriceTotal.find(stripped) ?: unitTotal.find(stripped)
             if (unitMatch != null) {
                 val before = stripped.substring(0, unitMatch.range.first)
                 val priceMatch = money.findAll(before).lastOrNull()
