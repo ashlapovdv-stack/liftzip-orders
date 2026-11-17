@@ -232,7 +232,7 @@ data class PriceHistoryLine(
 }
 
 data class OrderCalculation(
-    val priceForDenis: Money,
+    val priceForDenis: Money?,
     val income: Money?,
     val purchaseCost: Money?,
     val profit: Money?,
