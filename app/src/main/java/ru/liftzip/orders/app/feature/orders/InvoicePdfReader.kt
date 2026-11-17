@@ -88,36 +88,56 @@ internal object InvoiceTableParser {
 
 /** Parse the OCR text conservatively. Uncertain rows are edited before insertion. */
 internal object InvoiceTextParser {
-    private val number = Regex("^\\d{1,3}[.)]?$")
-    private val qty = Regex("^\\d{1,6}(?:[.,]0+)?$")
+    private val stop = Regex("^(итого|всего|ндс|к оплате|в том числе)", RegexOption.IGNORE_CASE)
+    private val startNumber = Regex("^\\d{1,3}[.)]?\\s+")
+    private val price = Regex("\\d[\\d ]*[.,]\\d{2}")
+    private val endOfRow = Regex(
+        """\\s+\\d[\\d ]*[.,]\\d{2}\\s+(\\d{1,6})\\s+(?:шт\\.?|штук|компл\\.?|pcs?\\.?)\\s+\\d[\\d ]*[.,]\\d{2}\\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val nameWithUnit = Regex(
+        """\\s+(?:шт\\.?|штук|компл\\.?|pcs?\\.?)\\s+\\d[\\d ]*[.,]\\d{2}\\s+\\d[\\d ]*[.,]\\d{2}\\s*$""",
+        RegexOption.IGNORE_CASE
+    )
     fun parse(text: String): List<InvoiceItem> {
         val result = mutableListOf<InvoiceItem>()
         var inTable = false
-        for (line in text.lines()) {
-            val cleaned = line.trim().replace(Regex("\\s+"), " ")
-            val lower = cleaned.lowercase()
+        val pending = mutableListOf<String>()
+        fun finish(name: String, quantity: String) {
+            val normalized = name.replace(Regex("\\s+"), " ").trim().trim('[', '|', ' ')
+            if (normalized.length >= 4) result += InvoiceItem(normalized, quantity)
+            pending.clear()
+        }
+        for (raw in text.lines()) {
+            val line = raw.trim().replace(Regex("\\s+"), " ")
+            if (line.isBlank()) continue
             if (!inTable) {
-                if (lower.contains("наименован") || lower.contains("товар")) inTable = true
+                val lower = line.lowercase()
+                if ((lower.contains("наименован") || lower.contains("товары")) &&
+                    (lower.contains("кол") || lower.contains("цена") || lower.contains("сумма"))) inTable = true
                 continue
             }
-            if (listOf("итого", "всего", "всего к оплате", "ндс").any { lower.startsWith(it) }) break
-            val tokens = cleaned.split(' ').filter { it.isNotBlank() }
-            if (tokens.size < 3) continue
-            val start = if (number.matches(tokens.first())) 1 else 0
-            val end = tokens.indexOfLast { qty.matches(it) }
-            if (end <= start) continue
-            // Quantity may precede price; only accept a numeric token followed by
-            // a recognizable unit or another numeric price column.
-            val index = (start until end).firstOrNull { i ->
-                qty.matches(tokens[i]) && (tokens.getOrNull(i + 1)?.lowercase() in
-                    setOf("шт", "шт.", "штук", "компл", "компл.", "pcs", "pc") ||
-                    (i + 2 < tokens.size && qty.matches(tokens[i + 1])))
-            } ?: continue
-            val name = tokens.subList(start, index).joinToString(" ").trim()
-            val quantity = tokens[index].replace(Regex("[.,]0+$"), "")
-            if (name.length > 3 && quantity.matches(Regex("[1-9]\\d{0,5}"))) {
-                result += InvoiceItem(name, quantity)
+            if (stop.containsMatchIn(line)) break
+            val stripped = line.replace(startNumber, "").trim()
+            val row = endOfRow.find(stripped)
+            if (row != null) {
+                val prefix = stripped.substring(0, row.range.first).trim()
+                val name = (pending + prefix).joinToString(" ")
+                finish(name, row.groupValues[1])
+                continue
             }
+            // A quantity can disappear in OCR. Preserve the name for manual review,
+            // never silently assume that a missing quantity is one.
+            val missingQty = nameWithUnit.find(stripped)
+            if (missingQty != null) {
+                val prefix = stripped.substring(0, missingQty.range.first).trim()
+                finish((pending + prefix).joinToString(" "), "")
+                continue
+            }
+            // A multi-line product description may contain a price only on its final line.
+            // The first column can also contain a stand-alone row number.
+            if (stripped.matches(Regex("^\\d{1,3}$"))) continue
+            if (stripped.length >= 3 && !price.containsMatchIn(stripped)) pending += stripped
         }
         return result
     }
