@@ -184,7 +184,7 @@ fun OrderEditorScreen(
             invoiceError = null
             linkScope.launch {
                 try {
-                    val items = invoiceReader.read(context.contentResolver, uri)
+                    val items = invoiceReader.read(context, context.contentResolver, uri)
                     if (items.isEmpty()) invoiceError = "Не удалось распознать строки счёта. Проверьте качество PDF."
                     else invoiceItems = items
                 } catch (error: Exception) {
