@@ -92,7 +92,7 @@ internal object InvoiceTableParser {
 internal object InvoiceTextParser {
     private val stop = Regex("""^(?:итого|всего|ндс|к оплате|в том числе)""", RegexOption.IGNORE_CASE)
     private val header = Regex("""(?:наименован|товары|работы, услуги)""", RegexOption.IGNORE_CASE)
-    private val numbered = Regex("""^\s*\|?\s*(\d{1,3})[.)]?\s*[|\[]?\s+(.+)$""")
+    private val numbered = Regex("""^\s*\|?\s*(\d{1,3})[.)]?\s*[|\[]?\s*(.+)$""")
     private val money = Regex("""\d[\d ]*[.,]\d{2}""")
     private val unit = Regex("""(?:шт\.?|штук|компл\.?|pcs?\.?)""", RegexOption.IGNORE_CASE)
     private val tail = Regex(
