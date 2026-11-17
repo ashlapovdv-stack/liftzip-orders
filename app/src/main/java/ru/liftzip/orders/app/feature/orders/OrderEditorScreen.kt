@@ -14,6 +14,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -838,7 +841,14 @@ private fun CompactPositionField(
     decimal: Boolean = false,
     minLines: Int = 1,
 ) {
-    Column(modifier,
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(focused, imeBottom) {
+        if (focused && imeBottom > 0) bringIntoViewRequester.bringIntoView()
+    }
+    Column(modifier.bringIntoViewRequester(bringIntoViewRequester),
         verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -851,6 +861,7 @@ private fun CompactPositionField(
                 keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
                                   else KeyboardOptions.Default,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                    .onFocusChanged { focused = it.isFocused }
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .semantics { contentDescription = label },
                 decorationBox = { inner ->
