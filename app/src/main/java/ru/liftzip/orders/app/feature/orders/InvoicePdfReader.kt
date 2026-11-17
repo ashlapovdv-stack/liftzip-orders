@@ -165,7 +165,7 @@ class InvoicePdfReader {
                                     bitmap.eraseColor(Color.WHITE)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                     tess.setImage(bitmap)
-                                    all += InvoiceTextParser.parse(tess.utF8Text ?: "")
+                                    all += InvoiceTextParser.parse(tess.getUTF8Text() ?: "")
                                     tess.clear()
                                 } finally { bitmap.recycle() }
                             }
