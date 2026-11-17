@@ -68,7 +68,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.datastore.preferences)
-    implementation("com.google.mlkit:text-recognition-cyrillic:16.0.1")
+    implementation("com.google.mlkit:text-recognition-cyrillic:16.0.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
