@@ -135,6 +135,10 @@ internal object InvoiceTextParser {
                 active = true
                 match.groupValues[2]
             } else line.trimStart('|', ' ', '‚', '_')
+            if (!active && result.isNotEmpty() && stripped.length > 5 &&
+                stripped.any(Char::isLetter) && !stripped.contains("итого", true)) {
+                active = true
+            }
             if (!active) continue
             val tailMatch = tail.find(stripped)
             if (tailMatch != null) {
