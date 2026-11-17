@@ -1,5 +1,7 @@
 package ru.liftzip.orders.app.feature.orders
 
+import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
+
 import android.content.Context
 import android.content.ContentResolver
 import android.graphics.Bitmap
@@ -147,6 +149,8 @@ internal object InvoiceTextParser {
 class InvoicePdfReader {
     suspend fun read(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
         withContext(Dispatchers.IO) {
+            val diagnostics = InvoiceDiagnostics.enabled(context)
+            if (diagnostics) InvoiceDiagnostics.record(context, "start", "PDF import started")
             val base = File(context.filesDir, "invoice-ocr")
             val models = File(base, "tessdata").apply { mkdirs() }
             for (language in listOf("rus", "eng")) {
@@ -166,6 +170,7 @@ class InvoicePdfReader {
                     } finally { temp.delete() }
                 }
             }
+            if (diagnostics) InvoiceDiagnostics.record(context, "models", "rus and eng models available; rus=${File(models, "rus.traineddata").length()} bytes, eng=${File(models, "eng.traineddata").length()} bytes")
             val tess = TessBaseAPI()
             try {
                 if (!tess.init(base.absolutePath, "rus+eng")) error("Не удалось запустить распознавание")
@@ -173,6 +178,7 @@ class InvoicePdfReader {
                 descriptor.use { fd ->
                     PdfRenderer(fd).use { renderer ->
                         val all = mutableListOf<InvoiceItem>()
+                        if (diagnostics) InvoiceDiagnostics.record(context, "pages", "pages=${renderer.pageCount}")
                         for (index in 0 until renderer.pageCount.coerceAtMost(8)) {
                             renderer.openPage(index).use { page ->
                                 val scale = (2200f / page.width).coerceAtMost(3f)
@@ -185,11 +191,15 @@ class InvoicePdfReader {
                                     bitmap.eraseColor(Color.WHITE)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                     tess.setImage(bitmap)
-                                    all += InvoiceTextParser.parse(tess.getUTF8Text() ?: "")
+                                    val recognized = tess.getUTF8Text() ?: ""
+                                    val parsed = InvoiceTextParser.parse(recognized)
+                                    if (diagnostics) InvoiceDiagnostics.record(context, "page", "page=${index + 1}; chars=${recognized.length}; items=${parsed.size}\nOCR text:\n$recognized")
+                                    all += parsed
                                     tess.clear()
                                 } finally { bitmap.recycle() }
                             }
                         }
+                        if (diagnostics) InvoiceDiagnostics.record(context, "complete", "items=${all.size}")
                         all
                     }
                 }
