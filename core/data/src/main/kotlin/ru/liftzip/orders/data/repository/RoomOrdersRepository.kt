@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import androidx.room.withTransaction
@@ -129,7 +128,7 @@ class RoomOrdersRepository(
                 )
             }
             // Reconcile persisted legacy CALCULATING states after upgrade without changing order flags.
-            dao.observeGroups().first().filter { it.state != GroupState.FORMING.name }.forEach { group ->
+            dao.getGroups().filter { it.state != GroupState.FORMING.name }.forEach { group ->
                 val newState = groupProgressState(dao.getGroupOrders(group.id).map { it.toDomain().fulfillment })
                 if (group.state != newState.name) dao.updateGroup(group.copy(state = newState.name))
             }
