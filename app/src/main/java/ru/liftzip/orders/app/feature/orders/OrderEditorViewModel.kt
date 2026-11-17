@@ -331,9 +331,9 @@ class OrderEditorViewModel(
             val name = line.name.trim()
             if (name.isEmpty()) errors["line_${index}_name"] = "Укажите название"
             val quantity = line.quantity.parseDecimal()
-            if (quantity == null || quantity <= BigDecimal.ZERO) errors["line_${index}_quantity"] = "Количество больше нуля"
+            if (line.quantity.isNotBlank() && (quantity == null || quantity <= BigDecimal.ZERO)) errors["line_${index}_quantity"] = "Количество больше нуля"
             val sale = line.salePrice.parseDecimal()
-            if (line.salePrice.isBlank() || sale == null) errors["line_${index}_sale"] = "Укажите цену продажи"
+            if (line.salePrice.isNotBlank() && sale == null) errors["line_${index}_sale"] = "Укажите корректную цену продажи"
             if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
             }
@@ -351,8 +351,8 @@ class OrderEditorViewModel(
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
                 id = line.id, productId = line.productId, productName = name,
-                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity ?: BigDecimal.ONE,
-                saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
+                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity,
+                saleUnitPrice = sale, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
                 purchaseRate = if (purchase == null) null else rate,
