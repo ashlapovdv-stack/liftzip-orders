@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import androidx.room.withTransaction
@@ -47,6 +48,7 @@ import ru.liftzip.orders.domain.model.DomainValidationException
 import ru.liftzip.orders.domain.model.FinishGroupCommand
 import ru.liftzip.orders.domain.model.FinishGroupResult
 import ru.liftzip.orders.domain.model.GroupDetails
+import ru.liftzip.orders.domain.model.groupProgressState
 import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.GroupSummary
 import ru.liftzip.orders.domain.model.Money
@@ -125,6 +127,11 @@ class RoomOrdersRepository(
                         updatedAt = now.epoch(), revision = 1,
                     ),
                 )
+            }
+            // Reconcile persisted legacy CALCULATING states after upgrade without changing order flags.
+            dao.observeGroups().first().filter { it.state != GroupState.FORMING.name }.forEach { group ->
+                val newState = groupProgressState(dao.getGroupOrders(group.id).map { it.toDomain().fulfillment })
+                if (group.state != newState.name) dao.updateGroup(group.copy(state = newState.name))
             }
         }
     }
@@ -225,9 +232,7 @@ class RoomOrdersRepository(
             )
             dao.updateOrder(updated)
             val orders = dao.getGroupOrders(group.id)
-            val state = if (group.state == GroupState.FORMING.name) GroupState.FORMING
-                else if (orders.isNotEmpty() && orders.all { it.toDomain().fulfillment.isComplete }) GroupState.COMPLETED
-                else GroupState.CALCULATING
+            val state = groupProgressState(orders.map { it.toDomain().fulfillment })
             if (state.name != group.state) dao.updateGroup(group.copy(
                 state = state.name, updatedAt = now.epoch(), revision = group.revision + 1,
             ))
@@ -263,8 +268,7 @@ class RoomOrdersRepository(
             dao.deleteOrder(old.id)
             if (group.state != GroupState.FORMING.name) {
                 val remaining = dao.getGroupOrders(group.id)
-                val state = if (remaining.isNotEmpty() && remaining.all { it.toDomain().fulfillment.isComplete })
-                    GroupState.COMPLETED else GroupState.CALCULATING
+                val state = groupProgressState(remaining.map { it.toDomain().fulfillment })
                 dao.updateGroup(group.copy(state = state.name, updatedAt = now.epoch(), revision = group.revision + 1))
             }
         }
@@ -401,7 +405,7 @@ class RoomOrdersRepository(
             }
             val now = Instant.now()
             dao.updateGroup(group.copy(
-                state = if (dao.getGroupOrders(group.id).all { it.toDomain().fulfillment.isComplete }) GroupState.COMPLETED.name else GroupState.CALCULATING.name,
+                state = groupProgressState(dao.getGroupOrders(group.id).map { it.toDomain().fulfillment }).name,
                 completedAt = now.epoch(), updatedAt = now.epoch(),
                 revision = group.revision + 1,
             ))
