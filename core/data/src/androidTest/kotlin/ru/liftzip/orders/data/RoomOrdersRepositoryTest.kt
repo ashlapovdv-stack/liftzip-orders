@@ -244,7 +244,7 @@ class RoomOrdersRepositoryTest {
             lines = listOf(draft.lines[1].copy(id = remaining.id, productId = remaining.productId))))
         val after = repository.observeOrder(id).first()!!
         assertEquals(listOf(remaining.id), after.lines.map { it.id })
-        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.orders.single().calculation.priceForDenis.minorUnits)
+        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.orders.single().calculation.priceForDenis?.minorUnits)
         assertEquals(null, repository.observeGroup(before.group.id).first()!!.summary.income)
         assertTrue(after.costs.isEmpty())
         assertEquals(1, database.backupDao().allPriceRecords().count { it.orderId == id.toString() })
