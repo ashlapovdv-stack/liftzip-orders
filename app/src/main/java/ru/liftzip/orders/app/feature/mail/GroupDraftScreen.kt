@@ -69,10 +69,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                     ?: kotlin.error("Заказ не найден")
                 require(details.order.groupId == groupId) { "Заказ не принадлежит группе" }
                 if (store.get(groupId, orderId) == null) {
-                    require(details.order.counterparty.isNotBlank() &&
-                        details.lines.isNotEmpty() &&
-                        details.lines.all { it.productNameSnapshot.isNotBlank() && !it.productUrl.isNullOrBlank() && it.quantity?.signum()?.let { sign -> sign > 0 } == true }) {
-                        "Для письма нужны название заказа, товары, ссылки и количество"
+                    require(details.lines.isNotEmpty()) {
+                        "Для письма нужна хотя бы одна сохранённая позиция"
                     }
                     store.createIfAbsent(details)
                 }
