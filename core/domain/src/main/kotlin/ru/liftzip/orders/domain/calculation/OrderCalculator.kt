@@ -15,15 +15,18 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 object OrderCalculator {
-    fun lineSale(line: OrderLine): Money = money(
-        line.quantity.multiply(line.saleUnitPrice.toBigDecimal()),
-    )
+    fun lineSale(line: OrderLine): Money? {
+        val quantity = line.quantity ?: return null
+        val price = line.saleUnitPrice ?: return null
+        return money(quantity.multiply(price.toBigDecimal()))
+    }
 
     fun linePurchase(line: OrderLine): Money? {
+        val quantity = line.quantity ?: return null
         val price = line.purchaseUnitPrice ?: return null
         val currency = line.purchaseCurrency ?: return null
         val rate = line.purchaseRate ?: return null
-        return money(line.quantity.multiply(price).multiply(rateFor(currency, rate)))
+        return money(quantity.multiply(price).multiply(rateFor(currency, rate)))
     }
 
     fun costInRub(cost: CostEntry): Money = money(cost.amount.multiply(rateFor(cost.currency, cost.rate)))
@@ -38,7 +41,8 @@ object OrderCalculator {
             (it.ownerType == CostOwnerType.ORDER && it.ownerId == order.id) ||
                 (it.ownerType == CostOwnerType.LINE && it.ownerId in lineIds)
         }
-        val priceForDenis = lines.fold(Money.ZERO) { total, line -> total + lineSale(line) }
+        val saleValues = lines.map(::lineSale)
+        val priceForDenis = totalOrUnknown(saleValues)
         // The agreed formulas have one source for each value. Per-line purchases,
         // group expenses and delivery estimates stay reference data only.
         val purchases = applicableCosts.filter {
@@ -46,7 +50,7 @@ object OrderCalculator {
         }
         val purchaseEntry = purchases.singleOrNull()
         val purchase = purchaseEntry?.let(::costInRub)
-        val income = order.manualDeliveryPrice?.let { priceForDenis - it }
+        val income = if (priceForDenis != null) order.manualDeliveryPrice?.let { priceForDenis - it } else null
         val complete = income != null && purchase != null && purchaseEntry?.isConfirmed == true
         return OrderCalculation(
             priceForDenis = priceForDenis,
