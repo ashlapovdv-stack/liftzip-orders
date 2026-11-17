@@ -136,7 +136,7 @@ internal object InvoiceTextParser {
             }
             // A multi-line product description may contain a price only on its final line.
             // The first column can also contain a stand-alone row number.
-            if (stripped.matches(Regex("^\\d{1,3}$"))) continue
+            if (stripped.matches(Regex("^[^\\p{L}\\p{N}]*[\\p{L}\\p{N}][^\\p{L}\\p{N}]*$")) && stripped.length <= 2) continue
             if (stripped.length >= 3 && !price.containsMatchIn(stripped)) pending += stripped
         }
         return result
