@@ -209,7 +209,7 @@ class BackupManager(
                 orderLines.forEach { line ->
                     if (line.productId !in products) throw BackupException("Позиция ссылается на отсутствующий товар")
                     val domain = line.toDomain()
-                    if (domain.quantity <= java.math.BigDecimal.ZERO || line.saleUnitPriceMinor < 0) {
+                    if ((domain.quantity != null && domain.quantity <= java.math.BigDecimal.ZERO) || (line.saleUnitPriceMinor != null && line.saleUnitPriceMinor < 0)) {
                         throw BackupException("Некорректное количество или цена продажи")
                     }
                     val purchaseParts = listOfNotNull(line.purchaseUnitPrice, line.purchaseCurrency, line.purchaseRate)
@@ -258,7 +258,7 @@ class BackupManager(
                 when (domainRecord.type) {
                     ru.liftzip.orders.domain.model.PriceEventType.SALE -> {
                         if (domainRecord.currency != ru.liftzip.orders.domain.model.Currency.RUB ||
-                            domainRecord.price.compareTo(ru.liftzip.orders.domain.model.Money(line.saleUnitPriceMinor).toBigDecimal()) != 0
+                            line.saleUnitPriceMinor == null || line.quantity == null || domainRecord.price.compareTo(ru.liftzip.orders.domain.model.Money(line.saleUnitPriceMinor!!).toBigDecimal()) != 0
                         ) throw BackupException("Запись продажи не совпадает с исходной позицией")
                     }
                     ru.liftzip.orders.domain.model.PriceEventType.PURCHASE -> {
