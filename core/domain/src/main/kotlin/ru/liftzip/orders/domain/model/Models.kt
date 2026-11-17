@@ -7,7 +7,14 @@ import java.time.LocalDate
 import java.util.UUID
 
 enum class Currency { RUB, CNY }
-enum class GroupState { FORMING, CALCULATING, COMPLETED }
+enum class GroupState { FORMING, CALCULATING, COMPLETED, ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY }
+
+fun groupProgressState(orders: List<OrderFulfillment>): GroupState = when {
+    orders.isEmpty() || orders.any { !it.withdrawn } -> GroupState.ACCEPTED
+    orders.any { !it.transferred } -> GroupState.AWAITING_PAYMENT
+    orders.any { !it.received } -> GroupState.IN_DELIVERY
+    else -> GroupState.COMPLETED
+}
 enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
 enum class OrderStage { ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
 
