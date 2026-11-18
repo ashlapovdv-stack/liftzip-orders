@@ -30,6 +30,22 @@ class InvoiceTableParserTest {
             InvoiceItem("Датчик эскалатора", "4")), InvoiceTableParser.parse(words))
     }
 
+    @Test fun numericPartOfMultilineDescriptionIsNotAnotherItem() {
+        val words = listOf(
+            w("№", 20, 10), w("Наименование", 80, 10),
+            w("Цена", 300, 10), w("Кол-во", 400, 10), w("Сумма", 510, 10),
+            w("1", 20, 40), w("Канат", 80, 40), w("8x19S-FC", 145, 40),
+            w("1570/1770", 220, 40), w("163,00", 300, 40),
+            w("SAFETY", 80, 60), w("(по", 145, 60),
+            w("169", 180, 60), w("м.)", 215, 60), w("1014", 400, 60),
+            w("165282,00", 510, 60), w("Итого:", 400, 100)
+        )
+        assertEquals(
+            listOf(InvoiceItem("Канат 8x19S-FC 1570/1770 SAFETY (по 169 м.)", "1014")),
+            InvoiceTableParser.parse(words)
+        )
+    }
+
     @Test fun missingHeaderDoesNotInventProducts() {
         assertEquals(emptyList<InvoiceItem>(), InvoiceTableParser.parse(listOf(w("Счет", 20, 10), w("4", 400, 40))))
     }
