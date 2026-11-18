@@ -252,6 +252,24 @@ class InvoicePdfReader {
             } finally { tess.recycle() }
         }
 
+    private fun extractWords(tess: TessBaseAPI): List<InvoiceWord> {
+        val iterator = tess.resultIterator ?: return emptyList()
+        val words = mutableListOf<InvoiceWord>()
+        val level = com.googlecode.tesseract.android.PageIteratorLevel.RIL_WORD
+        try {
+            do {
+                val value = iterator.getUTF8Text(level)?.trim().orEmpty()
+                val box = iterator.getBoundingBox(level)
+                if (value.isNotEmpty() && box != null && box.size >= 4) {
+                    words += InvoiceWord(value, box[0], box[1],
+                        (box[2] - box[0]).coerceAtLeast(1),
+                        (box[3] - box[1]).coerceAtLeast(1))
+                }
+            } while (iterator.next(level))
+        } finally { iterator.recycle() }
+        return words
+    }
+
     suspend fun read(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
         withContext(Dispatchers.IO) {
             val diagnostics = InvoiceDiagnostics.enabled(context)
@@ -279,8 +297,17 @@ class InvoicePdfReader {
                                     tess.setImage(bitmap)
                                     val recognized = tess.getUTF8Text() ?: ""
                                     val parsed = InvoiceTextParser.parse(recognized)
+                                    val positioned = InvoiceTableParser.parse(extractWords(tess))
+                                    val merged = if (positioned.size == parsed.size && parsed.isNotEmpty()) {
+                                        parsed.zip(positioned) { textItem, tableItem ->
+                                            if (textItem.quantity.isBlank()) textItem.copy(quantity = tableItem.quantity)
+                                            else textItem
+                                        }
+                                    } else parsed
+                                    if (diagnostics) InvoiceDiagnostics.record(context, "coordinates",
+                                        "page=${index + 1}; textItems=${parsed.size}; positionedItems=${positioned.size}; quantities=${positioned.map { it.quantity }}")
                                     if (diagnostics) InvoiceDiagnostics.record(context, "page", "page=${index + 1}; chars=${recognized.length}; items=${parsed.size}\nOCR text:\n$recognized")
-                                    if (parsed.isEmpty()) {
+                                    if (merged.isEmpty()) {
                                         // Re-run OCR on the middle table region when full-page
                                         // recognition lost the small product row among page noise.
                                         // No PDF templates or invoice-specific coordinates.
@@ -298,7 +325,7 @@ class InvoicePdfReader {
                                             all += tableItems
                                         } finally { tableBitmap.recycle() }
                                     } else {
-                                        all += parsed
+                                        all += merged
                                     }
                                     tess.clear()
                                 } finally { bitmap.recycle() }
