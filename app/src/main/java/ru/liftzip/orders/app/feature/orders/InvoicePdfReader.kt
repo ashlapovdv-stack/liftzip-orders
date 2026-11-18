@@ -255,7 +255,7 @@ class InvoicePdfReader {
     private fun extractWords(tess: TessBaseAPI): List<InvoiceWord> {
         val iterator = tess.resultIterator ?: return emptyList()
         val words = mutableListOf<InvoiceWord>()
-        val level = com.googlecode.tesseract.android.PageIteratorLevel.RIL_WORD
+        val level = TessBaseAPI.PageIteratorLevel.RIL_WORD
         try {
             do {
                 val value = iterator.getUTF8Text(level)?.trim().orEmpty()
@@ -266,7 +266,7 @@ class InvoicePdfReader {
                         (box[3] - box[1]).coerceAtLeast(1))
                 }
             } while (iterator.next(level))
-        } finally { iterator.recycle() }
+        } finally { iterator.delete() }
         return words
     }
 
