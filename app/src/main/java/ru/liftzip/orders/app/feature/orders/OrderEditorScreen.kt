@@ -180,21 +180,27 @@ fun OrderEditorScreen(
     var invoiceError by remember { mutableStateOf<String?>(null) }
     var invoiceItems by remember { mutableStateOf<List<InvoiceItem>?>(null) }
     val invoiceReader = remember { InvoicePdfReader() }
-    val invoicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            invoiceLoading = true
-            invoiceError = null
-            linkScope.launch {
-                try {
-                    val items = invoiceReader.read(context, context.contentResolver, uri)
-                    if (items.isEmpty()) invoiceError = "Не удалось распознать строки счёта. Проверьте качество PDF."
-                    else invoiceItems = items
-                } catch (error: Exception) {
-                    InvoiceDiagnostics.record(context, "error", "${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
-                    invoiceError = "Ошибка чтения счёта: ${error.message ?: "неизвестная ошибка"}"
-                } finally { invoiceLoading = false }
-            }
+    var showInvoiceSource by remember { mutableStateOf(false) }
+    fun importInvoice(uri: android.net.Uri, image: Boolean) {
+        invoiceLoading = true
+        invoiceError = null
+        linkScope.launch {
+            try {
+                val items = if (image) invoiceReader.readImage(context, context.contentResolver, uri)
+                    else invoiceReader.read(context, context.contentResolver, uri)
+                if (items.isEmpty()) invoiceError = "Не удалось распознать товары. Проверьте качество изображения."
+                else invoiceItems = items
+            } catch (error: Exception) {
+                InvoiceDiagnostics.record(context, "error", "${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
+                invoiceError = "Ошибка чтения счёта: ${error.message ?: "неизвестная ошибка"}"
+            } finally { invoiceLoading = false }
         }
+    }
+    val invoicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importInvoice(uri, false)
+    }
+    val invoiceGallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) importInvoice(uri, true)
     }
     var resolvingLink by remember { mutableStateOf(false) }
     var linkError by remember { mutableStateOf<String?>(null) }
@@ -238,7 +244,7 @@ fun OrderEditorScreen(
                     }
                     Spacer(Modifier.width(8.dp))
                 }
-                OutlinedButton(onClick = { invoicePicker.launch(arrayOf("application/pdf")) },
+                OutlinedButton(onClick = { showInvoiceSource = true },
                     modifier = Modifier.width(70.dp).height(44.dp),
                     enabled = state.loaded && !state.saving && !state.salesLocked && !invoiceLoading,
                     shape = RoundedCornerShape(10.dp),
@@ -246,7 +252,7 @@ fun OrderEditorScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center) {
-                        Icon(Icons.Default.FileOpen, contentDescription = "Импорт счёта PDF", modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.FileOpen, contentDescription = "Импорт счёта", modifier = Modifier.size(20.dp))
                         Text(if (invoiceLoading) "Читаю" else "Импорт", fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
                     }
                 }
@@ -402,6 +408,24 @@ fun OrderEditorScreen(
             }
         }
     }
+
+    if (showInvoiceSource) AlertDialog(
+        onDismissRequest = { showInvoiceSource = false },
+        title = { Text("Импорт счёта") },
+        text = { Text("Выберите источник счёта") },
+        confirmButton = {
+            TextButton(onClick = {
+                showInvoiceSource = false
+                invoicePicker.launch(arrayOf("application/pdf"))
+            }) { Text("Файл PDF") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                showInvoiceSource = false
+                invoiceGallery.launch("image/*")
+            }) { Text("Галерея") }
+        }
+    )
 
     invoiceItems?.let { items ->
         AlertDialog(
