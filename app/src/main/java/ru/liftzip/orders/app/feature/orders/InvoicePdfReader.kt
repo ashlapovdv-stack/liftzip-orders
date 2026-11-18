@@ -297,7 +297,23 @@ class InvoicePdfReader {
                                     tess.setImage(bitmap)
                                     val recognized = tess.getUTF8Text() ?: ""
                                     val parsed = InvoiceTextParser.parse(recognized)
-                                    val positioned = InvoiceTableParser.parse(extractWords(tess))
+                                    val coordinateWords = extractWords(tess)
+                                    val positioned = InvoiceTableParser.parse(coordinateWords)
+                                    if (diagnostics) {
+                                        val candidates = coordinateWords.filter {
+                                            it.text.contains("кол", true) ||
+                                                it.text.contains("товар", true) ||
+                                                it.text.contains("наимен", true) ||
+                                                it.text.matches(Regex("""[1-9][0-9]{0,5}""")) ||
+                                                it.text.contains("шт", true)
+                                        }
+                                        InvoiceDiagnostics.record(context, "word_geometry",
+                                            "page=${index + 1}; words=${coordinateWords.size}; " +
+                                                "candidates=${candidates.size}; " +
+                                                "sample=${candidates.take(90).joinToString("; ") { w ->
+                                                    "${w.text}@(${w.x},${w.y},${w.width},${w.height})"
+                                                }}")
+                                    }
                                     val merged = if (positioned.size == parsed.size && parsed.isNotEmpty()) {
                                         parsed.zip(positioned) { textItem, tableItem ->
                                             if (textItem.quantity.isBlank()) textItem.copy(quantity = tableItem.quantity)
