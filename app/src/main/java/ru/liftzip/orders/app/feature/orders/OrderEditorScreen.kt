@@ -405,20 +405,35 @@ fun OrderEditorScreen(
     invoiceItems?.let { items ->
         AlertDialog(
             onDismissRequest = { invoiceItems = null },
-            title = { Text("Импорт товаров из счёта") },
+            title = { Text("Импорт товаров из счёта", style = MaterialTheme.typography.titleLarge) },
             text = {
-                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Проверьте наименования и количество. Цены и другие поля не импортируются.",
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Проверьте наименования и количество. Цены не импортируются.",
                         style = MaterialTheme.typography.bodySmall)
-                    items.forEachIndexed { index, item ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            AppTextField(item.name, { value ->
-                                invoiceItems = invoiceItems?.mapIndexed { i, row -> if (i == index) row.copy(name = value) else row }
-                            }, "Наименование ${index + 1}")
-                            AppTextField(item.quantity, { value ->
-                                invoiceItems = invoiceItems?.mapIndexed { i, row -> if (i == index) row.copy(quantity = value) else row }
-                            }, "Количество", decimal = false)
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        itemsIndexed(items) { index, item ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Позиция ${index + 1}", style = MaterialTheme.typography.labelMedium)
+                                    AppTextField(item.name, { value ->
+                                        invoiceItems = invoiceItems?.mapIndexed { i, row ->
+                                            if (i == index) row.copy(name = value) else row
+                                        }
+                                    }, "Наименование")
+                                    AppTextField(item.quantity, { value ->
+                                        invoiceItems = invoiceItems?.mapIndexed { i, row ->
+                                            if (i == index) row.copy(quantity = value) else row
+                                        }
+                                    }, "Количество", decimal = false)
+                                }
+                            }
                         }
                     }
                 }
