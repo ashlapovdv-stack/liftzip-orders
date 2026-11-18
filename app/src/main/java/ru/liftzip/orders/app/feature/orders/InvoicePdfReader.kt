@@ -49,7 +49,9 @@ internal object InvoiceTableParser {
             ?: return emptyList()
         val numberHeader = header.firstOrNull { it.text == "№" || it.text == "N" }
         val qtyX = qtyHeader.x + qtyHeader.width / 2
-        val nameX = nameHeader.x
+        // The header label is usually centered inside a wide name column.
+        // Product text starts at the left column edge, not at the label's x.
+        val nameX = numberHeader?.let { it.x + it.width + 4 } ?: nameHeader.x
         val qtyNeighbors = header.filter { it !== qtyHeader && it.x > nameX }
         val qtyLeft = (qtyNeighbors.filter { it.x + it.width / 2 < qtyX }
             .maxOfOrNull { it.x + it.width } ?: (qtyX - qtyHeader.width)).coerceAtMost(qtyX)
@@ -77,9 +79,13 @@ internal object InvoiceTableParser {
                 return results
             }
             val rowNumber = numberHeader?.let { h ->
-                row.filter { it.x < nameX && it.x >= h.x - 20 }.firstOrNull {
-                    it.text.matches(Regex("[0-9]{1,3}"))
-                }
+                row.filter {
+                    val centerX = it.x + it.width / 2
+                    val headerCenter = h.x + h.width / 2
+                    kotlin.math.abs(centerX - headerCenter) <=
+                        maxOf(22, h.width * 2) &&
+                        it.x < nameX + 8
+                }.firstOrNull { it.text.matches(Regex("[0-9]{1,3}")) }
             }
             if (rowNumber != null && currentName.isNotEmpty()) finish()
             val names = row.filter { it.x >= nameX - 10 && it.x < nameRight - 5 }
