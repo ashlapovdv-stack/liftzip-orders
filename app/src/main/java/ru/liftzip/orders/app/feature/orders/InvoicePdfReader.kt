@@ -222,6 +222,31 @@ class InvoicePdfReader {
         return base
     }
 
+    /** Shared OCR path for PDF pages and gallery images. Never pair rows by list index. */
+    private fun recognizePage(tess: TessBaseAPI, bitmap: Bitmap): List<InvoiceItem> {
+        tess.clear()
+        tess.setImage(bitmap)
+        val text = tess.getUTF8Text().orEmpty()
+        val textual = InvoiceTextParser.parse(text)
+        val positioned = InvoiceTableParser.parse(extractWords(tess))
+        if (positioned.isEmpty()) return textual
+        if (textual.isEmpty()) return positioned
+        // Keep the OCR text names; accept a quantity only for an unambiguous
+        // corresponding name, never merely because the list lengths match.
+        fun normalized(name: String) = name.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        return textual.map { item ->
+            if (item.quantity.isNotBlank()) item else {
+                val key = normalized(item.name)
+                val matches = positioned.filter { candidate ->
+                    val other = normalized(candidate.name)
+                    key.length >= 5 && other.length >= 5 &&
+                        (key.contains(other) || other.contains(key))
+                }
+                if (matches.size == 1) item.copy(quantity = matches.single().quantity) else item
+            }
+        }
+    }
+
     suspend fun readImage(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
         withContext(Dispatchers.IO) {
             val diagnostics = InvoiceDiagnostics.enabled(context)
@@ -241,11 +266,9 @@ class InvoicePdfReader {
                         android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
                 } ?: error("Не удалось открыть изображение")
                 try {
-                    tess.setImage(bitmap)
-                    val recognized = tess.getUTF8Text() ?: ""
-                    val parsed = InvoiceTextParser.parse(recognized)
+                    val parsed = recognizePage(tess, bitmap)
                     if (diagnostics) InvoiceDiagnostics.record(context, "image",
-                        "chars=${recognized.length}; items=${parsed.size}\\nOCR text:\\n$recognized")
+                        "items=${parsed.size}; quantities=${parsed.map { it.quantity }}")
                     if (diagnostics) InvoiceDiagnostics.record(context, "complete", "items=${parsed.size}")
                     parsed
                 } finally { bitmap.recycle() }
@@ -294,32 +317,10 @@ class InvoicePdfReader {
                                 try {
                                     bitmap.eraseColor(Color.WHITE)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    tess.setImage(bitmap)
-                                    val recognized = tess.getUTF8Text() ?: ""
-                                    val parsed = InvoiceTextParser.parse(recognized)
-                                    val coordinateWords = extractWords(tess)
-                                    val positioned = InvoiceTableParser.parse(coordinateWords)
-                                    if (diagnostics) {
-                                        val candidates = coordinateWords.filter {
-                                            it.text.contains("кол", true) ||
-                                                it.text.contains("товар", true) ||
-                                                it.text.contains("наимен", true) ||
-                                                it.text.matches(Regex("""[1-9][0-9]{0,5}""")) ||
-                                                it.text.contains("шт", true)
-                                        }
-                                        InvoiceDiagnostics.record(context, "word_geometry",
-                                            "page=${index + 1}; words=${coordinateWords.size}; " +
-                                                "candidates=${candidates.size}; " +
-                                                "sample=${candidates.take(90).joinToString("; ") { w ->
-                                                    "${w.text}@(${w.x},${w.y},${w.width},${w.height})"
-                                                }}")
-                                    }
-                                    val merged = if (positioned.size == parsed.size && parsed.isNotEmpty()) {
-                                        parsed.zip(positioned) { textItem, tableItem ->
-                                            if (textItem.quantity.isBlank()) textItem.copy(quantity = tableItem.quantity)
-                                            else textItem
-                                        }
-                                    } else parsed
+                                    val merged = recognizePage(tess, bitmap)
+                                    val parsed = merged
+                                    val recognized = ""
+                                    val positioned = emptyList<InvoiceItem>()
                                     if (diagnostics) InvoiceDiagnostics.record(context, "coordinates",
                                         "page=${index + 1}; textItems=${parsed.size}; positionedItems=${positioned.size}; quantities=${positioned.map { it.quantity }}")
                                     if (diagnostics) InvoiceDiagnostics.record(context, "page", "page=${index + 1}; chars=${recognized.length}; items=${parsed.size}\nOCR text:\n$recognized")
