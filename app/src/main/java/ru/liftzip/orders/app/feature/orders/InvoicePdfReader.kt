@@ -90,77 +90,89 @@ internal object InvoiceTableParser {
 
 /** Parse the OCR text conservatively. Uncertain rows are edited before insertion. */
 internal object InvoiceTextParser {
+    private val header = Regex("""(?:наименован|товары\s*\(|товары\b)""", RegexOption.IGNORE_CASE)
     private val stop = Regex("""^(?:итого|всего|ндс|к оплате|в том числе)""", RegexOption.IGNORE_CASE)
-    private val header = Regex("""(?:наименован|товары|работы, услуги)""", RegexOption.IGNORE_CASE)
     private val numbered = Regex("""^\s*\|?\s*(\d{1,3})[.)]?\s*[|\[]?\s*(.+)$""")
     private val money = Regex("""\d[\d ]*[.,]\d{2}""")
-    private val unit = Regex("""(?:шт\.?|штук|компл\.?|pcs?\.?)""", RegexOption.IGNORE_CASE)
-    private val tail = Regex(
+    private val pricedEnd = Regex(
         """\s+\d[\d ]*[.,]\d{2}(?:\s+(\d{1,6}))?\s*(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}\s*$""",
         RegexOption.IGNORE_CASE
     )
-    // Some scans lose both quantity and the price column, but keep unit + total.
-    private val unitPriceTotal = Regex("""\s+(?:шт\.?|штук|компл\.?|pcs?\.?)\s+\d[\d ]*[.,]\d{2}\s+\d[\d ]*[.,]\d{2}\s*$""", RegexOption.IGNORE_CASE)
-    private val unitTotal = Regex(
-        """\s+(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}\s*$""",
+    private val unitPrices = Regex(
+        """\s+(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}(?:\s+\d[\d ]*[.,]\d{2})?\s*$""",
         RegexOption.IGNORE_CASE
     )
+    private val twoPrices = Regex("""\s+\d[\d ]*[.,]\d{2}\s+\d[\d ]*[.,]\d{2}\s*$""")
+    private val numberedProduct = Regex("""^\s*\|?\s*\d{1,3}[.)]?\s*[|\[]?\s*[^\d\s].*""")
 
     fun parse(text: String): List<InvoiceItem> {
         val lines = text.lines().map { it.trim().replace(Regex("""\s+"""), " ") }
-        val headerIndex = lines.indexOfFirst { header.containsMatchIn(it) &&
-            (it.contains("кол", true) || it.contains("цена", true) || it.contains("сумма", true)) }
-        // A corrupted table header can be skipped by OCR. A numbered product line
-        // is accepted only when a plausible price/unit/total line follows it.
-        val firstRow = if (headerIndex >= 0) headerIndex + 1 else lines.indexOfFirst {
-            numbered.matches(it) && it.any(Char::isLetter) &&
-                !it.contains("ИНН", true) && !it.contains("сч.", true)
+        val headerIndex = lines.indexOfFirst {
+            header.containsMatchIn(it) &&
+                (it.contains("кол", true) || it.contains("цена", true) || it.contains("сумма", true))
         }
-        if (firstRow < 0) return emptyList()
-        val result = mutableListOf<InvoiceItem>()
+        val end = lines.indexOfFirst { stop.containsMatchIn(it) }.let { if (it < 0) lines.size else it }
+        // Without a legible header, start only at a numbered row whose following
+        // lines contain a price and total. Never start at a postal index or bank account.
+        val start = if (headerIndex >= 0) headerIndex + 1 else (0 until end).firstOrNull { i ->
+            numberedProduct.matches(lines[i]) &&
+                lines.subList(i, minOf(i + 4, end)).any {
+                    pricedEnd.containsMatchIn(it) || unitPrices.containsMatchIn(it) || twoPrices.containsMatchIn(it)
+                }
+        } ?: return emptyList()
+        if (start >= end) return emptyList()
+
+        val results = mutableListOf<InvoiceItem>()
         val pending = mutableListOf<String>()
         var active = false
         fun finish(quantity: String = "") {
             val name = pending.joinToString(" ").trim().trim('[', '|', ' ', '‚', '_')
                 .replace(Regex("""\s+"""), " ")
-            if (name.length >= 4 && name.any(Char::isLetter)) result += InvoiceItem(name, quantity)
+            if (name.length >= 4 && name.any(Char::isLetter)) results += InvoiceItem(name, quantity)
             pending.clear()
             active = false
         }
-        for (line in lines.drop(firstRow)) {
+        for (line in lines.subList(start, end)) {
             if (line.isBlank()) continue
-            if (stop.containsMatchIn(line)) break
-            val match = numbered.matchEntire(line)
-            val stripped = if (match != null && match.groupValues[2].any(Char::isLetter)) {
-                if (active) finish()
+            val numberedMatch = numbered.matchEntire(line)
+            val isNew = numberedMatch != null &&
+                numberedMatch.groupValues[2].any(Char::isLetter) &&
+                !money.containsMatchIn(numberedMatch.groupValues[2].take(15))
+            val stripped = if (isNew) {
+                if (active && pending.isNotEmpty()) finish()
                 active = true
-                match.groupValues[2]
+                numberedMatch!!.groupValues[2]
             } else line.trimStart('|', ' ', '‚', '_')
-            if (!active && result.isNotEmpty() && stripped.length > 5 &&
-                stripped.any(Char::isLetter) && !stripped.contains("итого", true)) {
-                active = true
-            }
+            // A missing row number is common in scanned invoices. Require a
+            // recognized table header or an already verified product row.
+            if (!active && (headerIndex >= 0 || results.isNotEmpty()) &&
+                stripped.any(Char::isLetter) && stripped.length >= 4) active = true
             if (!active) continue
-            val tailMatch = tail.find(stripped)
-            if (tailMatch != null) {
-                pending += stripped.substring(0, tailMatch.range.first)
-                finish(tailMatch.groupValues[1])
+            val priced = pricedEnd.find(stripped)
+            if (priced != null) {
+                pending += stripped.substring(0, priced.range.first)
+                finish(priced.groupValues[1])
                 continue
             }
-            val unitMatch = unitPriceTotal.find(stripped) ?: unitTotal.find(stripped)
+            val unitMatch = unitPrices.find(stripped)
             if (unitMatch != null) {
                 val before = stripped.substring(0, unitMatch.range.first)
-                val priceMatch = money.findAll(before).lastOrNull()
-                pending += if (priceMatch != null && priceMatch.range.last == before.length - 1)
-                    before.substring(0, priceMatch.range.first) else before
+                val trailingPrice = money.findAll(before).lastOrNull()
+                pending += if (trailingPrice != null && trailingPrice.range.last == before.length - 1)
+                    before.substring(0, trailingPrice.range.first) else before
                 finish()
                 continue
             }
-            // Do not append table fragments consisting only of OCR noise or numbers.
+            val priceMatch = twoPrices.find(stripped)
+            if (priceMatch != null) {
+                pending += stripped.substring(0, priceMatch.range.first)
+                finish()
+                continue
+            }
             if (stripped.any(Char::isLetter) && stripped.length > 2) pending += stripped
         }
-        if (active) finish()
-        return result
+        // Incomplete OCR rows without a recognized price are not imported.
+        return results
     }
 }
 
