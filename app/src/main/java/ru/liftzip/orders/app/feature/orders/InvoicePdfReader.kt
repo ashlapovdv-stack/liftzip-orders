@@ -178,30 +178,65 @@ internal object InvoiceTextParser {
 
 /** OCR stays on-device. Language packs are downloaded once, then cached privately. */
 class InvoicePdfReader {
+    private fun prepareModels(context: Context, diagnostics: Boolean): File {
+        val base = File(context.filesDir, "invoice-ocr")
+        val models = File(base, "tessdata").apply { mkdirs() }
+        for (language in listOf("rus", "eng")) {
+            val target = File(models, "$language.traineddata")
+            if (!target.exists() || target.length() < 100_000) {
+                val temp = File(models, "$language.download")
+                try {
+                    val url = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$language.traineddata")
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.connectTimeout = 15000
+                    connection.readTimeout = 45000
+                    try {
+                        if (connection.responseCode != 200) error("Не удалось загрузить языковую модель $language")
+                        connection.inputStream.use { input -> temp.outputStream().use { input.copyTo(it) } }
+                    } finally { connection.disconnect() }
+                    if (temp.length() < 100_000 || !temp.renameTo(target)) error("Не удалось сохранить языковую модель")
+                } finally { temp.delete() }
+            }
+        }
+        if (diagnostics) InvoiceDiagnostics.record(context, "models", "rus and eng models available; rus=${File(models, "rus.traineddata").length()} bytes, eng=${File(models, "eng.traineddata").length()} bytes")
+        return base
+    }
+
+    suspend fun readImage(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
+        withContext(Dispatchers.IO) {
+            val diagnostics = InvoiceDiagnostics.enabled(context)
+            if (diagnostics) InvoiceDiagnostics.record(context, "start", "Gallery image import started")
+            val base = prepareModels(context, diagnostics)
+            val tess = TessBaseAPI()
+            try {
+                if (!tess.init(base.absolutePath, "rus+eng")) error("Не удалось запустить распознавание")
+                val bitmap = resolver.openInputStream(uri)?.use { input ->
+                    val bytes = input.readBytes()
+                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    val sample = generateSequence(1) { it * 2 }.takeWhile {
+                        bounds.outWidth / it > 2400 || bounds.outHeight / it > 3200
+                    }.lastOrNull()?.times(2) ?: 1
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+                        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                } ?: error("Не удалось открыть изображение")
+                try {
+                    tess.setImage(bitmap)
+                    val recognized = tess.getUTF8Text() ?: ""
+                    val parsed = InvoiceTextParser.parse(recognized)
+                    if (diagnostics) InvoiceDiagnostics.record(context, "image",
+                        "chars=${recognized.length}; items=${parsed.size}\\nOCR text:\\n$recognized")
+                    if (diagnostics) InvoiceDiagnostics.record(context, "complete", "items=${parsed.size}")
+                    parsed
+                } finally { bitmap.recycle() }
+            } finally { tess.recycle() }
+        }
+
     suspend fun read(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
         withContext(Dispatchers.IO) {
             val diagnostics = InvoiceDiagnostics.enabled(context)
             if (diagnostics) InvoiceDiagnostics.record(context, "start", "PDF import started")
-            val base = File(context.filesDir, "invoice-ocr")
-            val models = File(base, "tessdata").apply { mkdirs() }
-            for (language in listOf("rus", "eng")) {
-                val target = File(models, "$language.traineddata")
-                if (!target.exists() || target.length() < 100_000) {
-                    val temp = File(models, "$language.download")
-                    try {
-                        val url = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$language.traineddata")
-                        val connection = url.openConnection() as HttpURLConnection
-                        connection.connectTimeout = 15000
-                        connection.readTimeout = 45000
-                        try {
-                            if (connection.responseCode != 200) error("Не удалось загрузить языковую модель $language")
-                            connection.inputStream.use { input -> temp.outputStream().use { input.copyTo(it) } }
-                        } finally { connection.disconnect() }
-                        if (temp.length() < 100_000 || !temp.renameTo(target)) error("Не удалось сохранить языковую модель")
-                    } finally { temp.delete() }
-                }
-            }
-            if (diagnostics) InvoiceDiagnostics.record(context, "models", "rus and eng models available; rus=${File(models, "rus.traineddata").length()} bytes, eng=${File(models, "eng.traineddata").length()} bytes")
+            val base = prepareModels(context, diagnostics)
             val tess = TessBaseAPI()
             try {
                 if (!tess.init(base.absolutePath, "rus+eng")) error("Не удалось запустить распознавание")
