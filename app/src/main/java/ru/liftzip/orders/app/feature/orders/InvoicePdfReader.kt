@@ -24,26 +24,37 @@ internal data class InvoiceWord(val text: String, val x: Int, val y: Int, val wi
 internal object InvoiceTableParser {
     fun parse(words: List<InvoiceWord>): List<InvoiceItem> {
         if (words.isEmpty()) return emptyList()
-        val ordered = words.sortedWith(compareBy<InvoiceWord> { it.y }.thenBy { it.x })
+        // Cluster by vertical overlap rather than OCR top coordinate:
+        // different font sizes in the same table row often have different tops.
+        val ordered = words.sortedWith(compareBy<InvoiceWord> { it.y + it.height / 2 }.thenBy { it.x })
         val medianHeight = ordered.map { it.height }.sorted().let { it[it.size / 2] }.coerceAtLeast(8)
         val rows = mutableListOf<MutableList<InvoiceWord>>()
         ordered.forEach { word ->
+            val center = word.y + word.height / 2.0
             val row = rows.lastOrNull()
-            if (row != null && kotlin.math.abs(row.map { it.y }.average() - word.y) <= medianHeight * 0.6) row.add(word)
+            val rowCenter = row?.map { it.y + it.height / 2.0 }?.average()
+            if (row != null && rowCenter != null &&
+                kotlin.math.abs(rowCenter - center) <= medianHeight * 0.65) row.add(word)
             else rows.add(mutableListOf(word))
         }
         val headerIndex = rows.indexOfFirst { row ->
             val text = row.joinToString(" ") { it.text }.lowercase()
-            ("наименован" in text || "товары" in text) && ("кол" in text || "количество" in text)
+            ("наименован" in text || "товары" in text || "товар" in text) &&
+                ("кол" in text || "количество" in text || "к-во" in text)
         }
         if (headerIndex < 0) return emptyList()
         val header = rows[headerIndex]
-        val nameHeader = header.firstOrNull { "наименован" in it.text.lowercase() || "товары" in it.text.lowercase() } ?: return emptyList()
-        val qtyHeader = header.firstOrNull { it.text.lowercase().startsWith("кол") }
+        val nameHeader = header.firstOrNull { "наименован" in it.text.lowercase() || "товар" in it.text.lowercase() } ?: return emptyList()
+        val qtyHeader = header.firstOrNull { it.text.lowercase().startsWith("кол") || it.text.lowercase().startsWith("к-во") }
             ?: return emptyList()
         val numberHeader = header.firstOrNull { it.text == "№" || it.text == "N" }
         val qtyX = qtyHeader.x + qtyHeader.width / 2
         val nameX = nameHeader.x
+        val qtyNeighbors = header.filter { it !== qtyHeader && it.x > nameX }
+        val qtyLeft = (qtyNeighbors.filter { it.x + it.width / 2 < qtyX }
+            .maxOfOrNull { it.x + it.width } ?: (qtyX - qtyHeader.width)).coerceAtMost(qtyX)
+        val qtyRight = (qtyNeighbors.filter { it.x > qtyX }
+            .minOfOrNull { it.x } ?: (qtyX + qtyHeader.width)).coerceAtLeast(qtyX)
         val nameRight = header.filter { word ->
             word.x > nameX && listOf("цена", "кол", "ед.", "сумма", "стоимость")
                 .any { word.text.lowercase().startsWith(it) }
@@ -74,8 +85,10 @@ internal object InvoiceTableParser {
             val names = row.filter { it.x >= nameX - 10 && it.x < nameRight - 5 }
                 .filterNot { it == rowNumber }.sortedBy { it.x }
                 .joinToString(" ") { it.text }
-            val quantities = row.filter { kotlin.math.abs(it.x + it.width / 2 - qtyX) < qtyHeader.width.coerceAtLeast(25) * 1.6 }
-                .filter { it.text.matches(Regex("[1-9][0-9]{0,5}")) }
+            val quantities = row.filter {
+                val centerX = it.x + it.width / 2
+                centerX >= qtyLeft && centerX <= qtyRight
+            }.filter { it.text.matches(Regex("[1-9][0-9]{0,5}")) }
             if (names.isNotBlank()) {
                 if (currentName.isNotEmpty()) currentName.append(' ')
                 currentName.append(names)
