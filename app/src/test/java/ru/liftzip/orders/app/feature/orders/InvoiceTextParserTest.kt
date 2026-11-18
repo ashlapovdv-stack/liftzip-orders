@@ -88,6 +88,23 @@ class InvoiceTextParserTest {
         assertEquals(listOf(InvoiceItem("Трансформатор BKC-630VA", "")), InvoiceTextParser.parse(ocr))
     }
 
+
+    @Test fun galleryScreenshotFindsBothRowsAndQuantities() {
+        val ocr = """
+            СЧЕТ № 00599
+            № Наименование товара Цена Кол-во ЕД. изм.
+            ` 1 Кнопка A4J11269/BA160/BA161 BLT
+            (вызов) квадратная красная 1600,00 | 5 шт
+            2 Кнопка A4J11269/BA160/BA161 BLT (1-5)
+            __ квадратная красная | 1600,00 | 5 шт
+            Итого:
+        """.trimIndent()
+        assertEquals(listOf(
+            InvoiceItem("Кнопка A4J11269/BA160/BA161 BLT (вызов) квадратная красная", "5"),
+            InvoiceItem("Кнопка A4J11269/BA160/BA161 BLT (1-5) квадратная красная", "5")
+        ), InvoiceTextParser.parse(ocr))
+    }
+
     @Test fun doesNotReadBankingInformationAsProducts() {
         assertEquals(emptyList<InvoiceItem>(), InvoiceTextParser.parse("Счёт № 123\nБанк 123456\nИтого: 1"))
     }
