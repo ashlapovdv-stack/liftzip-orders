@@ -280,8 +280,19 @@ class InvoicePdfReader {
                 } ?: error("Не удалось открыть изображение")
                 try {
                     val parsed = recognizePage(tess, bitmap)
-                    if (diagnostics) InvoiceDiagnostics.record(context, "image",
-                        "items=${parsed.size}; quantities=${parsed.map { it.quantity }}")
+                    if (diagnostics) {
+                        val words = extractWords(tess)
+                        val rawText = tess.getUTF8Text().orEmpty()
+                        InvoiceDiagnostics.record(context, "image",
+                            "width=${bitmap.width}; height=${bitmap.height}; " +
+                                "chars=${rawText.length}; words=${words.size}; " +
+                                "items=${parsed.size}; quantities=${parsed.map { it.quantity }}\\n" +
+                                "OCR text:\\n${rawText.take(12000)}")
+                        InvoiceDiagnostics.record(context, "image_geometry",
+                            words.take(160).joinToString("; ") {
+                                "${it.text}@(${it.x},${it.y},${it.width},${it.height})"
+                            })
+                    }
                     if (diagnostics) InvoiceDiagnostics.record(context, "complete", "items=${parsed.size}")
                     parsed
                 } finally { bitmap.recycle() }
