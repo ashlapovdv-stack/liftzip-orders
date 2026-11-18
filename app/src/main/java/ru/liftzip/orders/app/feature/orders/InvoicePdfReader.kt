@@ -103,6 +103,13 @@ internal object InvoiceTextParser {
         RegexOption.IGNORE_CASE
     )
     private val twoPrices = Regex("""\s+\d[\d ]*[.,]\d{2}\s+\d[\d ]*[.,]\d{2}\s*$""")
+    // Screenshot tables often place the quantity between the price and unit,
+    // while PDF OCR can omit the quantity entirely.
+    private val priceQuantityUnit = Regex(
+        """\s+\d[\d ]*[.,]\d{2}\s*\|?\s*([1-9]\d{0,5})\s*(?:шт\.?|штук|компл\.?|pcs?\.?)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val rowMarker = Regex("""^\s*[^\p{L}\d]{0,3}\s*(\d{1,3})\s+(.+)$""")
     private val numberedProduct = Regex("""^\s*\|?\s*\d{1,3}[.)]?\s*[|\[]?\s*[^\d\s].*""")
 
     fun parse(text: String): List<InvoiceItem> {
@@ -134,7 +141,7 @@ internal object InvoiceTextParser {
         }
         for (line in lines.subList(start, end)) {
             if (line.isBlank()) continue
-            val numberedMatch = numbered.matchEntire(line)
+            val numberedMatch = numbered.matchEntire(line) ?: rowMarker.matchEntire(line)
             val isNew = numberedMatch != null &&
                 numberedMatch.groupValues[2].any(Char::isLetter) &&
                 !money.containsMatchIn(numberedMatch.groupValues[2].take(15))
@@ -148,6 +155,12 @@ internal object InvoiceTextParser {
             if (!active && (headerIndex >= 0 || results.isNotEmpty()) &&
                 stripped.any(Char::isLetter) && stripped.length >= 4) active = true
             if (!active) continue
+            val quantityMatch = priceQuantityUnit.find(stripped)
+            if (quantityMatch != null) {
+                pending += stripped.substring(0, quantityMatch.range.first)
+                finish(quantityMatch.groupValues[1])
+                continue
+            }
             val priced = pricedEnd.find(stripped)
             if (priced != null) {
                 pending += stripped.substring(0, priced.range.first)
@@ -169,7 +182,14 @@ internal object InvoiceTextParser {
                 finish()
                 continue
             }
-            if (stripped.any(Char::isLetter) && stripped.length > 2) pending += stripped
+            // OCR may keep the product description and its price but drop the
+            // unit or total. Keep only the description, never the price.
+            val trailingPrice = money.findAll(stripped).lastOrNull()
+            val description = if (trailingPrice != null &&
+                trailingPrice.range.last == stripped.length - 1)
+                stripped.substring(0, trailingPrice.range.first).trimEnd(' ', '|')
+            else stripped
+            if (description.any(Char::isLetter) && description.length > 2) pending += description
         }
         // Incomplete OCR rows without a recognized price are not imported.
         return results
