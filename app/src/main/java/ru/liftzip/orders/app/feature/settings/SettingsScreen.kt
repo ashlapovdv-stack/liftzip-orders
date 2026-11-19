@@ -1,58 +1,68 @@
 package ru.liftzip.orders.app.feature.settings
 
 import android.content.Intent
-import androidx.documentfile.provider.DocumentFile
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.foundation.layout.Row
-import androidx.compose.ui.Alignment
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.pm.PackageInfoCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import java.time.Instant
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.liftzip.orders.app.SettingsStore
+import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
 import ru.liftzip.orders.app.ui.SettingsViewModel
 import ru.liftzip.orders.app.ui.formatDateTime
 import ru.liftzip.orders.data.backup.BackupManager
-import java.time.Instant
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.pm.PackageInfoCompat
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,7 +122,7 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri -> uri?.let(model::export) }
-    var encryptedBackup by remember { mutableStateOf<android.net.Uri?>(null) }
+    var encryptedBackup by rememberSaveable { mutableStateOf<Uri?>(null) }
     val encryptedPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         encryptedBackup = uri
     }
@@ -123,7 +133,7 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Настройки и копии") },
+                title = { Text("Настройки") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
             )
         },
@@ -132,113 +142,117 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                "Версия ${packageInfo.versionName} (сборка ${PackageInfoCompat.getLongVersionCode(packageInfo)})",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+            SettingsGroupTitle("Резервные копии")
+            autoBackup?.let { backupSettings ->
+                val latest = backupSettings.lastSuccess?.let { Instant.ofEpochMilli(it).formatDateTime() }
+                SettingsSection(
+                    title = "Ежедневная копия на телефоне",
+                    summary = when {
+                        backupSettings.folder == null -> "Автокопии выключены"
+                        backupSettings.error != null -> "Проверьте состояние копии"
+                        latest != null -> "Последняя автокопия: $latest"
+                        else -> "Первая автокопия ещё не создана"
+                    },
                 ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Закрепить кнопку добавления фото",
-                            style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            if (galleryButtonFixed) "Кнопка остаётся слева при прокрутке фотографий"
-                            else "Кнопка прокручивается вместе с фотографиями",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                    Text("В выбранной папке хранятся до 7 последних автокопий.", style = MaterialTheme.typography.bodyMedium)
+                    if (backupSettings.folder != null) {
+                        Text("Папка: ${backupSettings.folderName}")
+                        Text(latest?.let { "Последняя автокопия: $it" } ?: "Первая автокопия ещё не создана")
+                        backupSettings.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        Button(onClick = { DailyBackupSchedule.runNow(context) }) { Text("Создать копию сейчас") }
                     }
+                    val chooseFolder = {
+                        backupFolderPicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra(Intent.EXTRA_LOCAL_ONLY, true))
+                    }
+                    if (backupSettings.folder == null) {
+                        Button(onClick = chooseFolder) { Text("Выбрать папку и включить") }
+                    } else {
+                        OutlinedButton(onClick = chooseFolder) { Text("Сменить папку") }
+                        TextButton(onClick = {
+                            scope.launch {
+                                settings.selectBackupFolder(null)
+                                DailyBackupSchedule.cancel(context)
+                            }
+                        }) { Text("Отключить автокопии") }
+                    }
+                }
+            }
+            DriveBackupSection(localEnabled = autoBackup?.folder != null)
+            SettingsSection("Экспорт и восстановление", if (busy) "Выполняется проверка или запись…" else "Ручная работа с ZIP-архивами") {
+                val exportedAt = lastBackup?.let { Instant.ofEpochMilli(it).formatDateTime() }
+                Text(exportedAt?.let { "Последний экспорт: $it" } ?: "Копии ещё не экспортировались")
+                Text(
+                    "Локальные ZIP-архивы содержат заказы без шифрования. Храните их в защищённом месте.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(
+                    onClick = { exportLauncher.launch("Заказы-резервная-копия.zip") },
+                    enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                ) { Text("Экспортировать копию") }
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                Text(
+                    "При восстановлении данные из архива заменят текущие. Перед заменой приложение создаст локальную копию.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                ) { Text("Проверить и восстановить копию") }
+                OutlinedButton(
+                    onClick = { encryptedPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                ) { Text("Восстановить зашифрованную копию") }
+                if (recoveryAvailable) {
+                    TextButton(
+                        onClick = model::inspectLatestRecovery, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Восстановить копию перед последним импортом") }
+                }
+                if (busy) Text("Выполняется проверка или запись…")
+            }
+            SettingsGroupTitle("Приложение")
+            SettingsSection(
+                title = "Фотографии в заказах",
+                summary = if (galleryButtonFixed) "Кнопка добавления закреплена" else "Кнопка добавления прокручивается",
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Закрепить кнопку добавления фото",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                     Switch(
                         checked = galleryButtonFixed,
-                        onCheckedChange = { fixed ->
-                            scope.launch { settings.setGalleryButtonFixed(fixed) }
-                        },
+                        onCheckedChange = { fixed -> scope.launch { settings.setGalleryButtonFixed(fixed) } },
                     )
                 }
             }
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Диагностика импорта PDF", style = MaterialTheme.typography.titleMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Записывать диагностику", modifier = Modifier.weight(1f))
-                        Switch(checked = diagnosticsEnabled, onCheckedChange = {
-                            diagnosticsEnabled = it
-                            InvoiceDiagnostics.setEnabled(context, it)
-                        })
-                    }
-                    Text("По умолчанию выключена. При включении сохраняются этапы распознавания и количество найденных позиций. Файлы остаются на устройстве, пока вы не экспортируете их вручную.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick = { diagnosticsExport.launch("Заказы-диагностика-PDF.txt") },
-                        modifier = Modifier.fillMaxWidth()) { Text("Выгрузить диагностику") }
-                    OutlinedButton(onClick = {
-                        InvoiceDiagnostics.clear(context)
-                        diagnosticMessage = "Диагностические записи удалены"
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Очистить диагностику") }
+            SettingsSection("Диагностика импорта PDF", if (diagnosticsEnabled) "Запись включена" else "Запись выключена") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Записывать диагностику", modifier = Modifier.weight(1f))
+                    Switch(checked = diagnosticsEnabled, onCheckedChange = {
+                        diagnosticsEnabled = it
+                        InvoiceDiagnostics.setEnabled(context, it)
+                    })
                 }
-            }
-            Card {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Локальные данные", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Без сервера, регистрации и облачной базы. Системные облачные копии отключены.")
-                    Text("Резервные ZIP-архивы не зашифрованы и содержат введённые заказы. Храните их в защищённом месте.", color = MaterialTheme.colorScheme.error)
-                    if (lastBackup == null) {
-                        Text("Успешная экспортированная копия ещё не зарегистрирована", color = MaterialTheme.colorScheme.error)
-                    } else {
-                        Text("Последняя успешная копия: ${Instant.ofEpochMilli(lastBackup!!).formatDateTime()}")
-                    }
-                }
-            }
-            autoBackup?.let { backupSettings ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Ежедневная копия на телефоне", style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold)
-                        Text("Приложение хранит до 7 последних автоматических копий в выбранной папке.")
-                        if (backupSettings.folder != null) {
-                            Text("Папка: ${backupSettings.folderName}")
-                            val latest = backupSettings.lastSuccess?.let { Instant.ofEpochMilli(it).formatDateTime() }
-                            Text(latest?.let { "Последняя автокопия: $it" } ?: "Первая автокопия ещё не создана")
-                            backupSettings.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                            OutlinedButton(onClick = { DailyBackupSchedule.runNow(context) }) { Text("Создать копию сейчас") }
-                        }
-                        Button(onClick = {
-                            backupFolderPicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                                .putExtra(Intent.EXTRA_LOCAL_ONLY, true))
-                        }) { Text(if (backupSettings.folder == null) "Выбрать папку и включить" else "Сменить папку") }
-                        if (backupSettings.folder != null) {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    settings.selectBackupFolder(null)
-                                    DailyBackupSchedule.cancel(context)
-                                }
-                            }) { Text("Отключить автокопии") }
-                        }
-                    }
-                }
-            }
-            DriveBackupCard(localEnabled = autoBackup?.folder != null)
-            Button(
-                onClick = { exportLauncher.launch("Заказы-резервная-копия.zip") }, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-            ) { Text("Экспортировать копию") }
-            OutlinedButton(
-                onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-                enabled = !busy, modifier = Modifier.fillMaxWidth().height(50.dp),
-            ) { Text("Проверить и восстановить копию") }
-            OutlinedButton(
-                onClick = { encryptedPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
-                enabled = !busy, modifier = Modifier.fillMaxWidth().height(50.dp),
-            ) { Text("Восстановить зашифрованную копию") }
-            if (recoveryAvailable) {
+                Text(
+                    "Записи об этапах распознавания и количестве найденных позиций хранятся на телефоне до ручного экспорта.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 OutlinedButton(
-                    onClick = model::inspectLatestRecovery, enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                ) { Text("Восстановить копию перед последним импортом") }
+                    onClick = { diagnosticsExport.launch("Заказы-диагностика-PDF.txt") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Выгрузить диагностику") }
+                TextButton(onClick = {
+                    InvoiceDiagnostics.clear(context)
+                    diagnosticMessage = "Диагностические записи удалены"
+                }) { Text("Очистить диагностику") }
             }
-            Text("Восстановление заменяет текущие данные, не объединяет их. Перед заменой приложение создаёт локальную копию. Повреждённый или неподдерживаемый архив не изменяет базу.")
-            if (busy) Text("Выполняется проверка или запись…")
+            Text(
+                "Версия ${packageInfo.versionName} (сборка ${PackageInfoCompat.getLongVersionCode(packageInfo)})",
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
@@ -280,5 +294,51 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
             text = { Text(text) },
             confirmButton = { TextButton(onClick = model::clearMessage) { Text("Понятно") } },
         )
+    }
+}
+
+
+@Composable
+private fun SettingsGroupTitle(title: String) {
+    Text(
+        title,
+        modifier = Modifier.padding(start = 4.dp, top = 4.dp).semantics { heading() },
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+@Composable
+internal fun SettingsSection(
+    title: String,
+    summary: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clickable(role = Role.Button) { expanded = !expanded }
+                .semantics { stateDescription = if (expanded) "Раздел открыт" else "Раздел свёрнут" }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                if (!expanded) {
+                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+        }
+        if (expanded) {
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            Column(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content,
+            )
+        }
     }
 }

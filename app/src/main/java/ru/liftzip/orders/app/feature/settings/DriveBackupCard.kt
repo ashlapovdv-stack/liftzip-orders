@@ -12,7 +12,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -48,7 +46,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 @Composable
-internal fun DriveBackupCard(localEnabled: Boolean) {
+internal fun DriveBackupSection(localEnabled: Boolean) {
     val context = LocalContext.current
     val store = remember(context) { DriveBackupStore(context) }
     val config by store.settings.collectAsState(initial = DriveBackupSettings())
@@ -100,68 +98,82 @@ internal fun DriveBackupCard(localEnabled: Boolean) {
         }
     }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Копия в Google Диске", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            if (!localEnabled) Text("Сначала включите ежедневную копию на телефоне.")
-            Text("В Google Диск отправляется зашифрованная копия. Для восстановления нужен код.")
-            config.email?.let { Text(it) }
-            config.lastUpload?.let { Text("Последняя загрузка: ${Instant.ofEpochMilli(it).formatDateTime()}") }
-            if (localEnabled && config.email != null) {
-                when {
-                    uploading -> Text("Отправляем копию в Google Диск…")
-                    submitting -> Text("Запускаем отправку…")
-                    queued -> Text(if (config.error != null) "Ожидается повторная отправка." else "Копия в очереди на отправку.")
+    val lastUpload = config.lastUpload?.let { "Последняя загрузка: ${Instant.ofEpochMilli(it).formatDateTime()}" }
+    val uploadStatus = when {
+        !localEnabled || config.email == null -> null
+        uploading -> "Отправляем копию в Google Диск…"
+        submitting -> "Запускаем отправку…"
+        queued -> if (config.error != null) "Ожидается повторная отправка." else "Копия в очереди на отправку."
+        else -> null
+    }
+    SettingsSection(
+        title = "Копия в Google Диске",
+        summary = uploadStatus ?: when {
+            config.email == null -> "Диск не подключён"
+            !localEnabled -> "Автокопии на телефоне выключены"
+            config.error != null -> "Проверьте состояние отправки"
+            else -> lastUpload ?: "Подключено · загрузок пока нет"
+        },
+    ) {
+        if (!localEnabled) Text("Сначала включите ежедневную копию на телефоне.")
+        Text("В Google Диск отправляется зашифрованная копия. Для восстановления нужен код.")
+        config.email?.let { Text(it) }
+        lastUpload?.let { Text(it) }
+        uploadStatus?.let { Text(it) }
+        if (!uploading && !submitting) config.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (config.email != null) {
+            Button(enabled = localEnabled && !submitting && !uploading && !working, onClick = {
+                scope.launch { retryUpload() }
+            }) { Text(if (uploading) "Копия отправляется…" else "Отправить последнюю копию") }
+        }
+        val authorize: () -> Unit = {
+            working = true
+            notice = null
+            scope.launch {
+                var pending = false
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        Tasks.await(client.authorize(driveAuthorization(config.email)), 30, TimeUnit.SECONDS)
+                    }
+                    val resolution = result.pendingIntent
+                    if (resolution == null) connected(result)
+                    else {
+                        consent.launch(IntentSenderRequest.Builder(resolution.intentSender).build())
+                        pending = true
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    notice = "Не удалось подключить Google Диск. Проверьте разрешение и настройку приложения в Google."
+                } finally {
+                    if (!pending) working = false
                 }
             }
-            if (!uploading && !submitting) config.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(enabled = localEnabled && !working, onClick = {
-                working = true
-                notice = null
-                scope.launch {
-                    var pending = false
+        }
+        if (config.email == null) {
+            Button(enabled = localEnabled && !working, onClick = authorize) { Text("Подключить Google Диск") }
+        } else {
+            OutlinedButton(enabled = localEnabled && !working, onClick = authorize) { Text("Обновить доступ") }
+        }
+
+        if (config.email != null) {
+            TextButton(onClick = {
+                val sealedCode = config.sealedCode
+                if (sealedCode != null) scope.launch {
                     try {
-                        val result = withContext(Dispatchers.IO) {
-                            Tasks.await(client.authorize(driveAuthorization(config.email)), 30, TimeUnit.SECONDS)
-                        }
-                        val resolution = result.pendingIntent
-                        if (resolution == null) connected(result)
-                        else {
-                            consent.launch(IntentSenderRequest.Builder(resolution.intentSender).build())
-                            pending = true
-                        }
+                        recoveryCode = withContext(Dispatchers.IO) { DriveRecoveryCode.unseal(sealedCode) }
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Exception) {
-                        notice = "Не удалось подключить Google Диск. Проверьте разрешение и настройку приложения в Google."
-                    } finally {
-                        if (!pending) working = false
+                        notice = "Не удалось прочитать сохранённый код."
                     }
                 }
-            }) { Text(if (config.email == null) "Подключить Google Диск" else "Обновить доступ") }
-
-            if (config.email != null) {
-                OutlinedButton(enabled = localEnabled && !submitting && !uploading && !working, onClick = {
-                    scope.launch { retryUpload() }
-                }) { Text(if (uploading) "Копия отправляется…" else "Отправить последнюю копию") }
-                TextButton(onClick = {
-                    val sealedCode = config.sealedCode
-                    if (sealedCode != null) scope.launch {
-                        try {
-                            recoveryCode = withContext(Dispatchers.IO) { DriveRecoveryCode.unseal(sealedCode) }
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (_: Exception) {
-                            notice = "Не удалось прочитать сохранённый код."
-                        }
-                    }
-                }) { Text("Показать код восстановления") }
-                TextButton(onClick = { scope.launch {
-                    store.disconnect()
-                    DriveBackupSchedule.cancel(context)
-                } }) { Text("Отключить Google Диск") }
-            }
+            }) { Text("Показать код восстановления") }
+            TextButton(onClick = { scope.launch {
+                store.disconnect()
+                DriveBackupSchedule.cancel(context)
+            } }) { Text("Отключить Google Диск") }
         }
     }
 
