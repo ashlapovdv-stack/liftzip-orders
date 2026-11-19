@@ -89,6 +89,28 @@ class InvoiceTableParserTest {
         assertEquals(listOf(InvoiceItem("Канат 169 м.)", "1014")), InvoiceTableParser.parse(words))
     }
 
+    @Test fun completeTextRowsKeepTheirNamesWhenOcrDropsNumberColumn() {
+        val words = listOf(
+            w("Наименование", 155, 10), w("Цена", 300, 10),
+            w("Кол-во", 400, 10), w("Ед.", 480, 10), w("Сумма", 550, 10),
+            w("Кнопка", 45, 40), w("красная", 45, 60), w("5", 400, 60),
+            w("Кнопка", 45, 90), w("зелёная", 45, 110), w("7", 400, 110),
+            w("Итого:", 480, 140),
+        )
+        val text = """
+            Наименование Цена Кол-во Ед. Сумма
+            Кнопка
+            красная 100,00 5 шт 500,00
+            Кнопка
+            зелёная 100,00 7 шт 700,00
+            Итого:
+        """.trimIndent()
+        assertEquals(
+            listOf(InvoiceItem("Кнопка красная", "5"), InvoiceItem("Кнопка зелёная", "7")),
+            InvoiceTableParser.resolve(text, words)
+        )
+    }
+
     @Test fun detectsTableBandAndPrintedItemCountForOcrRetry() {
         val words = listOf(
             w("Банк", 20, 10), w("№", 20, 100), w("Товары", 80, 100),

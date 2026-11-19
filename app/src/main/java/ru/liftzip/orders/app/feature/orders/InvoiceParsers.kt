@@ -19,6 +19,7 @@ internal object InvoiceTableParser {
     private val InvoiceWord.centerX get() = x + width / 2.0
     private val InvoiceWord.centerY get() = y + height / 2.0
     private fun InvoiceWord.label() = text.trim('|', '[', ']', ' ').lowercase()
+    private fun InvoiceWord.isNumberHeader() = label() == "№" || label() == "n"
     private fun InvoiceWord.isNameHeader() = label().startsWith("наименован") || label() == "товары"
     private fun InvoiceWord.isQuantityHeader() = label().let {
         it.startsWith("кол-во") || it.startsWith("количество") || it in setOf("кол", "кол.") || it.startsWith("к-во")
@@ -46,13 +47,16 @@ internal object InvoiceTableParser {
         footer.containsMatchIn(joinToString(" ") { it.label() }.trimStart())
 
     fun parse(words: List<InvoiceWord>): List<InvoiceItem> {
-        val rows = rows(words)
+        return parseRows(rows(words))
+    }
+
+    private fun parseRows(rows: List<List<InvoiceWord>>): List<InvoiceItem> {
         val headerIndex = rows.indexOfFirst { it.isHeader() }
         if (headerIndex < 0) return emptyList()
         val header = rows[headerIndex]
         val nameHeader = header.first { it.isNameHeader() }
         val quantityHeader = header.first { it.isQuantityHeader() }
-        val numberHeader = header.firstOrNull { it.label() == "№" || it.label() == "n" }
+        val numberHeader = header.firstOrNull { it.isNumberHeader() }
         val numericHeaders = header.filter { word ->
             word.isQuantityHeader() || listOf("цена", "ед.", "сумма", "стоимость", "ндс")
                 .any { word.label().startsWith(it) }
@@ -63,7 +67,7 @@ internal object InvoiceTableParser {
             ?.coerceAtMost(quantityHeader.x.toDouble()) ?: (quantityHeader.x - quantityHeader.height).toDouble()
         val quantityRight = right?.x ?: quantityHeader.right + quantityHeader.height
         val nameRight = numericHeaders.firstOrNull { it.x > nameHeader.x }?.x ?: return emptyList()
-        val nameLeft = numberHeader?.let { it.right + it.height / 2.0 } ?: header.first().x.toDouble()
+        val nameLeft = numberHeader?.let { it.right + it.height / 2.0 } ?: 0.0
         val result = mutableListOf<InvoiceItem>()
         val nameParts = mutableListOf<String>()
         val quantities = mutableSetOf<String>()
@@ -107,9 +111,14 @@ internal object InvoiceTableParser {
     }
 
     fun resolve(text: String, words: List<InvoiceWord>): List<InvoiceItem> {
-        val positioned = parse(words)
+        val rows = rows(words)
+        val positioned = parseRows(rows)
         val textual = InvoiceTextParser.parse(text)
         if (positioned.isEmpty()) return textual
+        val hasNumberColumn = rows.firstOrNull { it.isHeader() }?.any { it.isNumberHeader() } == true
+        if (!hasNumberColumn && textual.size >= positioned.size && textual.all { it.quantity.isNotEmpty() }) {
+            return textual
+        }
         if (positioned.size < textual.size &&
             positioned.count { it.quantity.isNotEmpty() } <= textual.count { it.quantity.isNotEmpty() }
         ) return textual

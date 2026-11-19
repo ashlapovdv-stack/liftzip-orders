@@ -70,11 +70,16 @@ class InvoicePdfReader {
         val band = InvoiceTableParser.tableBand(page.words)
         val top = band?.first?.coerceIn(0, bitmap.height - 1) ?: 0
         val bottom = band?.last?.coerceIn(top + 1, bitmap.height) ?: bitmap.height
-        val cropped = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, bottom - top)
-        val retry = try {
-            recognize(tess, cropped, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
-        } finally {
-            if (cropped !== bitmap) cropped.recycle()
+        val canCrop = top > 0 || bottom < bitmap.height
+        val retry = if (canCrop) {
+            val cropped = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, bottom - top)
+            try {
+                recognize(tess, cropped, TessBaseAPI.PageSegMode.PSM_AUTO)
+            } finally {
+                cropped.recycle()
+            }
+        } else {
+            recognize(tess, bitmap, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
         }
         report?.invoke("retry words=${retry.words.size}; rows=${retry.items.size}; withQuantity=${retry.completeItems}")
         // Keep a coherent pass so continued descriptions and their quantities stay together.
