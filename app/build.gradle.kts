@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
             ?.toIntOrNull()?.coerceAtLeast(4) ?: 4
-        versionName = "0.4.8"
+        versionName = "0.4.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -73,6 +73,8 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.documentfile)
+    implementation(libs.google.play.auth)
+    implementation(libs.zip4j)
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
 
     testImplementation(libs.junit)

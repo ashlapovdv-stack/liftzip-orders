@@ -2,6 +2,8 @@ package ru.liftzip.orders.app
 
 import ru.liftzip.orders.app.ui.rememberLoaded
 import android.os.Bundle
+import ru.liftzip.orders.app.feature.settings.DriveArchive
+import ru.liftzip.orders.app.feature.settings.RecoveryCodeDialog
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -56,6 +58,27 @@ class MainActivity : ComponentActivity() {
                 val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                     if (uri != null) scope.launch { open { app.restoreOrders(uri) } }
                 }
+                var encryptedBackup by remember { mutableStateOf<Uri?>(null) }
+                val encryptedPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    encryptedBackup = uri
+                }
+                encryptedBackup?.let { uri ->
+                    RecoveryCodeDialog(
+                        onCancel = { encryptedBackup = null },
+                        onConfirm = { code ->
+                            encryptedBackup = null
+                            scope.launch {
+                                open {
+                                    var archive: java.io.File? = null
+                                    try {
+                                        withContext(Dispatchers.IO) { archive = DriveArchive.decrypt(app, uri, code) }
+                                        app.restoreOrders(Uri.fromFile(checkNotNull(archive)))
+                                    } finally { archive?.delete() }
+                                }
+                            }
+                        },
+                    )
+                }
                 val opened = container
                 if (opened != null) OrdersApp(opened)
                 else Column(
@@ -79,6 +102,9 @@ class MainActivity : ComponentActivity() {
                         OutlinedButton(onClick = { picker.launch(arrayOf("application/zip", "application/octet-stream")) }) {
                             Text("Выбрать резервную копию")
                         }
+                        OutlinedButton(onClick = {
+                            encryptedPicker.launch(arrayOf("application/zip", "application/octet-stream"))
+                        }) { Text("Выбрать зашифрованную копию") }
                     }
                 }
             }

@@ -18,6 +18,8 @@ androidxJunit = "1.2.1"
 espresso = "3.6.1"
 
 [libraries]
+google-play-auth = { module = "com.google.android.gms:play-services-auth", version = "21.3.0" }
+zip4j = { module = "net.lingala.zip4j:zip4j", version = "2.11.5" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }

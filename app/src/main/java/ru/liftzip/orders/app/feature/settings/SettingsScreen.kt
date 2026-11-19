@@ -112,6 +112,10 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri -> uri?.let(model::export) }
+    var encryptedBackup by remember { mutableStateOf<android.net.Uri?>(null) }
+    val encryptedPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        encryptedBackup = uri
+    }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(model::inspect)
     }
@@ -214,6 +218,7 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
                     }
                 }
             }
+            DriveBackupCard(localEnabled = autoBackup?.folder != null)
             Button(
                 onClick = { exportLauncher.launch("Заказы-резервная-копия.zip") }, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -222,6 +227,10 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
                 onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                 enabled = !busy, modifier = Modifier.fillMaxWidth().height(50.dp),
             ) { Text("Проверить и восстановить копию") }
+            OutlinedButton(
+                onClick = { encryptedPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
+                enabled = !busy, modifier = Modifier.fillMaxWidth().height(50.dp),
+            ) { Text("Восстановить зашифрованную копию") }
             if (recoveryAvailable) {
                 OutlinedButton(
                     onClick = model::inspectLatestRecovery, enabled = !busy,
@@ -233,6 +242,15 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
         }
     }
 
+    encryptedBackup?.let { uri ->
+        RecoveryCodeDialog(
+            onCancel = { encryptedBackup = null },
+            onConfirm = { code ->
+                encryptedBackup = null
+                model.inspectEncrypted(context.applicationContext, uri, code)
+            },
+        )
+    }
     pending?.let { import ->
         AlertDialog(
             onDismissRequest = model::cancelImport,

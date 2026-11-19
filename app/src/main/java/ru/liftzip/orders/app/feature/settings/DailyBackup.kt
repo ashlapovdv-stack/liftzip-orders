@@ -80,6 +80,13 @@ class DailyBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                 val archive = writeDailyBackup(app.openOrders().backup, folder)
                 app.settings.recordDailyBackup(uri, archive.createdAt, if (archive.keptSeven) null else
                     "Копия сохранена, но некоторые старые файлы не удалось удалить")
+                try {
+                    if (DriveBackupStore(app).settings.first().email != null) DriveBackupSchedule.enqueue(app)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // The verified local copy remains successful if the upload cannot be scheduled.
+                }
                 Result.success()
             } catch (error: CancellationException) {
                 throw error
@@ -132,3 +139,8 @@ internal suspend fun writeDailyBackup(backup: BackupManager, folder: DocumentFil
     }.getOrDefault(false)
     return CompletedDailyBackup(inspection.createdAt, keptSeven)
 }
+
+internal fun latestDailyBackup(folder: DocumentFile?): DocumentFile? =
+    folder?.listFiles()?.mapNotNull { file ->
+        file.name?.takeIf { automaticName.matches(it) && file.isFile }?.let { it to file }
+    }?.maxByOrNull { it.first }?.second

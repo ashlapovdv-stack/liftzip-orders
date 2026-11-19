@@ -1,6 +1,9 @@
 package ru.liftzip.orders.app.ui
 
 import android.net.Uri
+import android.content.Context
+import java.io.File
+import ru.liftzip.orders.app.feature.settings.DriveArchive
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -161,6 +164,30 @@ class SettingsViewModel(
         }
     }
 
+    fun inspectEncrypted(context: Context, uri: Uri, code: String) {
+        if (_busy.value) return
+        _busy.value = true
+        viewModelScope.launch {
+            var file: File? = null
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    file = DriveArchive.decrypt(context, uri, code)
+                }
+                val unpacked = checkNotNull(file)
+                val localUri = Uri.fromFile(unpacked)
+                _pendingImport.value = PendingImport(localUri, backup.inspect(localUri), unpacked)
+                file = null
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _message.value = "Копия не прошла проверку. Проверьте код восстановления и файл."
+            } finally {
+                file?.delete()
+                _busy.value = false
+            }
+        }
+    }
+
     fun inspectLatestRecovery() {
         viewModelScope.launch {
             val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backup.latestRecoveryCopy() }
@@ -180,6 +207,7 @@ class SettingsViewModel(
             } catch (error: Exception) {
                 _message.value = error.message ?: "Не удалось завершить восстановление"
             } finally {
+                pending.temporaryFile?.delete()
                 _recoveryAvailable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     backup.latestRecoveryCopy() != null
                 }
@@ -188,8 +216,13 @@ class SettingsViewModel(
         }
     }
 
-    fun cancelImport() { _pendingImport.value = null }
+    fun cancelImport() {
+        _pendingImport.value?.temporaryFile?.delete()
+        _pendingImport.value = null
+    }
+
+    override fun onCleared() { cancelImport() }
     fun clearMessage() { _message.value = null }
 }
 
-data class PendingImport(val uri: Uri, val inspection: BackupInspection)
+data class PendingImport(val uri: Uri, val inspection: BackupInspection, val temporaryFile: File? = null)
