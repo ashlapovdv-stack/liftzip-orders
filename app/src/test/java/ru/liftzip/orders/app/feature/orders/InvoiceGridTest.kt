@@ -7,6 +7,7 @@ class InvoiceGridTest {
     private fun grid(
         width: Int,
         quantityHeader: InvoiceWord? = InvoiceWord("Кол-во", 174, 94, 32, 12),
+        hasNameHeader: Boolean = true,
         recognizeHeader: (InvoiceGrid.Cell) -> String = { "" },
     ): List<InvoiceGrid.Row> {
         val height = 170
@@ -20,7 +21,7 @@ class InvoiceGridTest {
         }
         return InvoiceGrid.locate(
             pixels, width, height,
-            listOfNotNull(InvoiceWord("Товары", 80, 94, 48, 12), quantityHeader)
+            listOfNotNull(InvoiceWord("Товары", 80, 94, 48, 12).takeIf { hasNameHeader }, quantityHeader)
                 .filter { it.x < width },
             recognizeHeader,
         )
@@ -54,6 +55,17 @@ class InvoiceGridTest {
         val rows = grid(300, quantityHeader = null) { "Цена" }
         assertEquals(listOf(null, null), rows.map { it.quantity })
         assertEquals("", InvoiceGrid.quantityOrEmpty("5|шт"))
+    }
+
+    @Test fun findsTheTableFromItsRulingLinesWhenPageOcrDoesNotSeeTheHeader() {
+        val rows = grid(300, quantityHeader = null, hasNameHeader = false) {
+            when (it.left) {
+                41 -> "Товары (работы, услуги)"
+                171 -> "Кол-во"
+                else -> ""
+            }
+        }
+        assertEquals(listOf(171, 171), rows.map { it.quantity?.left })
     }
 
     @Test fun croppedTableCanReturnBothNamesWithoutGuessingQuantities() {

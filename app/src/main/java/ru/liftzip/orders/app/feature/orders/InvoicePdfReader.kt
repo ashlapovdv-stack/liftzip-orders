@@ -63,7 +63,6 @@ class InvoicePdfReader {
         report: ((String) -> Unit)?,
     ): List<InvoiceItem> {
         val header = InvoiceTableParser.tableHeader(words)
-        if (header.isEmpty()) return emptyList()
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         val rows = InvoiceGrid.locate(pixels, bitmap.width, bitmap.height, header) { cell ->

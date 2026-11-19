@@ -8,7 +8,11 @@ data class InvoiceItem(val name: String, val quantity: String)
 internal data class InvoiceWord(val text: String, val x: Int, val y: Int, val width: Int, val height: Int)
 
 private fun InvoiceWord.label() = text.trim('|', '[', ']', ' ').lowercase()
-internal fun InvoiceWord.isInvoiceNameHeader() = label().startsWith("наименован") || label() == "товары"
+internal fun InvoiceWord.isInvoiceNameHeader() = isInvoiceNameLabel(label())
+internal fun isInvoiceNameLabel(text: String): Boolean {
+    val label = text.trim('|', '[', ']', ' ', '\n').lowercase()
+    return label.startsWith("наименован") || label.startsWith("товары")
+}
 internal fun InvoiceWord.isInvoiceQuantityHeader() = isInvoiceQuantityLabel(label())
 
 internal fun isInvoiceQuantityLabel(text: String): Boolean {

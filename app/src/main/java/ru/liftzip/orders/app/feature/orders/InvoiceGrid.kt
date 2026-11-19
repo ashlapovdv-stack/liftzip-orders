@@ -26,60 +26,82 @@ internal object InvoiceGrid {
         headers: List<InvoiceWord>,
         recognizeHeader: (Cell) -> String = { "" },
     ): List<Row> {
-        val name = headers.firstOrNull { it.isInvoiceNameHeader() } ?: return emptyList()
+        val name = headers.firstOrNull { it.isInvoiceNameHeader() }
         val quantity = headers.firstOrNull { it.isInvoiceQuantityHeader() }
-        val headerCenter = name.y + name.height / 2
-        val maxRowHeight = name.height * 5
         fun dark(x: Int, y: Int): Boolean {
             val rgb = pixels[y * width + x]
             return (rgb shr 16 and 255) < 145 && (rgb shr 8 and 255) < 145 && (rgb and 255) < 145
         }
 
+        val maxThickness = maxOf((name?.height ?: 0) / 2, width / 100, 4)
         val horizontal = rules(height) { y ->
             var count = 0
             for (x in 0 until width) if (dark(x, y)) count++
             count * 100 >= width * 55
-        }.filter { it.last - it.first < name.height / 2 }
-        val top = horizontal.lastOrNull { it.last < headerCenter } ?: return emptyList()
-        val headerBottomIndex = horizontal.indexOfFirst { it.first > headerCenter }
-        if (headerBottomIndex < 0) return emptyList()
-        val headerBottom = horizontal[headerBottomIndex]
-        if (headerBottom.first - top.last > maxRowHeight) return emptyList()
-        val rowRules = mutableListOf(headerBottom)
-        for (rule in horizontal.drop(headerBottomIndex + 1)) {
-            if (rule.first - rowRules.last().last !in (name.height / 2)..maxRowHeight) break
-            rowRules += rule
-        }
-        if (rowRules.size < 2) return emptyList()
+        }.filter { it.last - it.first < maxThickness }
 
-        val scanTop = top.last + 1
-        val scanBottom = rowRules.last().first
-        val vertical = rules(width) { x ->
-            var count = 0
-            for (y in scanTop until scanBottom) if (dark(x, y)) count++
-            count * 100 >= (scanBottom - scanTop) * 80
-        }
-        if (vertical.size < 2) return emptyList()
-        // The title can be centered in a wide cell. The last open cell may be cut off by the screenshot.
-        val nameColumn = vertical.indexOfLast { it.last < name.x + name.width / 2 }
-        if (nameColumn < 1) return emptyList()
-        fun cell(column: Int, top: Int, bottom: Int): Cell = Cell(
-            vertical[column].last + 1, top, vertical.getOrNull(column + 1)?.first ?: width, bottom,
-        )
-        val closedColumns = (0 until vertical.lastIndex).filter { it != nameColumn }
-        val quantityColumn = closedColumns.singleOrNull { column ->
-            val header = cell(column, scanTop, headerBottom.first)
-            quantity != null && quantity.x >= header.left && quantity.x + quantity.width <= header.right
-        } ?: closedColumns.singleOrNull { column ->
-            isInvoiceQuantityLabel(recognizeHeader(cell(column, scanTop, headerBottom.first)))
-        }
+        fun locateTable(index: Int, nameInHeader: InvoiceWord?): List<Row> {
+            val top = horizontal[index]
+            val headerBottom = horizontal[index + 1]
+            val headerHeight = headerBottom.first - top.last
+            val maxRowHeight = nameInHeader?.height?.times(5) ?: (headerHeight * 3)
+            if (headerHeight !in 6..minOf(maxRowHeight, height / 8)) return emptyList()
+            val rowRules = mutableListOf(headerBottom)
+            for (rule in horizontal.drop(index + 2)) {
+                if (rule.first - rowRules.last().last !in maxOf(headerHeight / 4, 4)..maxRowHeight) break
+                rowRules += rule
+            }
+            if (rowRules.size < 2) return emptyList()
 
-        return rowRules.zipWithNext().map { (above, below) ->
-            Row(
-                cell(nameColumn, above.last + 1, below.first),
-                quantityColumn?.let { cell(it, above.last + 1, below.first) },
+            val scanTop = top.last + 1
+            val scanBottom = rowRules.last().first
+            val vertical = rules(width) { x ->
+                var count = 0
+                for (y in scanTop until scanBottom) if (dark(x, y)) count++
+                count * 100 >= (scanBottom - scanTop) * 80
+            }
+            if (vertical.size < 2) return emptyList()
+            fun cell(column: Int, cellTop: Int, bottom: Int): Cell = Cell(
+                vertical[column].last + 1, cellTop, vertical.getOrNull(column + 1)?.first ?: width, bottom,
             )
+
+            val headerCells = vertical.indices.associateWith { cell(it, scanTop, headerBottom.first) }
+                .filterValues { it.right - it.left >= 6 }
+            val recognizedHeaders = mutableMapOf<Int, String>()
+            fun headerText(column: Int) = recognizedHeaders.getOrPut(column) { recognizeHeader(headerCells.getValue(column)) }
+
+            // Read a header directly from the grid if whole-page OCR missed the table title.
+            val nameColumn = nameInHeader?.let { word ->
+                val center = word.x + word.width / 2
+                headerCells.entries.firstOrNull { (_, cell) -> center in cell.left until cell.right }?.key
+            } ?: headerCells.keys.firstOrNull { column -> column > 0 && isInvoiceNameLabel(headerText(column)) }
+            if (nameColumn == null || nameColumn < 1) return emptyList()
+            val closedColumns = headerCells.keys.filter { it != nameColumn && it < vertical.lastIndex }
+            val quantityColumn = closedColumns.singleOrNull { column ->
+                val header = headerCells.getValue(column)
+                nameInHeader != null && quantity != null && quantity.x >= header.left &&
+                    quantity.x + quantity.width <= header.right
+            } ?: closedColumns.singleOrNull { column -> isInvoiceQuantityLabel(headerText(column)) }
+
+            return rowRules.zipWithNext().map { (above, below) ->
+                Row(
+                    cell(nameColumn, above.last + 1, below.first),
+                    quantityColumn?.let { cell(it, above.last + 1, below.first) },
+                )
+            }
         }
+
+        val headerCenter = name?.let { it.y + it.height / 2 }
+        val anchoredIndex = if (headerCenter != null) horizontal.indexOfLast { it.last < headerCenter } else -1
+        if (anchoredIndex in 0 until horizontal.lastIndex) {
+            val anchored = locateTable(anchoredIndex, name)
+            if (anchored.isNotEmpty()) return anchored
+        }
+        for (index in 0 until horizontal.size - 2) {
+            val table = locateTable(index, null)
+            if (table.isNotEmpty()) return table
+        }
+        return emptyList()
     }
 
     private val positiveQuantity = Regex("(?:[1-9][0-9]{0,5}(?:[.,][0-9]+)?|0[.,][0-9]*[1-9][0-9]*)")
