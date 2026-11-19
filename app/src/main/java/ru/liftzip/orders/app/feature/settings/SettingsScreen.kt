@@ -1,5 +1,9 @@
 package ru.liftzip.orders.app.feature.settings
 
+import android.content.Intent
+import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +59,7 @@ import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
 fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () -> Unit) {
     val model = viewModel<SettingsViewModel>(factory = viewModelFactory { initializer { SettingsViewModel(backup, settings) } })
     val lastBackup by model.lastBackup.collectAsState()
+    val autoBackup by settings.localBackup.collectAsState(initial = null)
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -63,6 +68,31 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
     }
     var diagnosticsEnabled by remember { mutableStateOf(InvoiceDiagnostics.enabled(context)) }
     var diagnosticMessage by remember { mutableStateOf<String?>(null) }
+    val backupFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val folderUri = result.data?.data
+        if (folderUri != null) scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    require(folderUri.authority == "com.android.externalstorage.documents") {
+                        "Выберите папку во внутренней памяти телефона"
+                    }
+                    val permission = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    val folder = DocumentFile.fromTreeUri(context, folderUri)
+                    require(folder != null && folder.isDirectory && folder.canWrite()) {
+                        "Папка недоступна для записи"
+                    }
+                    context.contentResolver.takePersistableUriPermission(folderUri, permission)
+                    settings.selectBackupFolder(folderUri, folder.name ?: "Выбранная папка")
+                    DailyBackupSchedule.schedule(context)
+                    DailyBackupSchedule.runNow(context, replace = true)
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                diagnosticMessage = error.message ?: "Не удалось подключить папку резервных копий"
+            }
+        }
+    }
     val diagnosticsExport = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
@@ -153,6 +183,34 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
                         Text("Успешная экспортированная копия ещё не зарегистрирована", color = MaterialTheme.colorScheme.error)
                     } else {
                         Text("Последняя успешная копия: ${Instant.ofEpochMilli(lastBackup!!).formatDateTime()}")
+                    }
+                }
+            }
+            autoBackup?.let { backupSettings ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Ежедневная копия на телефоне", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold)
+                        Text("Приложение хранит до 7 последних автоматических копий в выбранной папке.")
+                        if (backupSettings.folder != null) {
+                            Text("Папка: ${backupSettings.folderName}")
+                            val latest = backupSettings.lastSuccess?.let { Instant.ofEpochMilli(it).formatDateTime() }
+                            Text(latest?.let { "Последняя автокопия: $it" } ?: "Первая автокопия ещё не создана")
+                            backupSettings.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            OutlinedButton(onClick = { DailyBackupSchedule.runNow(context) }) { Text("Создать копию сейчас") }
+                        }
+                        Button(onClick = {
+                            backupFolderPicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                                .putExtra(Intent.EXTRA_LOCAL_ONLY, true))
+                        }) { Text(if (backupSettings.folder == null) "Выбрать папку и включить" else "Сменить папку") }
+                        if (backupSettings.folder != null) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    settings.selectBackupFolder(null)
+                                    DailyBackupSchedule.cancel(context)
+                                }
+                            }) { Text("Отключить автокопии") }
+                        }
                     }
                 }
             }
