@@ -46,6 +46,58 @@ class InvoiceTableParserTest {
         )
     }
 
+    @Test fun tableCoordinatesRecoverRowsAndDropPricesFromNames() {
+        val words = listOf(
+            w("№", 20, 10), w("Наименование", 155, 10), w("Цена", 300, 10),
+            w("Кол-во", 400, 10), w("Ед.", 480, 10), w("Сумма", 550, 10),
+            w("1", 20, 40), w("Канат", 45, 40), w("SFC", 110, 40),
+            w("169", 45, 60), w("м.)", 100, 60), w("163,00", 300, 60),
+            w("1014", 400, 60), w("м", 480, 60), w("165282,00", 550, 60),
+            w("2", 20, 90), w("Контактор", 45, 90), w("14", 400, 90),
+            w("Итого:", 480, 120),
+        )
+        val text = """
+            № Наименование Цена Кол-во Ед. Сумма
+            1 Канат SFC
+            169 м.) 163,00 1014 м 165282,00
+            Итого:
+        """.trimIndent()
+        assertEquals(
+            listOf(InvoiceItem("Канат SFC 169 м.)", "1014"), InvoiceItem("Контактор", "14")),
+            InvoiceTableParser.resolve(text, words)
+        )
+    }
+
+    @Test fun missingQuantityDoesNotUseNeighboringPriceOrDropNamedRow() {
+        val words = listOf(
+            w("№", 20, 10), w("Товары", 120, 10), w("Цена", 300, 10),
+            w("Кол-во", 400, 10), w("Ед.", 480, 10), w("Сумма", 550, 10),
+            w("1", 20, 40), w("Канат", 45, 40), w("29", 300, 40),
+            w("м", 480, 40), w("29", 550, 40), w("Итого:", 480, 75)
+        )
+        assertEquals(listOf(InvoiceItem("Канат", "")), InvoiceTableParser.parse(words))
+    }
+
+    @Test fun rowNumberRightAlignedUnderNarrowHeaderIsExcludedFromName() {
+        val words = listOf(
+            InvoiceWord("№", 84, 10, 19, 13), w("Наименование", 204, 10),
+            w("Цена", 570, 10), w("Кол-во", 712, 10), w("Ед.", 821, 10),
+            InvoiceWord("1", 102, 40, 8, 14), w("Канат", 119, 40),
+            w("169", 123, 60), w("м.)", 160, 60), w("1014", 754, 60),
+            w("Итого:", 821, 90),
+        )
+        assertEquals(listOf(InvoiceItem("Канат 169 м.)", "1014")), InvoiceTableParser.parse(words))
+    }
+
+    @Test fun detectsTableBandAndPrintedItemCountForOcrRetry() {
+        val words = listOf(
+            w("Банк", 20, 10), w("№", 20, 100), w("Товары", 80, 100),
+            w("Кол-во", 400, 100), w("Итого:", 400, 160), w("Внимание", 30, 210),
+        )
+        assertEquals(86..188, InvoiceTableParser.tableBand(words))
+        assertEquals(2, InvoiceTableParser.expectedCount("Всего наименований 2, на сумму 80 руб."))
+    }
+
     @Test fun missingHeaderDoesNotInventProducts() {
         assertEquals(emptyList<InvoiceItem>(), InvoiceTableParser.parse(listOf(w("Счет", 20, 10), w("4", 400, 40))))
     }

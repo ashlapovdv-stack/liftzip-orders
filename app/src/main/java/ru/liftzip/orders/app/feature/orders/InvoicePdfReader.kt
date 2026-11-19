@@ -1,219 +1,19 @@
 package ru.liftzip.orders.app.feature.orders
 
-import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
-
-import android.content.Context
 import android.content.ContentResolver
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import com.googlecode.tesseract.android.TessBaseAPI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import ru.liftzip.orders.app.feature.diagnostics.InvoiceDiagnostics
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-
-/** Candidate rows are never saved without user review. */
-data class InvoiceItem(val name: String, val quantity: String)
-
-internal data class InvoiceWord(val text: String, val x: Int, val y: Int, val width: Int, val height: Int)
-
-/** OCR coordinates, not a fixed invoice template: supports different column order. */
-internal object InvoiceTableParser {
-    fun parse(words: List<InvoiceWord>): List<InvoiceItem> {
-        if (words.isEmpty()) return emptyList()
-        // Cluster by vertical overlap rather than OCR top coordinate:
-        // different font sizes in the same table row often have different tops.
-        val ordered = words.sortedWith(compareBy<InvoiceWord> { it.y + it.height / 2 }.thenBy { it.x })
-        val medianHeight = ordered.map { it.height }.sorted().let { it[it.size / 2] }.coerceAtLeast(8)
-        val rows = mutableListOf<MutableList<InvoiceWord>>()
-        ordered.forEach { word ->
-            val center = word.y + word.height / 2.0
-            val row = rows.lastOrNull()
-            val rowCenter = row?.map { it.y + it.height / 2.0 }?.average()
-            if (row != null && rowCenter != null &&
-                kotlin.math.abs(rowCenter - center) <= medianHeight * 0.65) row.add(word)
-            else rows.add(mutableListOf(word))
-        }
-        val headerIndex = rows.indexOfFirst { row ->
-            val text = row.joinToString(" ") { it.text }.lowercase()
-            ("наименован" in text || "товары" in text || "товар" in text) &&
-                ("кол" in text || "количество" in text || "к-во" in text)
-        }
-        if (headerIndex < 0) return emptyList()
-        val header = rows[headerIndex]
-        val nameHeader = header.firstOrNull { "наименован" in it.text.lowercase() || "товар" in it.text.lowercase() } ?: return emptyList()
-        val qtyHeader = header.firstOrNull { it.text.lowercase().startsWith("кол") || it.text.lowercase().startsWith("к-во") }
-            ?: return emptyList()
-        val numberHeader = header.firstOrNull { it.text == "№" || it.text == "N" }
-        val qtyX = qtyHeader.x + qtyHeader.width / 2
-        // The header label is usually centered inside a wide name column.
-        // Product text starts at the left column edge, not at the label's x.
-        val nameX = numberHeader?.let { it.x + it.width + 4 } ?: nameHeader.x
-        val qtyNeighbors = header.filter { it !== qtyHeader && it.x > nameX }
-        val qtyLeft = (qtyNeighbors.filter { it.x + it.width / 2 < qtyX }
-            .maxOfOrNull { it.x + it.width } ?: (qtyX - qtyHeader.width)).coerceAtMost(qtyX)
-        val qtyRight = (qtyNeighbors.filter { it.x > qtyX }
-            .minOfOrNull { it.x } ?: (qtyX + qtyHeader.width)).coerceAtLeast(qtyX)
-        val nameRight = header.filter { word ->
-            word.x > nameX && listOf("цена", "кол", "ед.", "сумма", "стоимость")
-                .any { word.text.lowercase().startsWith(it) }
-        }.minOfOrNull { it.x } ?: Int.MAX_VALUE
-        val results = mutableListOf<InvoiceItem>()
-        var currentName = StringBuilder()
-        var currentQuantity = ""
-        fun finish() {
-            val name = currentName.toString().trim().replace(Regex("\\s+"), " ")
-            if (name.isNotEmpty() && currentQuantity.matches(Regex("[1-9][0-9]{0,5}"))) {
-                results.add(InvoiceItem(name, currentQuantity))
-            }
-            currentName = StringBuilder()
-            currentQuantity = ""
-        }
-        rows.drop(headerIndex + 1).forEach { row ->
-            val full = row.sortedBy { it.x }.joinToString(" ") { it.text }.lowercase()
-            if (listOf("итого", "всего", "ндс", "оплате", "внимание").any { full.contains(it) }) {
-                finish()
-                return results
-            }
-            val rowNumber = numberHeader?.let { h ->
-                row.filter {
-                    val centerX = it.x + it.width / 2
-                    val headerCenter = h.x + h.width / 2
-                    kotlin.math.abs(centerX - headerCenter) <=
-                        maxOf(22, h.width * 2) &&
-                        it.x < nameX + 8
-                }.firstOrNull { it.text.matches(Regex("[0-9]{1,3}")) }
-            }
-            if (rowNumber != null && currentName.isNotEmpty()) finish()
-            val names = row.filter { it.x >= nameX - 10 && it.x < nameRight - 5 }
-                .filterNot { it == rowNumber }.sortedBy { it.x }
-                .joinToString(" ") { it.text }
-            val quantities = row.filter {
-                val centerX = it.x + it.width / 2
-                centerX >= qtyLeft && centerX <= qtyRight
-            }.filter { it.text.matches(Regex("[1-9][0-9]{0,5}")) }
-            if (names.isNotBlank()) {
-                if (currentName.isNotEmpty()) currentName.append(' ')
-                currentName.append(names)
-            }
-            if (quantities.isNotEmpty()) currentQuantity = quantities.first().text
-        }
-        finish()
-        return results
-    }
-}
-
-
-/** Parse the OCR text conservatively. Uncertain rows are edited before insertion. */
-internal object InvoiceTextParser {
-    private val header = Regex("""(?:наименован|товары\s*\(|товары\b)""", RegexOption.IGNORE_CASE)
-    private val stop = Regex("""^(?:итого|всего|ндс|к оплате|в том числе)""", RegexOption.IGNORE_CASE)
-    private val numbered = Regex("""^\s*\|?\s*(\d{1,3})[.)]?\s*[|\[]?\s*(.+)$""")
-    private val money = Regex("""\d[\d ]*[.,]\d{2}""")
-    private val pricedEnd = Regex(
-        """\s+\d[\d ]*[.,]\d{2}(?:\s+(\d{1,6}))?\s*(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}\s*$""",
-        RegexOption.IGNORE_CASE
-    )
-    private val unitPrices = Regex(
-        """\s+(?:шт\.?|штук|компл\.?|pcs?\.?)[!|]?\s*\d[\d ]*[.,]\d{2}(?:\s+\d[\d ]*[.,]\d{2})?\s*$""",
-        RegexOption.IGNORE_CASE
-    )
-    private val twoPrices = Regex("""\s+\d[\d ]*[.,]\d{2}\s+\d[\d ]*[.,]\d{2}\s*$""")
-    // Screenshot tables often place the quantity between the price and unit,
-    // while PDF OCR can omit the quantity entirely.
-    private val priceQuantityUnit = Regex(
-        """\s+\d[\d ]*[.,]\d{2}\s*\|?\s*([1-9]\d{0,5})\s*(?:шт\.?|штук|компл\.?|pcs?\.?)\s*$""",
-        RegexOption.IGNORE_CASE
-    )
-    private val rowMarker = Regex("""^\s*[^\p{L}\d]{0,3}\s*(\d{1,3})\s+(.+)$""")
-    private val numberedProduct = Regex("""^\s*\|?\s*\d{1,3}[.)]?\s*[|\[]?\s*[^\d\s].*""")
-
-    fun parse(text: String): List<InvoiceItem> {
-        val lines = text.lines().map { it.trim().replace(Regex("""\s+"""), " ") }
-        val headerIndex = lines.indexOfFirst {
-            header.containsMatchIn(it) &&
-                (it.contains("кол", true) || it.contains("цена", true) || it.contains("сумма", true))
-        }
-        val end = lines.indexOfFirst { stop.containsMatchIn(it) }.let { if (it < 0) lines.size else it }
-        // Without a legible header, start only at a numbered row whose following
-        // lines contain a price and total. Never start at a postal index or bank account.
-        val start = if (headerIndex >= 0) headerIndex + 1 else (0 until end).firstOrNull { i ->
-            numberedProduct.matches(lines[i]) &&
-                lines.subList(i, minOf(i + 4, end)).any {
-                    pricedEnd.containsMatchIn(it) || unitPrices.containsMatchIn(it) || twoPrices.containsMatchIn(it)
-                }
-        } ?: return emptyList()
-        if (start >= end) return emptyList()
-
-        val results = mutableListOf<InvoiceItem>()
-        val pending = mutableListOf<String>()
-        var active = false
-        fun finish(quantity: String = "") {
-            val name = pending.joinToString(" ").trim().trim('[', '|', ' ', '‚', '_')
-                .replace(Regex("""\s+"""), " ")
-            if (name.length >= 4 && name.any(Char::isLetter)) results += InvoiceItem(name, quantity)
-            pending.clear()
-            active = false
-        }
-        for (line in lines.subList(start, end)) {
-            if (line.isBlank()) continue
-            val numberedMatch = numbered.matchEntire(line) ?: rowMarker.matchEntire(line)
-            val isNew = numberedMatch != null &&
-                numberedMatch.groupValues[2].any(Char::isLetter) &&
-                !money.containsMatchIn(numberedMatch.groupValues[2].take(15))
-            val stripped = if (isNew) {
-                if (active && pending.isNotEmpty()) finish()
-                active = true
-                numberedMatch!!.groupValues[2]
-            } else line.trimStart('|', ' ', '‚', '_')
-            // A missing row number is common in scanned invoices. Require a
-            // recognized table header or an already verified product row.
-            if (!active && (headerIndex >= 0 || results.isNotEmpty()) &&
-                stripped.any(Char::isLetter) && stripped.length >= 4) active = true
-            if (!active) continue
-            val quantityMatch = priceQuantityUnit.find(stripped)
-            if (quantityMatch != null) {
-                pending += stripped.substring(0, quantityMatch.range.first)
-                finish(quantityMatch.groupValues[1])
-                continue
-            }
-            val priced = pricedEnd.find(stripped)
-            if (priced != null) {
-                pending += stripped.substring(0, priced.range.first)
-                finish(priced.groupValues[1])
-                continue
-            }
-            val unitMatch = unitPrices.find(stripped)
-            if (unitMatch != null) {
-                val before = stripped.substring(0, unitMatch.range.first)
-                val trailingPrice = money.findAll(before).lastOrNull()
-                pending += if (trailingPrice != null && trailingPrice.range.last == before.length - 1)
-                    before.substring(0, trailingPrice.range.first) else before
-                finish()
-                continue
-            }
-            val priceMatch = twoPrices.find(stripped)
-            if (priceMatch != null) {
-                pending += stripped.substring(0, priceMatch.range.first)
-                finish()
-                continue
-            }
-            // OCR may keep the product description and its price but drop the
-            // unit or total. Keep only the description, never the price.
-            val trailingPrice = money.findAll(stripped).lastOrNull()
-            val description = if (trailingPrice != null &&
-                trailingPrice.range.last == stripped.length - 1)
-                stripped.substring(0, trailingPrice.range.first).trimEnd(' ', '|')
-            else stripped
-            if (description.any(Char::isLetter) && description.length > 2) pending += description
-        }
-        // Incomplete OCR rows without a recognized price are not imported.
-        return results
-    }
-}
 
 /** OCR stays on-device. Language packs are downloaded once, then cached privately. */
 class InvoicePdfReader {
@@ -241,29 +41,47 @@ class InvoicePdfReader {
         return base
     }
 
-    /** Shared OCR path for PDF pages and gallery images. Never pair rows by list index. */
-    private fun recognizePage(tess: TessBaseAPI, bitmap: Bitmap): List<InvoiceItem> {
+    private data class OcrPass(val text: String, val words: List<InvoiceWord>) {
+        val items = InvoiceTableParser.resolve(text, words)
+        val completeItems = items.count { it.quantity.isNotEmpty() }
+    }
+
+    private fun recognize(tess: TessBaseAPI, bitmap: Bitmap, mode: Int): OcrPass {
         tess.clear()
+        tess.setPageSegMode(mode)
         tess.setImage(bitmap)
         val text = tess.getUTF8Text().orEmpty()
-        val textual = InvoiceTextParser.parse(text)
-        val positioned = InvoiceTableParser.parse(extractWords(tess))
-        if (positioned.isEmpty()) return textual
-        if (textual.isEmpty()) return positioned
-        // Keep the OCR text names; accept a quantity only for an unambiguous
-        // corresponding name, never merely because the list lengths match.
-        fun normalized(name: String) = name.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
-        return textual.map { item ->
-            if (item.quantity.isNotBlank()) item else {
-                val key = normalized(item.name)
-                val matches = positioned.filter { candidate ->
-                    val other = normalized(candidate.name)
-                    key.length >= 5 && other.length >= 5 &&
-                        (key.contains(other) || other.contains(key))
-                }
-                if (matches.size == 1) item.copy(quantity = matches.single().quantity) else item
-            }
+        return OcrPass(text, extractWords(tess))
+    }
+
+    /** Share the OCR and table retry across PDF pages and gallery images. */
+    private fun recognizePage(
+        tess: TessBaseAPI,
+        bitmap: Bitmap,
+        report: ((String) -> Unit)?
+    ): List<InvoiceItem> {
+        val page = recognize(tess, bitmap, TessBaseAPI.PageSegMode.PSM_AUTO)
+        report?.invoke("page words=${page.words.size}; rows=${page.items.size}; withQuantity=${page.completeItems}")
+        val expected = InvoiceTableParser.expectedCount(page.text)
+        if (page.items.isNotEmpty() && page.completeItems == page.items.size &&
+            (expected == null || page.items.size >= expected)
+        ) return page.items
+
+        val band = InvoiceTableParser.tableBand(page.words)
+        val top = band?.first?.coerceIn(0, bitmap.height - 1) ?: 0
+        val bottom = band?.last?.coerceIn(top + 1, bitmap.height) ?: bitmap.height
+        val cropped = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, bottom - top)
+        val retry = try {
+            recognize(tess, cropped, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
+        } finally {
+            if (cropped !== bitmap) cropped.recycle()
         }
+        report?.invoke("retry words=${retry.words.size}; rows=${retry.items.size}; withQuantity=${retry.completeItems}")
+        // Keep a coherent pass so continued descriptions and their quantities stay together.
+        return if (retry.items.size >= page.items.size &&
+            (retry.completeItems > page.completeItems ||
+                retry.items.size > page.items.size && retry.completeItems == page.completeItems)
+        ) retry.items else page.items
     }
 
     suspend fun readImage(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =
@@ -276,31 +94,19 @@ class InvoicePdfReader {
                 if (!tess.init(base.absolutePath, "rus+eng")) error("Не удалось запустить распознавание")
                 val bitmap = resolver.openInputStream(uri)?.use { input ->
                     val bytes = input.readBytes()
-                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                     val sample = generateSequence(1) { it * 2 }.takeWhile {
                         bounds.outWidth / it > 2400 || bounds.outHeight / it > 3200
                     }.lastOrNull()?.times(2) ?: 1
-                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
-                        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+                        BitmapFactory.Options().apply { inSampleSize = sample })
                 } ?: error("Не удалось открыть изображение")
                 try {
-                    val parsed = recognizePage(tess, bitmap)
-                    if (diagnostics) {
-                        val words = extractWords(tess)
-                        val rawText = tess.getUTF8Text().orEmpty()
-                        InvoiceDiagnostics.record(context, "image",
-                            "width=${bitmap.width}; height=${bitmap.height}; " +
-                                "chars=${rawText.length}; words=${words.size}; " +
-                                "items=${parsed.size}; quantities=${parsed.map { it.quantity }}\\n" +
-                                "OCR text:\\n${rawText.take(12000)}")
-                        InvoiceDiagnostics.record(context, "image_geometry",
-                            words.take(160).joinToString("; ") {
-                                "${it.text}@(${it.x},${it.y},${it.width},${it.height})"
-                            })
-                    }
-                    if (diagnostics) InvoiceDiagnostics.record(context, "complete", "items=${parsed.size}")
-                    parsed
+                    val report: ((String) -> Unit)? = if (diagnostics) {
+                        { message -> InvoiceDiagnostics.record(context, "image", message) }
+                    } else null
+                    recognizePage(tess, bitmap, report)
                 } finally { bitmap.recycle() }
             } finally { tess.recycle() }
         }
@@ -347,34 +153,10 @@ class InvoicePdfReader {
                                 try {
                                     bitmap.eraseColor(Color.WHITE)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    val merged = recognizePage(tess, bitmap)
-                                    val parsed = merged
-                                    val recognized = ""
-                                    val positioned = emptyList<InvoiceItem>()
-                                    if (diagnostics) InvoiceDiagnostics.record(context, "coordinates",
-                                        "page=${index + 1}; textItems=${parsed.size}; positionedItems=${positioned.size}; quantities=${positioned.map { it.quantity }}")
-                                    if (diagnostics) InvoiceDiagnostics.record(context, "page", "page=${index + 1}; chars=${recognized.length}; items=${parsed.size}\nOCR text:\n$recognized")
-                                    if (merged.isEmpty()) {
-                                        // Re-run OCR on the middle table region when full-page
-                                        // recognition lost the small product row among page noise.
-                                        // No PDF templates or invoice-specific coordinates.
-                                        val top = (bitmap.height * 0.27f).toInt()
-                                        val height = (bitmap.height * 0.58f).toInt()
-                                            .coerceAtMost(bitmap.height - top)
-                                        val tableBitmap = Bitmap.createBitmap(bitmap, 0, top, bitmap.width, height)
-                                        try {
-                                            tess.clear()
-                                            tess.setImage(tableBitmap)
-                                            val tableText = tess.getUTF8Text() ?: ""
-                                            val tableItems = InvoiceTextParser.parse(tableText)
-                                            if (diagnostics) InvoiceDiagnostics.record(context, "table_retry",
-                                                "page=${index + 1}; chars=${tableText.length}; items=${tableItems.size}\\nOCR text:\\n$tableText")
-                                            all += tableItems
-                                        } finally { tableBitmap.recycle() }
-                                    } else {
-                                        all += merged
-                                    }
-                                    tess.clear()
+                                    val report: ((String) -> Unit)? = if (diagnostics) {
+                                        { message -> InvoiceDiagnostics.record(context, "page", "page=${index + 1}; $message") }
+                                    } else null
+                                    all += recognizePage(tess, bitmap, report)
                                 } finally { bitmap.recycle() }
                             }
                         }
