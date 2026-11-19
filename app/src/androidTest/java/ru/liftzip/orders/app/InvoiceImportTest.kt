@@ -24,11 +24,14 @@ class InvoiceImportTest {
         val pdf = File.createTempFile("invoice-test", ".pdf", context.cacheDir)
         val image = File.createTempFile("invoice-test", ".png", context.cacheDir)
         try {
-            PdfDocument().use { document ->
+            val document = PdfDocument()
+            try {
                 val page = document.startPage(PdfDocument.PageInfo.Builder(600, 360, 1).create())
                 drawInvoice(page.canvas)
                 document.finishPage(page)
                 pdf.outputStream().use(document::writeTo)
+            } finally {
+                document.close()
             }
             val bitmap = Bitmap.createBitmap(1200, 720, Bitmap.Config.ARGB_8888)
             try {
