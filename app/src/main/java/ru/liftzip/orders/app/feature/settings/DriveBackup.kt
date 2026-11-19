@@ -152,7 +152,7 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             val permanent = remote?.status in setOf(400, 401, 403)
             val detail = when (error) {
                 is DriveResponseError -> "${error.step}, HTTP ${error.status}"
-                is DriveUploadError -> error.step
+                is DriveUploadError -> listOfNotNull(error.step, error.cause?.transportDetail()).joinToString(", ")
                 is java.net.SocketTimeoutException -> "$stage, истекло время ожидания"
                 is java.net.UnknownHostException -> "$stage, сервер недоступен"
                 else -> "$stage, ${error.javaClass.simpleName}"
@@ -164,7 +164,27 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
 }
 
 private class DriveResponseError(val status: Int, val step: String) : IOException("Drive HTTP $status")
-private class DriveUploadError(val step: String) : IOException(step)
+private class DriveUploadError(val step: String, cause: Throwable? = null) : IOException(step, cause)
+
+private fun Throwable.transportDetail(): String = when (this) {
+    is java.net.SocketTimeoutException -> "истекло время ожидания"
+    is java.net.UnknownHostException -> "сервер недоступен"
+    is javax.net.ssl.SSLException -> "сбой защищённого соединения"
+    is java.io.EOFException -> "сервер закрыл соединение"
+    is java.net.ProtocolException -> "ошибка протокола HTTP"
+    is java.net.SocketException -> "сетевое соединение прервано"
+    else -> {
+        val detail = message.orEmpty()
+        when {
+            detail.contains("unexpected end of stream", ignoreCase = true) -> "сервер закрыл соединение"
+            detail.contains("connection reset", ignoreCase = true) -> "соединение принудительно закрыто"
+            detail.contains("broken pipe", ignoreCase = true) -> "соединение прервалось при записи"
+            detail.contains("expected", ignoreCase = true) && detail.contains("bytes", ignoreCase = true) ->
+                "размер переданных данных не совпал"
+            else -> javaClass.simpleName
+        }
+    }
+}
 
 internal class DriveBackupApi(
     private val token: String,
@@ -192,39 +212,38 @@ internal class DriveBackupApi(
         val fields = "id,size,sha256Checksum,md5Checksum"
         val metadata = JSONObject().put("name", name).put("mimeType", "application/zip")
             .put("parents", org.json.JSONArray(listOf(folder)))
-        val start = open("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=$fields", "POST")
-        val session = try {
-            start.setRequestProperty("X-Upload-Content-Type", "application/zip")
-            start.setRequestProperty("X-Upload-Content-Length", length.toString())
-            start.writeJson(metadata)
-            start.checkResponse("открытие сессии загрузки")
-            start.getHeaderField("Location") ?: throw DriveUploadError("Google не вернул адрес сессии")
-        } finally { start.disconnect() }
-
-        checkActive()
-        val upload = open(session, "PUT")
+        val boundary = "orders-" + java.util.UUID.randomUUID()
+        val prefix = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
+            metadata + "\r\n--$boundary\r\nContent-Type: application/zip\r\n\r\n").toByteArray(Charsets.UTF_8)
+        val suffix = "\r\n--$boundary--\r\n".toByteArray(Charsets.US_ASCII)
+        val upload = open("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=$fields", "POST")
         val sha = java.security.MessageDigest.getInstance("SHA-256")
         val md5 = java.security.MessageDigest.getInstance("MD5")
         val saved = try {
             upload.doOutput = true
-            upload.setRequestProperty("Content-Type", "application/zip")
-            upload.setRequestProperty("Content-Range", "bytes 0-${length - 1}/$length")
-            upload.setFixedLengthStreamingMode(length)
-            upload.outputStream.use { output ->
-                file.inputStream().use { input ->
-                    val buffer = ByteArray(128 * 1024)
-                    while (true) {
-                        checkActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        sha.update(buffer, 0, count)
-                        md5.update(buffer, 0, count)
-                        output.write(buffer, 0, count)
+            upload.setRequestProperty("Content-Type", "multipart/related; boundary=$boundary")
+            upload.setFixedLengthStreamingMode(length + prefix.size + suffix.size)
+            transferStep("передача архива") {
+                upload.outputStream.use { output ->
+                    output.write(prefix)
+                    file.inputStream().use { input ->
+                        val buffer = ByteArray(128 * 1024)
+                        while (true) {
+                            checkActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            sha.update(buffer, 0, count)
+                            md5.update(buffer, 0, count)
+                            output.write(buffer, 0, count)
+                        }
                     }
+                    output.write(suffix)
                 }
             }
-            upload.checkResponse("передача архива")
-            upload.readJson()
+            transferStep("ответ на загрузку") {
+                upload.checkResponse("приём архива Google Диском")
+                upload.readJson()
+            }
         } finally { upload.disconnect() }
 
         val id = URLEncoder.encode(saved.getString("id"), "UTF-8")
@@ -238,6 +257,14 @@ internal class DriveBackupApi(
             runCatching { request("$API/files/$id", "PATCH", JSONObject().put("trashed", true)) }
             throw DriveUploadError("контрольная сумма копии не совпала")
         }
+    }
+
+    private inline fun <T> transferStep(step: String, block: () -> T): T = try {
+        block()
+    } catch (error: DriveResponseError) {
+        throw error
+    } catch (error: IOException) {
+        throw DriveUploadError(step, error)
     }
 
     private fun java.security.MessageDigest.hexDigest(): String = digest().joinToString("") { "%02x".format(it) }
