@@ -65,6 +65,8 @@ import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.Locale
+import java.text.Normalizer
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class RoomOrdersRepository(
@@ -127,7 +129,8 @@ class RoomOrdersRepository(
                     ),
                 )
             }
-            // Reconcile persisted legacy CALCULATING states after upgrade without changing order flags.
+            dao.markEmptyOrdersIncomplete()
+            // Reconcile legacy display states without changing order flags.
             dao.getGroups().filter { it.state != GroupState.FORMING.name }.forEach { group ->
                 val newState = groupProgressState(dao.getGroupOrders(group.id).map { it.toDomain().fulfillment })
                 if (group.state != newState.name) dao.updateGroup(group.copy(state = newState.name))
@@ -136,10 +139,32 @@ class RoomOrdersRepository(
     }
 
     override fun observeOrders(query: String, filter: OrdersFilter, limit: Int): Flow<List<OrderSummary>> {
-        val like = "%${query.trim()}%"
-        return dao.observeOrders(like, filter.name, limit.coerceIn(1, 500))
-            .map { orders -> orders.map { toSummary(it) } }
-            .flowOn(Dispatchers.IO)
+        val needle = query.searchKey()
+        val source = if (needle.isEmpty()) dao.observeOrders(filter.name, limit.coerceAtLeast(1))
+        else combine(dao.observeOrders(filter.name, -1), dao.observeOrderSearchLines()) { orders, lines ->
+            val matchingOrders = lines.asSequence().filter {
+                it.productNameSnapshot.searchKey().contains(needle) || it.articleSnapshot.orEmpty().searchKey().contains(needle)
+            }.map { it.orderId }.toHashSet()
+            orders.asSequence().filter {
+                it.id in matchingOrders || it.counterparty.searchKey().contains(needle) || it.number.toString().contains(needle)
+            }.take(limit.coerceAtLeast(1)).toList()
+        }
+        return source.map { orders ->
+            database.withTransaction {
+                val orderIds = orders.map { it.id }
+                val groups = orders.map { it.groupId }.distinct().chunked(500).flatMap { dao.getGroupsByIds(it) }.associateBy { it.id }
+                val lines = orderIds.chunked(500).flatMap { dao.getLinesForOrders(it) }.groupBy { it.orderId }
+                val orderCosts = orderIds.chunked(500).flatMap { dao.getCostsForOwners("ORDER", it) }.groupBy { it.ownerId }
+                val lineCosts = lines.values.flatten().map { it.id }.chunked(500)
+                    .flatMap { dao.getCostsForOwners("LINE", it) }.groupBy { it.ownerId }
+                orders.mapNotNull { order ->
+                    groups[order.groupId]?.let { group ->
+                        val orderLines = lines[order.id].orEmpty()
+                        toSummary(order, group, orderLines, orderCosts[order.id].orEmpty() + orderLines.flatMap { lineCosts[it.id].orEmpty() })
+                    }
+                }
+            }
+        }.flowOn(Dispatchers.IO)
     }
 
     override fun observeOrder(orderId: UUID): Flow<OrderDetails?> =
@@ -151,65 +176,90 @@ class RoomOrdersRepository(
         }.flowOn(Dispatchers.IO)
 
     override fun observeGroups(): Flow<List<GroupSummary>> = combine(
-        dao.observeGroups(),
-        dao.observeAllOrders(),
-        dao.observeAllLines(),
-        dao.observeAllCosts(),
+        dao.observeGroups(), dao.observeAllOrders(), dao.observeAllLines(), dao.observeAllCosts(),
     ) { groups, orders, lines, costs ->
+        val ordersByGroup = orders.groupBy { it.groupId }
+        val linesByOrder = lines.groupBy { it.orderId }
+        val costsByOwner = costs.groupBy { it.ownerType to it.ownerId }
         groups.map { group ->
-            val groupOrders = orders.filter { it.groupId == group.id }
-            summarize(group, groupOrders, lines, costs)
-        }
-    }.flowOn(Dispatchers.IO)
-
-    override fun observeGroup(groupId: UUID): Flow<GroupDetails?> = combine(
-        dao.observeGroup(groupId.toString()),
-        dao.observeGroupOrders(groupId.toString()),
-        dao.observeAllLines(),
-        dao.observeAllCosts(),
-    ) { group, orders, lines, costs ->
-        if (group == null) null else {
-            val summaries = orders.map { order ->
-                toSummary(order, group, lines.filter { it.orderId == order.id }, costs)
+            val members = ordersByGroup[group.id].orEmpty()
+            val triples = members.map { order ->
+                val ownLines = linesByOrder[order.id].orEmpty()
+                val ownCosts = costsByOwner["ORDER" to order.id].orEmpty() +
+                    ownLines.flatMap { costsByOwner["LINE" to it.id].orEmpty() }
+                Triple(order.toDomain(), ownLines.map { it.toDomain() }, ownCosts.map { it.toDomain() })
             }
-            GroupDetails(
-                summary = summarize(group, orders, lines, costs),
-                orders = summaries,
-                costs = costs.filter { it.ownerType == CostOwnerType.GROUP.name && it.ownerId == group.id }
-                    .map { it.toDomain() },
-            )
+            OrderCalculator.summarizeGroup(group.toDomain(), triples, costsByOwner["GROUP" to group.id].orEmpty().map { it.toDomain() })
         }
     }.flowOn(Dispatchers.IO)
 
-    override fun observeProducts(query: String, limit: Int): Flow<List<Product>> =
-        dao.observeProducts("%${query.trim()}%", limit.coerceIn(1, 500))
-            .map { items -> items.map { it.toDomain() } }
+    override fun observeGroup(groupId: UUID): Flow<GroupDetails?> =
+        combine(
+            dao.observeGroup(groupId.toString()), dao.observeGroupOrders(groupId.toString()),
+            dao.observeGroupLineCount(groupId.toString()), dao.observeGroupCostCount(groupId.toString()),
+        ) { _, _, _, _ -> Unit }.map {
+            database.withTransaction {
+                val group = dao.getGroup(groupId.toString()) ?: return@withTransaction null
+                val orders = dao.getGroupOrders(group.id)
+                val ids = orders.map { it.id }
+                val lines = ids.chunked(500).flatMap { dao.getLinesForOrders(it) }.groupBy { it.orderId }
+                val costs = ids.chunked(500).flatMap { dao.getCostsForOwners("ORDER", it) }.groupBy { it.ownerId }
+                val lineCosts = lines.values.flatten().map { it.id }.chunked(500)
+                    .flatMap { dao.getCostsForOwners("LINE", it) }.groupBy { it.ownerId }
+                val groupCosts = dao.getGroupCosts(group.id).map { it.toDomain() }
+                val triples = orders.map { order ->
+                    val ownLines = lines[order.id].orEmpty()
+                    val ownCosts = costs[order.id].orEmpty() + ownLines.flatMap { lineCosts[it.id].orEmpty() }
+                    Triple(order.toDomain(), ownLines.map { it.toDomain() }, ownCosts.map { it.toDomain() })
+                }
+                GroupDetails(
+                    OrderCalculator.summarizeGroup(group.toDomain(), triples, groupCosts),
+                    triples.map { (order, ownLines, ownCosts) ->
+                        OrderSummary(order, group.number, GroupState.valueOf(group.state),
+                            ownLines.joinToString(", ") { it.productNameSnapshot }.take(160),
+                            OrderCalculator.calculate(order, ownLines, ownCosts))
+                    },
+                    groupCosts,
+                )
+            }
+        }.flowOn(Dispatchers.IO)
+
+    override fun observeProducts(query: String, limit: Int): Flow<List<Product>> {
+        val needle = query.searchKey()
+        return dao.observeProducts(if (needle.isEmpty()) limit.coerceAtLeast(1) else -1)
+            .map { items -> items.asSequence().filter { product ->
+                needle.isEmpty() || listOf(product.name, product.article, product.normalizedArticle, product.aliasesJson, product.brand)
+                    .any { it.orEmpty().searchKey().contains(needle) }
+            }.take(limit.coerceAtLeast(1)).map { it.toDomain() }.toList() }
             .flowOn(Dispatchers.IO)
+    }
 
     override fun observeProductHistory(productId: UUID): Flow<ProductPriceHistory?> = combine(
         dao.observeProduct(productId.toString()),
         dao.observePriceRecords(productId.toString()),
         dao.observeProductLines(productId.toString()),
-    ) { product, records, lines ->
+        dao.observeProductImageCount(productId.toString()),
+    ) { product, records, lines, _ ->
         if (product == null) null else {
-            val linesById = lines.associateBy { it.id }
-            val orderIds = records.map { it.orderId }.distinct()
-            val orders = if (orderIds.isEmpty()) emptyList() else dao.getOrdersByIds(orderIds)
-            val imagesByLine = dao.getImagesForLines(lines.map { it.id }).groupBy { it.lineId }
-            ProductPriceHistory(
-                product = product.toDomain(),
-                records = records.mapNotNull { record ->
-                    orders.firstOrNull { it.id == record.orderId }?.let {
-                        PriceRecordView(record.toDomain(), it.number,
-                            linesById[record.sourceLineId]?.deliveryWeight?.decimal(), it.orderRate?.decimal(),
-                            linesById[record.sourceLineId]?.deliveryTariff?.decimal(),
-                            linesById[record.sourceLineId]?.actualWeight?.decimal(),
-                            linesById[record.sourceLineId]?.productUrl,
-                            linesById[record.sourceLineId]?.temporaryProductUrl,
-                            imagesByLine[record.sourceLineId].orEmpty().map { image -> image.jpeg })
-                    }
-                },
-            )
+            val orders = lines.map { it.orderId }.distinct().chunked(500)
+                .flatMap { dao.getOrdersByIds(it) }.associateBy { it.id }
+            val imagesByLine = lines.map { it.id }.chunked(500)
+                .flatMap { dao.getImagesForLines(it) }.groupBy { it.lineId }
+            val recordsByLine = records.groupBy { it.sourceLineId }
+            ProductPriceHistory(product.toDomain(), lines.mapNotNull { line ->
+                val order = orders[line.orderId] ?: return@mapNotNull null
+                val source = line.toDomain().copy(images = imagesByLine[line.id].orEmpty().map { it.jpeg })
+                val views = recordsByLine[line.id].orEmpty().map {
+                    PriceRecordView(it.toDomain(), order.number, source.deliveryWeight, order.orderRate?.decimal(),
+                        source.deliveryTariff, source.actualWeight, source.productUrl, source.temporaryProductUrl, source.images)
+                }
+                ru.liftzip.orders.domain.model.PriceHistoryLine(
+                    source, order.toDomain(),
+                    views.firstOrNull { it.record.type == PriceEventType.SALE },
+                    views.firstOrNull { it.record.type == PriceEventType.PURCHASE },
+                )
+            }.sortedWith(compareByDescending<ru.liftzip.orders.domain.model.PriceHistoryLine> { it.order.date }
+                .thenByDescending { it.order.number }.thenBy { it.sourceLineId }))
         }
     }.flowOn(Dispatchers.IO)
 
@@ -288,7 +338,7 @@ class RoomOrdersRepository(
             if (existing != null && group.state != GroupState.FORMING.name) {
                 assertOnlyPurchaseAndCostsChanged(existing, command)
             }
-            val orderId = existing?.id ?: UUID.randomUUID().toString()
+            val orderId = existing?.id ?: (command.creationId ?: UUID.randomUUID()).toString()
             val orderNumber = existing?.number ?: dao.nextOrderNumber()
             val payment = Money.fromRubles(command.receivedPayment)
             var order = OrderEntity(
@@ -312,7 +362,7 @@ class RoomOrdersRepository(
                 val product = resolveProduct(draft, now)
                 val old = draft.id?.let { id -> oldLines.firstOrNull { it.id == id.toString() } }
                 OrderLineEntity(
-                    id = old?.id ?: UUID.randomUUID().toString(), orderId = orderId, productId = product.id,
+                    id = old?.id ?: (draft.id ?: UUID.randomUUID()).toString(), orderId = orderId, productId = product.id,
                     productNameSnapshot = draft.productName.trim(), articleSnapshot = draft.article?.trim()?.ifEmpty { null },
                     quantity = draft.quantity?.stripTrailingZeros()?.toPlainString(),
                     saleUnitPriceMinor = draft.saleUnitPrice?.let { Money.fromRubles(it).minorUnits },
@@ -449,25 +499,6 @@ class RoomOrdersRepository(
         )
     }
 
-    private fun summarize(
-        group: SettlementGroupEntity,
-        orders: List<OrderEntity>,
-        allLines: List<OrderLineEntity>,
-        allCosts: List<CostEntryEntity>,
-    ): GroupSummary {
-        val triples = orders.map { order ->
-            val lines = allLines.filter { it.orderId == order.id }
-            val costs = allCosts.filter {
-                (it.ownerType == CostOwnerType.ORDER.name && it.ownerId == order.id) ||
-                    (it.ownerType == CostOwnerType.LINE.name && lines.any { line -> line.id == it.ownerId })
-            }
-            Triple(order.toDomain(), lines.map { it.toDomain() }, costs.map { it.toDomain() })
-        }
-        val groupCosts = allCosts.filter { it.ownerType == CostOwnerType.GROUP.name && it.ownerId == group.id }
-            .map { it.toDomain() }
-        return OrderCalculator.summarizeGroup(group.toDomain(), triples, groupCosts)
-    }
-
     private suspend fun createInitialGroupIfNeeded(now: Instant): SettlementGroupEntity {
         if (dao.nextGroupNumber() != 1L) throw DomainValidationException("Нет формируемой группы")
         val group = SettlementGroupEntity(
@@ -484,7 +515,7 @@ class RoomOrdersRepository(
             return dao.getProduct(id.toString()) ?: throw DomainValidationException("Выбранный товар не найден")
         }
         val normalized = normalizeArticle(draft.article)
-        dao.findReusableProduct(draft.productName.trim(), normalized)?.let { return it }
+        dao.reusableProducts(normalized).firstOrNull { it.name.searchKey() == draft.productName.searchKey() }?.let { return it }
         val product = ProductEntity(
             id = UUID.randomUUID().toString(), name = draft.productName.trim(), article = draft.article?.trim()?.ifEmpty { null },
             normalizedArticle = normalized, brand = null, aliasesJson = "[]", createdAt = now.epoch(),
@@ -601,3 +632,5 @@ class RoomOrdersRepository(
     private fun throwIfMissingId(id: UUID?): OrderEntity? = if (id == null) null
     else throw DomainValidationException("Заказ не найден")
 }
+
+private fun String.searchKey(): String = Normalizer.normalize(trim(), Normalizer.Form.NFKC).lowercase(Locale.ROOT)

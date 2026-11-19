@@ -22,8 +22,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.core.content.FileProvider
+import ru.liftzip.orders.app.feature.mail.OrderDocumentStore
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.horizontalScroll
@@ -58,7 +62,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import ru.liftzip.orders.app.ui.CompactTopBar
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.ProductDetailViewModel
-import ru.liftzip.orders.app.ui.formatDateTime
+import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.app.ui.formatDecimal
 import ru.liftzip.orders.domain.model.Currency
 import ru.liftzip.orders.domain.model.PriceRecordView
@@ -79,8 +83,8 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
     var linkActions by remember { mutableStateOf<String?>(null) }
     enlarged?.let { bytes ->
         Dialog(onDismissRequest = { enlarged = null }) {
-            val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-            if (bitmap != null) Image(bitmap.asImageBitmap(), "Увеличенная фотография",
+            val bitmap by historyBitmap(bytes, thumbnail = false)
+            if (bitmap != null) Image(bitmap!!.asImageBitmap(), "Увеличенная фотография",
                 modifier = Modifier.fillMaxWidth().combinedClickable(
                     onClick = {}, onLongClick = { savePhoto = bytes }),
                 contentScale = ContentScale.Fit)
@@ -128,14 +132,14 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                         shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
                         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Заказ №${source.orderNumber} · ${source.record.eventAt.formatDateTime()}",
+                            Text("Заказ №${entry.order.number} · ${entry.order.date.formatDate()}",
                                 style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 HistoryValue("Денису за единицу", entry.sale?.priceText() ?: "—", Modifier.weight(1f))
                                 HistoryValue("Закупка за единицу", entry.purchase?.priceText() ?: "—", Modifier.weight(1f))
                             }
-                            Text("Количество: ${source.record.quantity.formatDecimal()}", style = MaterialTheme.typography.bodySmall)
-                            Text("Вес единицы: ${source.unitWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
+                            Text("Количество: ${source.quantity?.formatDecimal() ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                            Text("Вес единицы: ${source.deliveryWeight?.let { "${it.formatDecimal()} кг" } ?: "не указан"}", style = MaterialTheme.typography.bodySmall)
                             source.actualWeight?.let { Text("Реальный вес: ${it.formatDecimal()} кг", style = MaterialTheme.typography.bodySmall) }
                             source.temporaryProductUrl?.takeIf { it.isNotBlank() }?.let { url ->
                                 Text("Временная ссылка: $url", modifier = Modifier.combinedClickable(
@@ -147,17 +151,35 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                                     onClick = {}, onLongClick = { linkActions = url }),
                                     style = MaterialTheme.typography.bodySmall)
                             }
-                            val rate = source.orderRate
+                            val rate = entry.order.orderRate
                             if (rate != null) Text("Курс заказа: ${rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             else entry.purchase?.takeIf { it.record.currency == Currency.CNY }?.let {
                                 Text("Курс закупки: ${it.record.rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             }
                             source.deliveryTariff?.let { Text("Тариф доставки: ${it.formatDecimal()} ¥/кг", style = MaterialTheme.typography.bodySmall) }
+                            val docs by produceState(emptyList<java.io.File>(), entry.order.id, source.id) {
+                                value = withContext(Dispatchers.IO) { OrderDocumentStore(context).lineFiles(entry.order.id, source.id) }
+                            }
+                            docs.forEach { file ->
+                                TextButton(onClick = {
+                                    runCatching {
+                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                                        val mime = when (file.extension.lowercase()) {
+                                            "pdf" -> "application/pdf"
+                                            "doc" -> "application/msword"
+                                            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                            else -> "application/octet-stream"
+                                        }
+                                        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                    }.onFailure { Toast.makeText(context, "Не удалось открыть документ", Toast.LENGTH_SHORT).show() }
+                                }) { Text(file.name.substringAfter('_')) }
+                            }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 source.images.forEachIndexed { index, bytes ->
-                                    val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                                    if (bitmap != null) Image(bitmap.asImageBitmap(), "Фото ${index + 1}",
+                                    val bitmap by historyBitmap(bytes, thumbnail = true)
+                                    if (bitmap != null) Image(bitmap!!.asImageBitmap(), "Фото ${index + 1}",
                                         modifier = Modifier.size(76.dp).combinedClickable(
                                             onClick = { enlarged = bytes },
                                             onLongClick = { savePhoto = bytes }),
@@ -206,3 +228,13 @@ private fun saveHistoryPhoto(context: Context, bytes: ByteArray): Boolean = runC
     }
     true
 }.getOrDefault(false)
+
+
+@Composable
+private fun historyBitmap(bytes: ByteArray, thumbnail: Boolean) =
+    produceState<android.graphics.Bitmap?>(null, bytes, thumbnail) {
+        value = withContext(Dispatchers.IO) {
+            val options = BitmapFactory.Options().apply { inSampleSize = if (thumbnail) 4 else 1 }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        }
+    }

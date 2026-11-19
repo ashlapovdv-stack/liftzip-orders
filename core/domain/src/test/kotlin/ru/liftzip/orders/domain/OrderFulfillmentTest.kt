@@ -12,11 +12,11 @@ class OrderFulfillmentTest {
     @Test fun groupStatusFollowsEarliestMissingActionAcrossAllOrders() {
         val delivery = OrderFulfillment(true, true, false)
         val done = OrderFulfillment(true, true, true)
-        assertEquals(GroupState.IN_DELIVERY, groupProgressState(listOf(delivery, done)))
-        assertEquals(GroupState.AWAITING_PAYMENT, groupProgressState(listOf(delivery, OrderFulfillment(true, false, true))))
-        assertEquals(GroupState.ACCEPTED, groupProgressState(listOf(delivery, OrderFulfillment(false, true, true))))
+        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, done)))
+        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, OrderFulfillment(true, false, true))))
+        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, OrderFulfillment(false, true, true))))
         assertEquals(GroupState.COMPLETED, groupProgressState(listOf(done, done)))
-        assertEquals(GroupState.ACCEPTED, groupProgressState(emptyList()))
+        assertEquals(GroupState.CALCULATING, groupProgressState(emptyList()))
     }
 
     @Test fun `only all three independent actions complete an order`() {

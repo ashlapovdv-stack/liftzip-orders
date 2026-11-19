@@ -8,17 +8,17 @@ import java.util.UUID
 
 /** Persistent order-owned documents, separate from generated mail snapshots. */
 class OrderDocumentStore(private val context: Context) {
-    private val root = File(context.filesDir, "order_documents").apply { mkdirs() }
-    private fun dir(orderId: UUID) = File(root, orderId.toString()).apply { mkdirs() }
+    private val root = File(context.filesDir, "order_documents")
+    private fun dir(orderId: UUID) = File(root, orderId.toString())
 
     fun files(orderId: UUID): List<File> =
-        dir(orderId).listFiles()?.filter { it.isFile }?.sortedBy { it.name } ?: emptyList()
+        dir(orderId).listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") }?.sortedBy { it.name } ?: emptyList()
 
     private fun lineDir(orderId: UUID, lineId: UUID) =
-        File(dir(orderId), lineId.toString()).apply { mkdirs() }
+        File(dir(orderId), lineId.toString())
 
     fun lineFiles(orderId: UUID, lineId: UUID): List<File> =
-        lineDir(orderId, lineId).listFiles()?.filter { it.isFile }?.sortedBy { it.name } ?: emptyList()
+        lineDir(orderId, lineId).listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") }?.sortedBy { it.name } ?: emptyList()
 
     fun delete(orderId: UUID, lineId: UUID, file: File): Boolean {
         val directory = lineDir(orderId, lineId).canonicalFile
@@ -36,14 +36,16 @@ class OrderDocumentStore(private val context: Context) {
             ?: "document"
         val clean = suppliedName.substringAfterLast('/').substringAfterLast('\\')
             .replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(90).ifBlank { "document" }
+        check(directory.mkdirs() || directory.isDirectory)
         val target = File(directory, "${UUID.randomUUID()}_$clean")
+        val pending = File(directory, "${target.name}.tmp")
         try {
-            resolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
+            resolver.openInputStream(uri)?.use { input -> pending.outputStream().use { input.copyTo(it) } }
                 ?: error("Не удалось открыть документ")
-        } catch (e: Exception) {
-            target.delete()
-            throw e
+            check(pending.renameTo(target)) { "Не удалось сохранить документ" }
+            return target
+        } finally {
+            pending.delete()
         }
-        return target
     }
 }

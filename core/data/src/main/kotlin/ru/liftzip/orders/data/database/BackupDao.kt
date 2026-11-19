@@ -7,6 +7,18 @@ import androidx.room.Query
 
 @Dao
 interface BackupDao {
+    @Query("SELECT id, lineId, position FROM order_line_images ORDER BY id")
+    suspend fun imageIndex(): List<ru.liftzip.orders.data.backup.BackupImage>
+
+    @Query("SELECT jpeg FROM order_line_images WHERE id = :id")
+    suspend fun imageBytes(id: String): ByteArray
+
+    @Query("SELECT value FROM app_metadata WHERE `key` = :key")
+    suspend fun metadataValue(key: String): String?
+
+    @Query("DELETE FROM app_metadata WHERE `key` = :key")
+    suspend fun deleteMetadataKey(key: String)
+
     @Query("SELECT * FROM delivery_invoices") suspend fun allDeliveryInvoices(): List<DeliveryInvoiceEntity>
     @Query("SELECT * FROM delivery_payments") suspend fun allDeliveryPayments(): List<DeliveryPaymentEntity>
     @Insert suspend fun insertDeliveryInvoices(items:List<DeliveryInvoiceEntity>)

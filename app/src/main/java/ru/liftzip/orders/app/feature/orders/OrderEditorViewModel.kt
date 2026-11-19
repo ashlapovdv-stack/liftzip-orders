@@ -71,6 +71,8 @@ data class EditorLineDraft(
     val temporaryProductUrl: String = "",
     val actualWeight: String = "",
     val images: List<ByteArray> = emptyList(),
+    val editorId: UUID = id ?: UUID.randomUUID(),
+    val hasDocuments: Boolean = false,
 )
 
 data class OrderEditorState(
@@ -98,6 +100,7 @@ data class OrderEditorState(
     val history: List<ChangeEvent> = emptyList(),
     val dirty: Boolean = false,
     val saving: Boolean = false,
+    val mediaWriting: Boolean = false,
     val showLeaveConfirmation: Boolean = false,
     val errors: Map<String, String> = emptyMap(),
     val generalError: String? = null,
@@ -112,7 +115,8 @@ class OrderEditorViewModel(
     private val _state = MutableStateFlow(OrderEditorState(orderId = existingOrderId))
     val state = _state.asStateFlow()
     private var commandId = UUID.randomUUID()
-    private val calculationOrderId = existingOrderId ?: UUID.randomUUID()
+    val attachmentOrderId = existingOrderId ?: UUID.randomUUID()
+    private val calculationOrderId = attachmentOrderId
 
     init {
         if (existingOrderId == null) {
@@ -187,13 +191,19 @@ class OrderEditorViewModel(
         state.copy(lines = state.lines.mapIndexed { i, line -> if (i == index) transform(line) else line })
     }
 
-    fun addImagesFromGallery(index: Int, uris: List<Uri>, resolver: ContentResolver) {
-        viewModelScope.launch {
+    fun addImagesFromGallery(editorId: UUID, uris: List<Uri>, resolver: ContentResolver) = writeMedia {
             try {
                 val compressed = withContext(Dispatchers.IO) {
                     uris.take(8).mapNotNull { uri ->
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@mapNotNull null
+                        val sample = generateSequence(1) { it * 2 }.first {
+                            maxOf(bounds.outWidth, bounds.outHeight) / it <= 2560
+                        }
                         resolver.openInputStream(uri)?.use { input ->
-                            val source = BitmapFactory.decodeStream(input) ?: return@use null
+                            val source = BitmapFactory.decodeStream(input, null,
+                                BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@use null
                             try {
                                 val maxSide = maxOf(source.width, source.height)
                                 val scale = (1280f / maxSide).coerceAtMost(1f)
@@ -213,18 +223,37 @@ class OrderEditorViewModel(
                         }
                     }
                 }
-                updateLine(index) { it.copy(images = (it.images + compressed).take(8)) }
+                if (compressed.isNotEmpty()) _state.update { state ->
+                    if (state.lines.none { it.editorId == editorId }) state else state.copy(
+                        lines = state.lines.map {
+                            if (it.editorId == editorId) it.copy(images = (it.images + compressed).take(8)) else it
+                        },
+                        dirty = true,
+                    )
+                }
             } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 _state.update { it.copy(generalError = "Не удалось прочитать изображение: ${error.message}") }
             }
+    }
+
+    fun writeMedia(action: suspend () -> Unit) {
+        if (_state.value.mediaWriting || _state.value.saving) return
+        _state.update { it.copy(mediaWriting = true) }
+        viewModelScope.launch {
+            try { action() } finally { _state.update { it.copy(mediaWriting = false) } }
         }
+    }
+
+    fun markDocuments(editorId: UUID, present: Boolean) = update { state ->
+        state.copy(lines = state.lines.map { if (it.editorId == editorId) it.copy(hasDocuments = present) else it })
     }
 
     fun importLines(items: List<InvoiceItem>) {
         if (items.isEmpty() || _state.value.salesLocked) return
         update { current ->
             val imported = items.map { EditorLineDraft(name = it.name.trim(), quantity = it.quantity) }
-            val existing = current.lines.filterNot { it.id == null && it.name.isBlank() && it.article.isBlank() && it.productUrl.isBlank() && it.images.isEmpty() }
+            val existing = current.lines.filterNot { it.id == null && it.name.isBlank() && it.article.isBlank() && it.productUrl.isBlank() && it.temporaryProductUrl.isBlank() && it.images.isEmpty() && !it.hasDocuments }
             current.copy(lines = imported + existing)
         }
     }
@@ -263,7 +292,7 @@ class OrderEditorViewModel(
 
     fun save(onSaved: (UUID) -> Unit) {
         val snapshot = _state.value
-        if (snapshot.saving || snapshot.actionsSaving) return
+        if (snapshot.saving || snapshot.actionsSaving || snapshot.mediaWriting) return
         val command = buildCommand(snapshot) ?: return
         _state.update { it.copy(saving = true, generalError = null, errors = emptyMap()) }
         viewModelScope.launch {
@@ -355,7 +384,7 @@ class OrderEditorViewModel(
             val rate = if (line.purchaseCurrency == Currency.RUB) BigDecimal.ONE else state.orderRate.parseDecimal()
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
-                id = line.id, productId = line.productId, productName = name,
+                id = line.id ?: line.editorId, productId = line.productId, productName = name,
                 article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity,
                 saleUnitPrice = sale, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
@@ -391,7 +420,7 @@ class OrderEditorViewModel(
             counterparty = state.counterparty.trim(), receivedPayment = payment,
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
-            orderRate = state.orderRate.parseDecimal(),
+            orderRate = state.orderRate.parseDecimal(), creationId = attachmentOrderId,
         )
         try {
             OrderValidator.validate(command)

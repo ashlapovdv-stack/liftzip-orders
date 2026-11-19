@@ -2,6 +2,7 @@ package ru.liftzip.orders.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,6 +21,9 @@ class SettingsVersionTest {
         val app = activity.packageManager.getPackageInfo(activity.packageName, 0)
         val version = "Версия ${app.versionName} (сборка ${PackageInfoCompat.getLongVersionCode(app)})"
 
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription("Настройки и резервные копии").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithContentDescription("Настройки и резервные копии").performClick()
         compose.onNodeWithText(version).assertIsDisplayed()
     }

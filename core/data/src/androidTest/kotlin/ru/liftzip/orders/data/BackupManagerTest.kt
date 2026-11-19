@@ -65,6 +65,45 @@ class BackupManagerTest {
         assertTrue(File(context.filesDir, "recovery-backups").listFiles()?.isNotEmpty() == true)
     }
 
+    @Test fun backupRoundTripRestoresPhotosDocumentsDraftAndEmptyOrderOnCleanDatabase() = runTest {
+        val jpeg = byteArrayOf(1, 2, 3)
+        val order = orderCommand("Товар с вложениями")
+        val orderId = repository.saveOrder(order.copy(lines = order.lines.map { it.copy(images = listOf(jpeg)) }))
+        val details = repository.observeOrder(orderId).first()!!
+        val groupId = details.group.id
+        val lineId = details.lines.single().id
+        val emptyId = repository.saveOrder(orderCommand("Пустой черновик").copy(lines = emptyList()))
+        val document = File(context.filesDir, "order_documents/$orderId/$lineId/test.pdf").apply {
+            parentFile!!.mkdirs()
+            writeText("Тестовый документ")
+        }
+        val draft = File(context.filesDir, "mail_drafts/$groupId/$orderId.json").apply {
+            parentFile!!.mkdirs()
+            writeText("""{"orderId":"$orderId","subject":"Сохранённое письмо","body":"Правка"}""")
+        }
+        val archive = File.createTempFile("media-orders-", ".zip", context.cacheDir)
+        val clean = Room.inMemoryDatabaseBuilder(context, OrdersDatabase::class.java).build()
+        try {
+            val inspection = manager.exportTo(Uri.fromFile(archive))
+            assertTrue(inspection.includesAttachments)
+            document.delete()
+            draft.delete()
+            val cleanRepository = RoomOrdersRepository(clean)
+            cleanRepository.initialize()
+            BackupManager(context, clean).importFrom(Uri.fromFile(archive))
+            val restored = cleanRepository.observeOrder(orderId).first()!!
+            assertTrue(restored.lines.single().images.single().contentEquals(jpeg))
+            assertEquals("Тестовый документ", document.readText())
+            assertTrue(draft.readText().contains("Сохранённое письмо"))
+            assertTrue(cleanRepository.observeOrder(emptyId).first()!!.lines.isEmpty())
+        } finally {
+            clean.close()
+            archive.delete()
+            document.delete()
+            draft.delete()
+        }
+    }
+
     @Test fun corruptAndNewerArchivesLeaveCurrentDataUntouched() = runTest {
         val orderId = repository.saveOrder(orderCommand("Сохранить"))
         val valid = File(context.cacheDir, "valid.zip")

@@ -109,9 +109,29 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
             var subject by remember(current.orderId, draftVersion) { mutableStateOf(current.subject) }
             var recipient by remember(current.orderId, draftVersion) { mutableStateOf(current.recipient) }
             var body by remember(current.orderId, draftVersion) { mutableStateOf(current.body) }
-            fun save() {
-                store.update(groupId, current.orderId, recipient, subject, body)
-                drafts = store.list(groupId).filter { it.orderId == orderId }
+            suspend fun save(syncAttachments: Boolean = false) {
+                drafts = withContext(Dispatchers.IO) {
+                    store.update(groupId, current.orderId, recipient, subject, body)
+                    if (syncAttachments) {
+                        val details = repository.observeOrder(current.orderId).first()
+                            ?: kotlin.error("Заказ не найден")
+                        store.refresh(details, preserveEdits = true)
+                    }
+                    listOfNotNull(store.get(groupId, current.orderId))
+                }
+                if (syncAttachments) draftVersion++
+            }
+
+            fun draftAction(action: suspend () -> Unit) {
+                if (busy) return
+                busy = true
+                error = null
+                scope.launch {
+                    try { action() }
+                    catch (failure: kotlinx.coroutines.CancellationException) { throw failure }
+                    catch (failure: Exception) { error = failure.message }
+                    finally { busy = false }
+                }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 Text("Получатель", color = Color(0xFF777777), fontSize = 13.sp)
@@ -134,23 +154,25 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 modifier = Modifier.fillMaxWidth().height(245.dp)
                     .border(1.dp, Color(0xFFCECECE), RoundedCornerShape(10.dp))
                     .padding(12.dp))
-            val photos = remember(groupId, current.orderId, current.count) {
-                store.attachments(groupId, current.orderId)
+            val files by produceState(emptyList<File>() to emptyList<File>(), current.orderId, draftVersion) {
+                value = withContext(Dispatchers.IO) {
+                    store.attachments(groupId, current.orderId) to store.documents(groupId, current.orderId)
+                }
             }
-            val documents = remember(groupId, current.orderId, draftVersion) { store.documents(groupId, current.orderId) }
+            val (photos, documents) = files
             if (photos.isNotEmpty() || documents.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     photos.forEachIndexed { index, photo ->
-                        val preview = remember(photo.absolutePath, photo.lastModified()) {
-                            runCatching {
+                        val preview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, photo.absolutePath) {
+                            value = withContext(Dispatchers.IO) {
                                 val options = BitmapFactory.Options().apply { inSampleSize = 4 }
                                 BitmapFactory.decodeFile(photo.absolutePath, options)?.asImageBitmap()
-                            }.getOrNull()
+                            }
                         }
                         Box {
                             if (preview != null) {
-                                Image(bitmap = preview, contentDescription = "Фото ${index + 1}, номер позиции нанесён",
+                                Image(bitmap = preview!!, contentDescription = "Фото ${index + 1}, номер позиции нанесён",
                                     modifier = Modifier.size(104.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(Color(0xFFEAF3EB))
@@ -190,10 +212,12 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
             Row(Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-            DraftActionButton("Сохранить", Icons.Default.Save, darkGreen) { save() }
-            DraftActionButton("Поделиться", Icons.Default.Share, darkGreen, onClick = {
-                save()
-                val files = store.attachments(groupId, current.orderId) + store.documents(groupId, current.orderId)
+            DraftActionButton("Сохранить", Icons.Default.Save, darkGreen) { draftAction { save() } }
+            DraftActionButton("Поделиться", Icons.Default.Share, darkGreen, onClick = { draftAction {
+                save(syncAttachments = true)
+                val files = withContext(Dispatchers.IO) {
+                    store.attachments(groupId, current.orderId) + store.documents(groupId, current.orderId)
+                }
                 val uris = ArrayList<Uri>(files.map {
                     FileProvider.getUriForFile(context, "${context.packageName}.files", it)
                 })
@@ -214,10 +238,9 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 }
                 runCatching { context.startActivity(Intent.createChooser(intent, "Поделиться письмом")) }
                     .onFailure { error = it.message }
-            })
-            DraftActionButton("Скачать", Icons.Default.FileDownload, darkGreen, onClick = {
-                save()
-                scope.launch {
+            } })
+            DraftActionButton("Скачать", Icons.Default.FileDownload, darkGreen, onClick = { draftAction {
+                save(syncAttachments = true)
                     try {
                         val file = withContext(Dispatchers.IO) {
                             EmlExporter.export(context, groupId, current.orderId, store, subject, recipient, body)
@@ -230,8 +253,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                         }
                         context.startActivity(Intent.createChooser(intent, "Экспорт .eml"))
                     } catch (e: Exception) { error = e.message }
-                }
-            })
+            } })
             DraftActionButton("Обновить", Icons.Default.Refresh, darkGreen) { confirmRefresh = true }
             }
             if (confirmRefresh) {
@@ -247,7 +269,7 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                                         ?: kotlin.error("Заказ не найден")
                                     store.refresh(details)
                                 }
-                                drafts = store.list(groupId).filter { it.orderId == orderId }
+                                drafts = withContext(Dispatchers.IO) { listOfNotNull(store.get(groupId, orderId)) }
                                 draftVersion++
                                 selected = orderId
                             } catch (e: Exception) { error = e.message }

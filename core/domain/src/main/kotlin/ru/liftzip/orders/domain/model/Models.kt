@@ -9,12 +9,8 @@ import java.util.UUID
 enum class Currency { RUB, CNY }
 enum class GroupState { FORMING, CALCULATING, COMPLETED, ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY }
 
-fun groupProgressState(orders: List<OrderFulfillment>): GroupState = when {
-    orders.isEmpty() || orders.any { !it.withdrawn } -> GroupState.ACCEPTED
-    orders.any { !it.transferred } -> GroupState.AWAITING_PAYMENT
-    orders.any { !it.received } -> GroupState.IN_DELIVERY
-    else -> GroupState.COMPLETED
-}
+fun groupProgressState(orders: List<OrderFulfillment>): GroupState =
+    if (orders.isNotEmpty() && orders.all { it.isComplete }) GroupState.COMPLETED else GroupState.CALCULATING
 enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
 enum class OrderStage { ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
 
@@ -43,7 +39,7 @@ enum class CalculationState { INCOMPLETE, PRELIMINARY }
 enum class CostOwnerType { LINE, ORDER, GROUP }
 enum class CostKind { PURCHASE, DELIVERY, COMMISSION, OTHER }
 enum class PriceEventType { SALE, PURCHASE }
-enum class OrdersFilter { ALL, NEEDS_CALCULATION }
+enum class OrdersFilter { ALL, NEEDS_CALCULATION, IN_DELIVERY }
 
 @JvmInline
 value class Money(val minorUnits: Long) : Comparable<Money> {
@@ -222,20 +218,18 @@ data class PriceRecordView(
 
 data class ProductPriceHistory(
     val product: Product,
-    val records: List<PriceRecordView>,
+    val lines: List<PriceHistoryLine>,
 ) {
-    val lines: List<PriceHistoryLine> = records.groupBy { it.record.sourceLineId }.map { (id, events) ->
-        PriceHistoryLine(id, events.firstOrNull { it.record.type == PriceEventType.SALE },
-            events.firstOrNull { it.record.type == PriceEventType.PURCHASE })
-    }
+    val records: List<PriceRecordView> get() = lines.flatMap { listOfNotNull(it.sale, it.purchase) }
 }
 
 data class PriceHistoryLine(
-    val sourceLineId: UUID,
+    val source: OrderLine,
+    val order: Order,
     val sale: PriceRecordView?,
     val purchase: PriceRecordView?,
 ) {
-    val source: PriceRecordView get() = requireNotNull(sale ?: purchase)
+    val sourceLineId: UUID get() = source.id
 }
 
 data class OrderCalculation(
@@ -291,6 +285,7 @@ data class SaveOrderCommand(
     val costs: List<CostDraft>,
     val manualDeliveryPrice: BigDecimal? = null,
     val orderRate: BigDecimal? = null,
+    val creationId: UUID? = null,
 )
 
 data class SaveGroupCostsCommand(

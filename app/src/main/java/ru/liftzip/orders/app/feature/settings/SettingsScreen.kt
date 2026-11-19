@@ -184,6 +184,7 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
                     Text("Копия создана: ${Instant.ofEpochMilli(import.inspection.createdAt).formatDateTime()}")
                     Text("Всего записей: ${import.inspection.recordCount}")
                     Text("Заказов: ${import.inspection.counts["orders"] ?: 0}; групп: ${import.inspection.counts["groups"] ?: 0}; товаров: ${import.inspection.counts["products"] ?: 0}")
+                    if (!import.inspection.includesAttachments) Text("В этой старой копии нет вложений и черновиков. При восстановлении сохраняются доступные на устройстве файлы.")
                     Text("Текущая база будет полностью заменена. Перед этим будет создана локальная копия.", color = MaterialTheme.colorScheme.error)
                 }
             },

@@ -23,16 +23,27 @@ interface OrdersDao {
 
     @Query("""
         SELECT o.* FROM orders o
-        WHERE (:filter = 'ALL' OR o.calculationState = 'INCOMPLETE')
-          AND (:query = '' OR CAST(o.number AS TEXT) LIKE :query
-            OR o.counterparty LIKE :query
-            OR EXISTS (
-                SELECT 1 FROM order_lines ol
-                WHERE ol.orderId = o.id AND (ol.productNameSnapshot LIKE :query OR ol.articleSnapshot LIKE :query)
-            ))
+        WHERE (:filter = 'ALL'
+            OR (:filter = 'NEEDS_CALCULATION' AND o.calculationState = 'INCOMPLETE')
+            OR (:filter = 'IN_DELIVERY' AND o.withdrawn = 1 AND o.transferred = 1 AND o.received = 0))
         ORDER BY o.date DESC, o.number DESC LIMIT :limit
     """)
-    fun observeOrders(query: String, filter: String, limit: Int): Flow<List<OrderEntity>>
+    fun observeOrders(filter: String, limit: Int): Flow<List<OrderEntity>>
+
+    @Query("SELECT id, orderId, productNameSnapshot, articleSnapshot FROM order_lines")
+    fun observeOrderSearchLines(): Flow<List<OrderSearchLine>>
+
+    @Query("SELECT * FROM settlement_groups WHERE id IN (:ids)")
+    suspend fun getGroupsByIds(ids: List<String>): List<SettlementGroupEntity>
+
+    @Query("SELECT * FROM order_lines WHERE orderId IN (:ids) ORDER BY createdAt, id")
+    suspend fun getLinesForOrders(ids: List<String>): List<OrderLineEntity>
+
+    @Query("SELECT * FROM cost_entries WHERE ownerType = :owner AND ownerId IN (:ids)")
+    suspend fun getCostsForOwners(owner: String, ids: List<String>): List<CostEntryEntity>
+
+    @Query("UPDATE orders SET calculationState = 'INCOMPLETE' WHERE calculationState != 'INCOMPLETE' AND NOT EXISTS (SELECT 1 FROM order_lines WHERE orderId = orders.id)")
+    suspend fun markEmptyOrdersIncomplete()
 
     @Query("SELECT * FROM orders WHERE id = :id")
     fun observeOrder(id: String): Flow<OrderEntity?>
@@ -57,16 +68,20 @@ interface OrdersDao {
     @Query("SELECT * FROM orders WHERE groupId = :groupId ORDER BY number DESC")
     fun observeGroupOrders(groupId: String): Flow<List<OrderEntity>>
 
-    @Query("""
-        SELECT DISTINCT p.* FROM products p
-        WHERE (:query = '' OR p.name LIKE :query OR p.article LIKE :query
-            OR p.aliasesJson LIKE :query OR p.brand LIKE :query)
-        ORDER BY p.updatedAt DESC, p.name COLLATE NOCASE LIMIT :limit
-    """)
-    fun observeProducts(query: String, limit: Int): Flow<List<ProductEntity>>
+    @Query("SELECT * FROM products ORDER BY updatedAt DESC, name COLLATE NOCASE, id LIMIT :limit")
+    fun observeProducts(limit: Int): Flow<List<ProductEntity>>
 
     @Query("SELECT * FROM price_records WHERE productId = :productId ORDER BY eventAt DESC, updatedAt DESC")
     fun observePriceRecords(productId: String): Flow<List<PriceRecordEntity>>
+
+    @Query("SELECT COUNT(*) FROM order_lines l JOIN orders o ON l.orderId = o.id WHERE o.groupId = :groupId")
+    fun observeGroupLineCount(groupId: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM cost_entries WHERE (ownerType = 'GROUP' AND ownerId = :groupId) OR ownerId IN (SELECT id FROM orders WHERE groupId = :groupId) OR ownerId IN (SELECT l.id FROM order_lines l JOIN orders o ON l.orderId = o.id WHERE o.groupId = :groupId)")
+    fun observeGroupCostCount(groupId: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM order_line_images i JOIN order_lines l ON i.lineId = l.id WHERE l.productId = :productId")
+    fun observeProductImageCount(productId: String): Flow<Int>
 
     @Query("SELECT * FROM order_lines WHERE productId = :productId")
     fun observeProductLines(productId: String): Flow<List<OrderLineEntity>>
@@ -116,12 +131,8 @@ interface OrdersDao {
     @Query("SELECT COALESCE(MAX(number), 0) + 1 FROM settlement_groups")
     suspend fun nextGroupNumber(): Long
 
-    @Query("""
-        SELECT * FROM products WHERE lower(trim(name)) = lower(trim(:name))
-        AND ((:normalizedArticle IS NULL AND normalizedArticle IS NULL) OR normalizedArticle = :normalizedArticle)
-        LIMIT 1
-    """)
-    suspend fun findReusableProduct(name: String, normalizedArticle: String?): ProductEntity?
+    @Query("SELECT * FROM products WHERE normalizedArticle IS :normalizedArticle ORDER BY createdAt, id")
+    suspend fun reusableProducts(normalizedArticle: String?): List<ProductEntity>
 
     @Query("SELECT * FROM order_commands WHERE commandId = :commandId")
     suspend fun getOrderCommand(commandId: String): OrderCommandEntity?
@@ -186,3 +197,5 @@ interface OrdersDao {
     @Query("DELETE FROM price_records WHERE sourceLineId = :lineId AND type = :type")
     suspend fun deletePriceRecord(lineId: String, type: String)
 }
+
+data class OrderSearchLine(val id: String, val orderId: String, val productNameSnapshot: String, val articleSnapshot: String?)

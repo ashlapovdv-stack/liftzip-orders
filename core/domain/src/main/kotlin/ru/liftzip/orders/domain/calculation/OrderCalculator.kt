@@ -42,7 +42,7 @@ object OrderCalculator {
                 (it.ownerType == CostOwnerType.LINE && it.ownerId in lineIds)
         }
         val saleValues = lines.map(::lineSale)
-        val priceForDenis = totalOrUnknown(saleValues)
+        val priceForDenis = if (lines.isEmpty()) null else totalOrUnknown(saleValues)
         // The agreed formulas have one source for each value. Per-line purchases,
         // group expenses and delivery estimates stay reference data only.
         val purchases = applicableCosts.filter {

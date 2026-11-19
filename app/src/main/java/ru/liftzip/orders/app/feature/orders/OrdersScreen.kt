@@ -47,6 +47,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -70,7 +73,6 @@ import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.domain.model.OrderSummary
-import ru.liftzip.orders.domain.model.OrderStage
 import ru.liftzip.orders.domain.model.OrdersFilter
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.util.UUID
@@ -93,8 +95,7 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
     val query by model.currentQuery.collectAsState()
     val filter by model.currentFilter.collectAsState()
     val limit by model.currentLimit.collectAsState()
-    var deliveryOnly by remember { mutableStateOf(false) }
-    val visibleOrders = if (deliveryOnly) orders.filter { it.order.fulfillment.stage == OrderStage.IN_DELIVERY } else orders
+    val deliveryOnly = filter == OrdersFilter.IN_DELIVERY
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -107,27 +108,32 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(modifier = Modifier.height(32.dp), selected = !deliveryOnly && filter == OrdersFilter.ALL, onClick = { deliveryOnly = false; model.filter(OrdersFilter.ALL) }, label = { Text("Все", style = MaterialTheme.typography.labelMedium) })
+                    FilterChip(modifier = Modifier.height(32.dp), selected = !deliveryOnly && filter == OrdersFilter.ALL, onClick = { model.filter(OrdersFilter.ALL) }, label = { Text("Все", style = MaterialTheme.typography.labelMedium) })
                     FilterChip(
                         modifier = Modifier.height(32.dp),
                         selected = !deliveryOnly && filter == OrdersFilter.NEEDS_CALCULATION,
-                        onClick = { deliveryOnly = false; model.filter(OrdersFilter.NEEDS_CALCULATION) },
+                        onClick = { model.filter(OrdersFilter.NEEDS_CALCULATION) },
                         label = { Text("Нужен расчёт", style = MaterialTheme.typography.labelMedium) },
                     )
                     FilterChip(
                         modifier = Modifier.height(32.dp),
                         selected = deliveryOnly,
-                        onClick = { val next = !deliveryOnly; model.filter(OrdersFilter.ALL); deliveryOnly = next },
+                        onClick = { model.filter(if (deliveryOnly) OrdersFilter.ALL else OrdersFilter.IN_DELIVERY) },
                         label = { Text("Доставка", style = MaterialTheme.typography.labelMedium) },
                     )
                 }
             }
-            if (visibleOrders.isEmpty()) item { EmptyState(if (deliveryOnly) "Заказов на доставке нет" else "Заказов нет") }
-            items(visibleOrders, key = { it.order.id }) { summary ->
+            if (orders.isEmpty()) item { EmptyState(if (deliveryOnly) "Заказов на доставке нет" else "Заказов нет") }
+            items(orders, key = { it.order.id }) { summary ->
+                val hasDraft by produceState(false, summary.order.id, draftRevision) {
+                    value = withContext(Dispatchers.IO) {
+                        runCatching { draftStore.get(summary.order.groupId, summary.order.id) != null }.getOrDefault(false)
+                    }
+                }
                 OrderCard(summary, onClick = { onOpenOrder(summary.order.id) }, onOpenGroup = { onOpenGroup(summary.order.groupId) },
-                    hasDraft = draftRevision.let { draftStore.get(summary.order.groupId, summary.order.id) != null })
+                    hasDraft = hasDraft)
             }
-            if (orders.size >= limit && limit < 500) {
+            if (orders.size >= limit) {
                 item { OutlinedButton(onClick = model::showMore, modifier = Modifier.fillMaxWidth()) { Text("Показать ещё") } }
             }
         }

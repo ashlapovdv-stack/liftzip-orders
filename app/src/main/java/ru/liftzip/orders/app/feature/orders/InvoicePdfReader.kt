@@ -157,15 +157,14 @@ class InvoicePdfReader {
             val tess = TessBaseAPI()
             try {
                 if (!tess.init(base.absolutePath, "rus+eng")) error("Не удалось запустить распознавание")
-                val bitmap = resolver.openInputStream(uri)?.use { input ->
-                    val bytes = input.readBytes()
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    val sample = generateSequence(1) { it * 2 }.takeWhile {
-                        bounds.outWidth / it > 2400 || bounds.outHeight / it > 3200
-                    }.lastOrNull()?.times(2) ?: 1
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
-                        BitmapFactory.Options().apply { inSampleSize = sample })
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Не удалось открыть изображение" }
+                val sample = generateSequence(1) { it * 2 }.first {
+                    bounds.outWidth / it <= 2400 && bounds.outHeight / it <= 3200
+                }
+                val bitmap = resolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
                 } ?: error("Не удалось открыть изображение")
                 try {
                     val report: ((String) -> Unit)? = if (diagnostics) {
@@ -207,9 +206,9 @@ class InvoicePdfReader {
                     PdfRenderer(fd).use { renderer ->
                         val all = mutableListOf<InvoiceItem>()
                         if (diagnostics) InvoiceDiagnostics.record(context, "pages", "pages=${renderer.pageCount}")
-                        for (index in 0 until renderer.pageCount.coerceAtMost(8)) {
+                        for (index in 0 until renderer.pageCount) {
                             renderer.openPage(index).use { page ->
-                                val scale = (2200f / page.width).coerceAtMost(3f)
+                                val scale = minOf(2200f / page.width, 3200f / page.height, 3f)
                                 val bitmap = Bitmap.createBitmap(
                                     (page.width * scale).toInt().coerceAtLeast(1),
                                     (page.height * scale).toInt().coerceAtLeast(1),

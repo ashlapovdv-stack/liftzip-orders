@@ -7,30 +7,64 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import android.net.Uri
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import ru.liftzip.orders.data.backup.BackupManager
 import ru.liftzip.orders.data.database.OrdersDatabase
 import ru.liftzip.orders.data.repository.RoomOrdersRepository
 
 class OrdersApplication : Application() {
-    lateinit var container: AppContainer
-        private set
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val settings by lazy { SettingsStore(this) }
+    private val recoveryPreferences by lazy { getSharedPreferences("database_location", MODE_PRIVATE) }
 
-    override fun onCreate() {
-        super.onCreate()
-        container = AppContainer(this)
-        applicationScope.launch { container.repository.initialize() }
+    private val opening = Mutex()
+    private var active: AppContainer? = null
+
+    suspend fun openOrders(): AppContainer = withContext(Dispatchers.IO) {
+        opening.withLock { active ?: openActiveDatabase().also { active = it } }
+    }
+
+    private suspend fun openActiveDatabase(): AppContainer {
+        val name = recoveryPreferences.getString("active", OrdersDatabase.DATABASE_NAME)
+            ?: OrdersDatabase.DATABASE_NAME
+        val container = AppContainer(this@OrdersApplication, name)
+        try {
+            container.backup.recoverPendingRestore()
+            container.repository.initialize()
+            return container
+        } catch (error: Exception) {
+            container.database.close()
+            throw error
+        }
+    }
+
+    suspend fun restoreOrders(uri: Uri): AppContainer = withContext(Dispatchers.IO) {
+        val name = "liftzip-recovered-${UUID.randomUUID()}.db"
+        val container = AppContainer(this@OrdersApplication, name)
+        try {
+            container.backup.restoreIntoNewDatabase(uri) {
+                check(recoveryPreferences.edit().putString("active", name).commit()) {
+                    "Не удалось выбрать восстановленную базу"
+                }
+            }
+            container.repository.initialize()
+            opening.withLock { active = container }
+            container
+        } catch (error: Exception) {
+            container.database.close()
+            throw error
+        }
     }
 }
 
-class AppContainer(context: Context) {
-    val database = OrdersDatabase.create(context)
+class AppContainer(context: Context, databaseName: String = OrdersDatabase.DATABASE_NAME) {
+    val database = OrdersDatabase.create(context, databaseName)
     val repository = RoomOrdersRepository(database)
     val backup = BackupManager(context.applicationContext, database)
     val settings = SettingsStore(context.applicationContext)

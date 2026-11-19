@@ -120,7 +120,7 @@ class RoomOrdersRepositoryTest {
         val groups = repository.observeGroups().first()
         assertEquals(2, groups.size)
         assertEquals(1, groups.count { it.group.state == GroupState.FORMING })
-        assertEquals(GroupState.ACCEPTED, groups.first { it.group.id == first.group.id }.group.state)
+        assertEquals(GroupState.CALCULATING, groups.first { it.group.id == first.group.id }.group.state)
     }
 
     @Test fun incompletePurchaseSurvivesAsIncomplete() = runTest {
@@ -225,7 +225,7 @@ class RoomOrdersRepositoryTest {
         val next = repository.saveOrder(orderCommand())
         assertEquals(3L, repository.observeOrder(next).first()!!.order.number)
         repository.deleteOrder(first)
-        assertEquals(GroupState.ACCEPTED, repository.observeGroup(groupId).first()!!.summary.group.state)
+        assertEquals(GroupState.CALCULATING, repository.observeGroup(groupId).first()!!.summary.group.state)
         database.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
     }
 
@@ -249,6 +249,31 @@ class RoomOrdersRepositoryTest {
         assertTrue(after.costs.isEmpty())
         assertEquals(1, database.backupDao().allPriceRecords().count { it.orderId == id.toString() })
         assertTrue(after.history.any { it.changeType == "UPDATED" && it.beforeJson!!.contains("Первый") })
+    }
+
+    @Test fun unicodeSearchAndIncompleteHistoryShareOneProduct() = runTest {
+        val source = orderCommand()
+        val line = source.lines.single()
+        val first = repository.saveOrder(source.copy(lines = listOf(line.copy(
+            productName = "Контактор", quantity = null, saleUnitPrice = null,
+            purchaseUnitPrice = null, purchaseCurrency = null, purchaseRate = null,
+        ))))
+        val second = repository.saveOrder(source.copy(commandId = UUID.randomUUID(), lines = listOf(line.copy(productName = "КОНТАКТОР"))))
+        val history = repository.observeProducts("контактор").first().single().let { repository.observeProductHistory(it.id).first()!! }
+        assertEquals(setOf(first, second), history.lines.map { it.order.id }.toSet())
+        assertEquals(null, history.lines.single { it.order.id == first }.sale)
+        assertEquals(2, repository.observeOrders("контактор", ru.liftzip.orders.domain.model.OrdersFilter.ALL, 10).first().size)
+    }
+
+    @Test fun deliveryUsesFilterBeforeLimit() = runTest {
+        val old = repository.saveOrder(orderCommand())
+        val groupId = repository.observeOrder(old).first()!!.group.id
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), groupId))
+        repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.WITHDRAWN, true)
+        repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.TRANSFERRED, true)
+        repository.saveOrder(orderCommand().copy(commandId = UUID.randomUUID()))
+        val results = repository.observeOrders("", ru.liftzip.orders.domain.model.OrdersFilter.IN_DELIVERY, 1).first()
+        assertEquals(listOf(old), results.map { it.order.id })
     }
 
     @Test fun deletingOrderWithDeliveryFinancialRecordsIsRejectedAtomically() = runTest {

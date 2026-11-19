@@ -128,23 +128,28 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
-        fun create(context: Context): OrdersDatabase {
-            preserveBeforeMigration(context)
+        fun create(context: Context, name: String = DATABASE_NAME): OrdersDatabase {
+            preserveBeforeMigration(context, name)
             return Room.databaseBuilder(
             context.applicationContext,
             OrdersDatabase::class.java,
-            DATABASE_NAME,
+            name,
         )
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
             .addCallback(IntegrityCallback)
             .build()
         }
 
-        private fun preserveBeforeMigration(context: Context) {
-            val source = context.getDatabasePath(DATABASE_NAME)
+        private fun preserveBeforeMigration(context: Context, name: String) {
+            val source = context.getDatabasePath(name)
             if (!source.exists()) return
             val sqlite = android.database.sqlite.SQLiteDatabase.openDatabase(source.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
-            val oldVersion = sqlite.version
+            val oldVersion = try {
+                sqlite.version
+            } catch (error: Exception) {
+                sqlite.close()
+                throw error
+            }
             try {
                 if (oldVersion >= SCHEMA_VERSION) return
                 sqlite.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use {
@@ -152,7 +157,14 @@ abstract class OrdersDatabase : RoomDatabase() {
                 }
             } finally { sqlite.close() }
             val folder = java.io.File(context.filesDir, "db-migration-backups").apply { check(mkdirs() || isDirectory) }
-            source.copyTo(java.io.File(folder, "before-$oldVersion-to-$SCHEMA_VERSION-${System.currentTimeMillis()}.db"))
+            val copy = java.io.File(folder, "before-$oldVersion-to-$SCHEMA_VERSION-${System.currentTimeMillis()}.db")
+            val pending = java.io.File(folder, "${copy.name}.tmp")
+            try {
+                source.copyTo(pending)
+                check(pending.length() == source.length() && pending.renameTo(copy)) { "Не удалось сохранить копию базы" }
+            } finally {
+                pending.delete()
+            }
         }
     }
 }

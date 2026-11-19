@@ -24,6 +24,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.produceState
+import ru.liftzip.orders.app.ui.parseDecimal
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Image
@@ -156,17 +160,27 @@ fun OrderEditorScreen(
     var confirmDeleteDocument by remember { mutableStateOf<Pair<UUID, java.io.File>?>(null) }
     val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val target = documentLineTarget
-        if (orderId != null && target != null) {
-            runCatching { uris.forEach { documentStore.addToLine(orderId, target, it) } }
-                .onSuccess { documentsRevision++ }
-                .onFailure { documentError = it.message }
+        if (target != null && uris.isNotEmpty()) model.writeMedia {
+            try {
+                withContext(Dispatchers.IO) { uris.forEach { documentStore.addToLine(model.attachmentOrderId, target, it) } }
+                model.markDocuments(target, true)
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                documentError = error.message
+            } finally { documentsRevision++ }
         }
     }
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
-    val hasMailDraft = state.groupId?.let { g -> state.orderId?.let { mailStore.get(g, it) != null } } == true
+    val hasMailDraft by produceState(false, state.groupId, state.orderId) {
+        value = withContext(Dispatchers.IO) {
+            val group = state.groupId
+            val order = state.orderId
+            group != null && order != null && runCatching { mailStore.get(group, order) != null }.getOrDefault(false)
+        }
+    }
     val canFormMail = state.lines.isNotEmpty()
     var confirmDeletePhoto by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    var imageTarget by remember { mutableStateOf<Int?>(null) }
+    var imageTarget by remember { mutableStateOf<UUID?>(null) }
     var enlargedPhoto by remember { mutableStateOf<ByteArray?>(null) }
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         val target = imageTarget
@@ -179,6 +193,9 @@ fun OrderEditorScreen(
     var invoiceLoading by remember { mutableStateOf(false) }
     var invoiceError by remember { mutableStateOf<String?>(null) }
     var invoiceItems by remember { mutableStateOf<List<InvoiceItem>?>(null) }
+    var invoiceValidation by remember { mutableStateOf(false) }
+    var repeatedInvoice by remember { mutableStateOf<List<InvoiceItem>?>(null) }
+    val addedInvoices = remember { mutableSetOf<List<InvoiceItem>>() }
     val invoiceReader = remember { InvoicePdfReader() }
     var showInvoiceSource by remember { mutableStateOf(false) }
     fun importInvoice(uri: android.net.Uri, image: Boolean) {
@@ -189,7 +206,7 @@ fun OrderEditorScreen(
                 val items = if (image) invoiceReader.readImage(context, context.contentResolver, uri)
                     else invoiceReader.read(context, context.contentResolver, uri)
                 if (items.isEmpty()) invoiceError = "Не удалось распознать товары. Проверьте качество изображения."
-                else invoiceItems = items
+                else { invoiceValidation = false; invoiceItems = items }
             } catch (error: Exception) {
                 InvoiceDiagnostics.record(context, "error", "${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
                 invoiceError = "Ошибка чтения счёта: ${error.message ?: "неизвестная ошибка"}"
@@ -259,7 +276,7 @@ fun OrderEditorScreen(
                 Spacer(Modifier.width(6.dp))
                 OutlinedButton(onClick = { model.save { onBack() } },
                     modifier = Modifier.width(72.dp).height(44.dp),
-                    enabled = state.loaded && !state.saving && !state.actionsSaving,
+                    enabled = state.loaded && !state.saving && !state.actionsSaving && !state.mediaWriting,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
@@ -334,8 +351,12 @@ fun OrderEditorScreen(
                                         Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            if (orderId != null && line.id != null &&
-                                documentsRevision.let { documentStore.lineFiles(orderId, line.id).isNotEmpty() }) {
+                            val attachedDocuments by produceState(false, line.editorId, documentsRevision) {
+                                value = withContext(Dispatchers.IO) {
+                                    documentStore.lineFiles(model.attachmentOrderId, line.editorId).isNotEmpty()
+                                }
+                            }
+                            if (attachedDocuments) {
                                 Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.AttachFile, "Документы товара",
                                         Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
@@ -398,7 +419,7 @@ fun OrderEditorScreen(
                 }
             }
             if (state.orderId != null) item {
-                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && !state.saving && !state.actionsSaving,
+                Button(onClick = { confirmDeleteOrder = true }, enabled = state.loaded && !state.saving && !state.actionsSaving && !state.mediaWriting,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics { contentDescription = "Удалить заказ" },
                     shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
@@ -451,12 +472,17 @@ fun OrderEditorScreen(
                                         invoiceItems = invoiceItems?.mapIndexed { i, row ->
                                             if (i == index) row.copy(name = value) else row
                                         }
-                                    }, "Наименование")
+                                    }, "Наименование", error = "Укажите наименование".takeIf { invoiceValidation && item.name.isBlank() })
                                     AppTextField(item.quantity, { value ->
                                         invoiceItems = invoiceItems?.mapIndexed { i, row ->
                                             if (i == index) row.copy(quantity = value) else row
                                         }
-                                    }, "Количество", decimal = false)
+                                    }, "Количество", decimal = true, error = "Укажите положительное число".takeIf {
+                                        invoiceValidation && item.quantity.parseDecimal()?.let { it.signum() > 0 } != true
+                                    })
+                                    TextButton(onClick = {
+                                        invoiceItems = items.filterIndexed { i, _ -> i != index }.takeIf { it.isNotEmpty() }
+                                    }) { Text("Исключить позицию") }
                                 }
                             }
                         }
@@ -465,14 +491,35 @@ fun OrderEditorScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val valid = items.filter { it.name.isNotBlank() && it.quantity.toIntOrNull()?.let { q -> q > 0 } == true }
+                    val valid = items.filter { it.name.isNotBlank() && it.quantity.parseDecimal()?.let { q -> q.signum() > 0 } == true }
                     if (valid.size == items.size && valid.isNotEmpty()) {
-                        model.importLines(valid)
-                        invoiceItems = null
-                    } else invoiceError = "Исправьте пустые названия и количество (целое число больше нуля)"
+                        val normalized = valid.map { item ->
+                            item.copy(name = item.name.trim(), quantity = item.quantity.parseDecimal()!!.stripTrailingZeros().toPlainString())
+                        }
+                        if (normalized in addedInvoices) repeatedInvoice = normalized
+                        else {
+                            model.importLines(normalized)
+                            addedInvoices += normalized
+                            invoiceItems = null
+                        }
+                    } else invoiceValidation = true
                 }) { Text("Добавить ${items.size}") }
             },
             dismissButton = { TextButton(onClick = { invoiceItems = null }) { Text("Отмена") } },
+        )
+    }
+
+    repeatedInvoice?.let { rows ->
+        AlertDialog(
+            onDismissRequest = { repeatedInvoice = null },
+            title = { Text("Эти позиции уже добавлены") },
+            text = { Text("Повторный импорт добавит ещё ${rows.size} позиций к заказу.") },
+            confirmButton = { TextButton(onClick = {
+                model.importLines(rows)
+                repeatedInvoice = null
+                invoiceItems = null
+            }) { Text("Добавить повторно") } },
+            dismissButton = { TextButton(onClick = { repeatedInvoice = null }) { Text("Вернуться") } },
         )
     }
 
@@ -494,10 +541,20 @@ fun OrderEditorScreen(
             title = { Text("Удалить документ?") },
             text = { Text(file.name.substringAfter('_')) },
             confirmButton = { TextButton(onClick = {
-                if (orderId != null) {
-                    runCatching { check(documentStore.delete(orderId, lineId, file)) { "Не удалось удалить документ" } }
-                        .onSuccess { documentsRevision++ }
-                        .onFailure { documentError = it.message }
+                run {
+                    model.writeMedia {
+                        try {
+                            val remaining = withContext(Dispatchers.IO) {
+                                check(documentStore.delete(model.attachmentOrderId, lineId, file)) { "Не удалось удалить документ" }
+                                documentStore.lineFiles(model.attachmentOrderId, lineId).isNotEmpty()
+                            }
+                            model.markDocuments(lineId, remaining)
+                            documentsRevision++
+                        } catch (error: Exception) {
+                            if (error is kotlinx.coroutines.CancellationException) throw error
+                            documentError = error.message
+                        }
+                    }
                 }
                 confirmDeleteDocument = null
             }) { Text("Удалить") } },
@@ -546,16 +603,16 @@ fun OrderEditorScreen(
                         CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
                         Spacer(Modifier.height(6.dp))
-                        val docs = if (orderId != null && line.id != null) {
-                            documentsRevision.let { documentStore.lineFiles(orderId, line.id) }
-                        } else emptyList()
+                        val docs by produceState(emptyList<java.io.File>(), line.editorId, documentsRevision) {
+                            value = withContext(Dispatchers.IO) { documentStore.lineFiles(model.attachmentOrderId, line.editorId) }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             if (galleryButtonFixed) {
-                                GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
-                                if (orderId != null && line.id != null) {
+                                GalleryAddTile { imageTarget = line.editorId; gallery.launch("image/*") }
+                                if (!state.mediaWriting) {
                                     OutlinedButton(onClick = {
-                                        documentLineTarget = line.id
+                                        documentLineTarget = line.editorId
                                         documentPicker.launch(arrayOf("application/pdf", "application/msword",
                                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                                     }, modifier = Modifier.size(76.dp),
@@ -575,10 +632,10 @@ fun OrderEditorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 if (!galleryButtonFixed) {
-                                    GalleryAddTile { imageTarget = index; gallery.launch("image/*") }
-                                    if (orderId != null && line.id != null) {
+                                    GalleryAddTile { imageTarget = line.editorId; gallery.launch("image/*") }
+                                    if (!state.mediaWriting) {
                                 OutlinedButton(onClick = {
-                                    documentLineTarget = line.id
+                                    documentLineTarget = line.editorId
                                     documentPicker.launch(arrayOf("application/pdf", "application/msword",
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                                 }, modifier = Modifier.size(76.dp),
@@ -634,7 +691,7 @@ fun OrderEditorScreen(
                                             Text(file.extension.uppercase(), style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.primary)
                                         }
-                                        IconButton(onClick = { line.id?.let { documentId -> confirmDeleteDocument = documentId to file } },
+                                        IconButton(onClick = { confirmDeleteDocument = line.editorId to file },
                                             modifier = Modifier.align(Alignment.TopEnd).size(22.dp)) {
                                             Icon(Icons.Default.DeleteOutline, "Удалить документ",
                                                 modifier = Modifier.size(17.dp), tint = Color(0xFFB71C1C))

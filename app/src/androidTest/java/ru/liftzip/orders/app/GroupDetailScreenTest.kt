@@ -391,13 +391,13 @@ class GroupDetailScreenTest {
         assertEquals(OrderFulfillment(), runBlocking { repository.observeOrder(orderId).first()!!.order.fulfillment })
         compose.onNodeWithText("Завершить формирование").performScrollTo().performClick()
         compose.onNodeWithText("Завершить", useUnmergedTree = true).performClick()
-        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.ACCEPTED } }
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
         for (description in listOf("Получены деньги от Дениса", "Деньги за товар переданы посреднику", "Товар получен")) {
             clickAction(description, 4)
         }
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.COMPLETED } }
         clickAction("Товар получен", 4)
-        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.IN_DELIVERY } }
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
     }
 
     @Test fun taobaoLinkCanBeCanonicalizedAndSavedFromPositionEditor() {
@@ -621,7 +621,7 @@ class GroupDetailScreenTest {
                             if (openedProduct != null) ProductDetailScreen(repository, openedProduct!!,
                                 onBack = { openedProduct = null })
                             else if (showPrices) PricesScreen(repository, onOpenProduct = { openedProduct = it })
-                            else if (showOrder) OrderEditorScreen(repository, ApplicationProvider.getApplicationContext<OrdersApplication>().container.settings, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
+                            else if (showOrder) OrderEditorScreen(repository, ApplicationProvider.getApplicationContext<OrdersApplication>().settings, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
                             else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
                                 OrdersScreen(repository,
                                     onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},

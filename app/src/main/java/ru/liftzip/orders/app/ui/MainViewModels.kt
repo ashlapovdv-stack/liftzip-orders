@@ -44,7 +44,7 @@ class OrdersViewModel(private val repository: OrdersRepository) : ViewModel() {
 
     fun search(value: String) { query.value = value; limit.value = 50 }
     fun filter(value: OrdersFilter) { filter.value = value; limit.value = 50 }
-    fun showMore() { limit.value = (limit.value + 50).coerceAtMost(500) }
+    fun showMore() { limit.value = limit.value + 50 }
 }
 
 class GroupsViewModel(repository: OrdersRepository) : ViewModel() {
@@ -56,9 +56,13 @@ class PriceSearchViewModel(private val repository: OrdersRepository) : ViewModel
     private val query = MutableStateFlow("")
     val currentQuery = query.asStateFlow()
     @OptIn(ExperimentalCoroutinesApi::class)
-    val products = query.flatMapLatest { repository.observeProducts(it) }
+    private val limit = MutableStateFlow(100)
+    val currentLimit = limit.asStateFlow()
+    val products = combine(query, limit) { value, count -> value to count }
+        .flatMapLatest { (value, count) -> repository.observeProducts(value, count) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList<Product>())
-    fun search(value: String) { query.value = value }
+    fun search(value: String) { query.value = value; limit.value = 100 }
+    fun showMore() { limit.value += 100 }
 }
 
 class GroupDetailViewModel(
