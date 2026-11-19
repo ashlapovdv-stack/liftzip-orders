@@ -4,7 +4,9 @@ import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import com.googlecode.tesseract.android.TessBaseAPI
@@ -54,6 +56,32 @@ class InvoicePdfReader {
         return OcrPass(text, extractWords(tess))
     }
 
+    private fun recognizeGrid(tess: TessBaseAPI, bitmap: Bitmap, words: List<InvoiceWord>): List<InvoiceItem> {
+        val header = InvoiceTableParser.tableHeader(words)
+        if (header.isEmpty()) return emptyList()
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val rows = InvoiceGrid.locate(pixels, bitmap.width, bitmap.height, header)
+        return InvoiceGrid.read(rows) { cell ->
+            val source = Rect(cell.left, cell.top, cell.right, cell.bottom)
+            // Leave the antialiased fringe of the ruling lines outside the OCR image.
+            if (source.width() > 2 && source.height() > 2) source.inset(1, 1)
+            val padding = (source.height() / 3).coerceAtLeast(12)
+            val crop = Bitmap.createBitmap(source.width() + padding * 2, source.height() + padding * 2, Bitmap.Config.ARGB_8888)
+            try {
+                crop.eraseColor(Color.WHITE)
+                val target = Rect(padding, padding, padding + source.width(), padding + source.height())
+                Canvas(crop).drawBitmap(bitmap, source, target, null)
+                tess.clear()
+                tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
+                tess.setImage(crop)
+                tess.getUTF8Text().orEmpty()
+            } finally {
+                crop.recycle()
+            }
+        }
+    }
+
     /** Share the OCR and table retry across PDF pages and gallery images. */
     private fun recognizePage(
         tess: TessBaseAPI,
@@ -63,9 +91,19 @@ class InvoicePdfReader {
         val page = recognize(tess, bitmap, TessBaseAPI.PageSegMode.PSM_AUTO)
         report?.invoke("page words=${page.words.size}; rows=${page.items.size}; withQuantity=${page.completeItems}")
         val expected = InvoiceTableParser.expectedCount(page.text)
-        if (page.items.isNotEmpty() && page.completeItems == page.items.size &&
-            (expected == null || page.items.size >= expected)
-        ) return page.items
+        fun complete(items: List<InvoiceItem>): Boolean = items.isNotEmpty() &&
+            items.all { it.quantity.isNotEmpty() } && (expected == null || items.size >= expected)
+
+        fun atLeastAsComplete(candidates: List<InvoiceItem>, previous: List<InvoiceItem>): Boolean =
+            candidates.size >= previous.size &&
+                candidates.count { it.quantity.isNotEmpty() } >= previous.count { it.quantity.isNotEmpty() }
+
+        if (complete(page.items)) return page.items
+        val grid = recognizeGrid(tess, bitmap, page.words)
+        report?.invoke("cells rows=${grid.size}; withQuantity=${grid.count { it.quantity.isNotEmpty() }}")
+        val gridPreferred = grid.isNotEmpty() && atLeastAsComplete(grid, page.items)
+        val best = if (gridPreferred) grid else page.items
+        if (complete(best)) return best
 
         val band = InvoiceTableParser.tableBand(page.words)
         val top = band?.first?.coerceIn(0, bitmap.height - 1) ?: 0
@@ -83,10 +121,9 @@ class InvoicePdfReader {
         }
         report?.invoke("retry words=${retry.words.size}; rows=${retry.items.size}; withQuantity=${retry.completeItems}")
         // Keep a coherent pass so continued descriptions and their quantities stay together.
-        return if (retry.items.size >= page.items.size &&
-            (retry.completeItems > page.completeItems ||
-                retry.items.size > page.items.size && retry.completeItems == page.completeItems)
-        ) retry.items else page.items
+        return if (atLeastAsComplete(retry.items, best) &&
+            (retry.items.size > best.size || retry.completeItems > best.count { it.quantity.isNotEmpty() })
+        ) retry.items else best
     }
 
     suspend fun readImage(context: Context, resolver: ContentResolver, uri: Uri): List<InvoiceItem> =

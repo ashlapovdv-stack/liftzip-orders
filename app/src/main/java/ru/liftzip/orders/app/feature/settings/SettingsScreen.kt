@@ -44,6 +44,7 @@ import ru.liftzip.orders.app.ui.formatDateTime
 import ru.liftzip.orders.data.backup.BackupManager
 import java.time.Instant
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +58,9 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val packageInfo = remember(context) {
+        context.packageManager.getPackageInfo(context.packageName, 0)
+    }
     var diagnosticsEnabled by remember { mutableStateOf(InvoiceDiagnostics.enabled(context)) }
     var diagnosticMessage by remember { mutableStateOf<String?>(null) }
     val diagnosticsExport = rememberLauncherForActivityResult(
@@ -94,6 +98,10 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Text(
+                "Версия ${packageInfo.versionName} (сборка ${PackageInfoCompat.getLongVersionCode(packageInfo)})",
+                style = MaterialTheme.typography.bodySmall,
+            )
             Card(Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -127,7 +135,7 @@ fun SettingsScreen(backup: BackupManager, settings: SettingsStore, onBack: () ->
                             InvoiceDiagnostics.setEnabled(context, it)
                         })
                     }
-                    Text("По умолчанию выключена. При включении сохраняется распознанный текст счетов, который может содержать личные и коммерческие данные. Файлы остаются на устройстве, пока вы не экспортируете их вручную.", style = MaterialTheme.typography.bodySmall)
+                    Text("По умолчанию выключена. При включении сохраняются этапы распознавания и количество найденных позиций. Файлы остаются на устройстве, пока вы не экспортируете их вручную.", style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = { diagnosticsExport.launch("Заказы-диагностика-PDF.txt") },
                         modifier = Modifier.fillMaxWidth()) { Text("Выгрузить диагностику") }
                     OutlinedButton(onClick = {
