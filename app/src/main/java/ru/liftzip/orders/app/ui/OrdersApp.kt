@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app.ui
 
+import androidx.compose.foundation.layout.imePadding
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -160,7 +161,7 @@ internal fun MainScreenScaffold(
     onSettings: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    Scaffold(modifier = Modifier.navigationBarsPadding(), containerColor = MaterialTheme.colorScheme.background,
+    Scaffold(modifier = Modifier.navigationBarsPadding().imePadding(), containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Surface(color = MaterialTheme.colorScheme.background) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 12.dp),

@@ -55,7 +55,7 @@ fun AppTextField(
     minLines: Int = 1,
 ) {
     OutlinedTextField(
-        value = value, onValueChange = onValueChange, label = { Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, modifier = modifier,
+        value = value, onValueChange = onValueChange, label = { Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, modifier = modifier.keepVisibleWithKeyboard(),
         enabled = enabled, isError = error != null, minLines = minLines,
         textStyle = MaterialTheme.typography.bodyMedium, shape = RoundedCornerShape(10.dp),
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, focusedContainerColor = Color.White),

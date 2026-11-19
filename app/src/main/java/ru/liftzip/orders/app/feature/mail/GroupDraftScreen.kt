@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app.feature.mail
 
+import ru.liftzip.orders.app.ui.keepVisibleWithKeyboard
 import ru.liftzip.orders.app.ui.rememberLoaded
 import android.content.Intent
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -138,21 +139,21 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 Text("Получатель", color = Color(0xFF777777), fontSize = 13.sp)
                 BasicTextField(value = recipient, onValueChange = { recipient = it },
                     singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF202020)),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp).padding(top = 8.dp))
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp).keepVisibleWithKeyboard().padding(top = 8.dp))
                 HorizontalDivider(color = Color(0xFFB8B8B8))
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 Text("Тема", color = Color(0xFF777777), fontSize = 13.sp)
                 BasicTextField(value = subject, onValueChange = { subject = it },
                     singleLine = true, textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF202020)),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp).padding(top = 8.dp))
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp).keepVisibleWithKeyboard().padding(top = 8.dp))
                 HorizontalDivider(color = Color(0xFFB8B8B8))
             }
             Text("Текст письма", color = darkGreen, fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, start = 4.dp))
             BasicTextField(value = body, onValueChange = { body = it },
                 textStyle = TextStyle(fontSize = 14.sp, lineHeight = 21.sp, color = Color(0xFF202020)),
-                modifier = Modifier.fillMaxWidth().height(245.dp)
+                modifier = Modifier.fillMaxWidth().height(245.dp).keepVisibleWithKeyboard()
                     .border(1.dp, Color(0xFFCECECE), RoundedCornerShape(10.dp))
                     .padding(12.dp))
             val files by rememberLoaded(emptyList<File>() to emptyList<File>(), current.orderId, draftVersion) {

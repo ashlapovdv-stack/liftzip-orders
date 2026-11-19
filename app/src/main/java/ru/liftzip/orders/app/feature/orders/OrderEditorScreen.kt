@@ -1,5 +1,8 @@
 package ru.liftzip.orders.app.feature.orders
 
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.safeDrawingPadding
+import ru.liftzip.orders.app.ui.keepVisibleWithKeyboard
 import ru.liftzip.orders.app.ui.rememberLoaded
 import androidx.activity.compose.BackHandler
 import android.content.Intent
@@ -21,7 +24,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -68,9 +70,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -292,7 +291,7 @@ fun OrderEditorScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).imePadding(),
+        LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!state.loaded) item { Text("Загрузка…") }
@@ -451,6 +450,8 @@ fun OrderEditorScreen(
     invoiceItems?.let { items ->
         AlertDialog(
             onDismissRequest = { invoiceItems = null },
+            modifier = Modifier.safeDrawingPadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = { Text("Импорт товаров из счёта", style = MaterialTheme.typography.titleLarge) },
             text = {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -581,7 +582,7 @@ fun OrderEditorScreen(
             onDismissRequest = { editingLine = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false, decorFitsSystemWindows = false),
         ) {
-            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(),
+            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
                 contentAlignment = Alignment.BottomCenter) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().fillMaxHeight(0.96f),
@@ -589,7 +590,7 @@ fun OrderEditorScreen(
                     color = Color(0xFFF6F8F8),
                 ) {
             val line = state.lines[index]
-            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("position-editor")) {
+            Column(Modifier.fillMaxSize().imePadding().padding(horizontal = 12.dp).testTag("position-editor")) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Позиция ${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     TextButton(onClick = { editingLine = null }) { Text("Готово") }
@@ -792,8 +793,6 @@ fun OrderEditorScreen(
                         }
                         state.errors["line_" + index + "_delivery"]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-                    // Reserve actual IME height in scroll content; imePadding consumes insets for child modifiers.
-                    Spacer(Modifier.height(with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }))
                 }
 
             }
@@ -945,6 +944,8 @@ private fun ProductCatalogDialog(
     val query by model.currentQuery.collectAsState()
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.safeDrawingPadding(),
+        properties = DialogProperties(decorFitsSystemWindows = false),
         title = { Text("Каталог товаров") },
         text = {
             Column(Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1022,7 +1023,7 @@ private fun CompactPositionField(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
                                   else KeyboardOptions.Default,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp).keepVisibleWithKeyboard()
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .semantics { contentDescription = label },
                 decorationBox = { inner ->

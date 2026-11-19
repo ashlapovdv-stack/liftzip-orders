@@ -428,43 +428,67 @@ class GroupDetailScreenTest {
         assertEquals("https://item.taobao.com/item.htm?id=45184215152", saved.lines.single().productUrl)
     }
 
-    @Test fun positionEditorScrollsToPurchaseWithNumericKeyboardOpen() {
+    @Test fun positionEditorRevealsTheFocusedFieldAndKeepsTheHeaderStill() {
         showOrder = true
         newOrderPreview = true
         showScreen(1f)
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
-        compose.onNodeWithContentDescription("Тариф, ¥/кг").performScrollTo().performClick()
-        compose.waitForIdle()
-        // A focused text field does not guarantee that the emulator actually opened its IME.
-        // Wait for the window inset instead of racing the keyboard animation.
-        compose.waitUntil(timeoutMillis = 10_000) {
-            val insets = compose.activity.window.decorView.rootWindowInsets
-            insets != null && insets.isVisible(android.view.WindowInsets.Type.ime())
-        }
-        val imeInsets = compose.activity.window.decorView.rootWindowInsets
-        val imeHeight = imeInsets.getInsets(android.view.WindowInsets.Type.ime()).bottom
 
-        // Keep the numeric IME open while attempting to reach the final input.
-        val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
-        purchase.performScrollTo()
-        try {
-            purchase.assertIsDisplayed()
-        } catch (failure: AssertionError) {
-            val fieldBounds = purchase.fetchSemanticsNode().boundsInRoot
-            val editorBounds = compose.onNodeWithTag("position-editor").fetchSemanticsNode().boundsInRoot
-            val doneBounds = compose.onNodeWithText("Готово").fetchSemanticsNode().boundsInRoot
-            throw AssertionError(
-                "POSITION_EDITOR: purchase outside viewport; imeHeight=$imeHeight, purchase=$fieldBounds, editor=$editorBounds, done=$doneBounds",
-                failure,
-            )
-        }
+        val name = compose.onNodeWithContentDescription("Название товара")
+        val header = compose.onNodeWithText("Готово")
+        val nameTop = name.fetchSemanticsNode().positionInRoot.y
+        val headerTop = header.fetchSemanticsNode().positionInRoot.y
+        name.performClick()
+        waitForKeyboard()
+        assertEquals(nameTop, name.fetchSemanticsNode().positionInRoot.y, 1f)
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+
+        val purchase = compose.onNodeWithContentDescription("Закупка, ₽").performScrollTo()
         purchase.performClick()
+        waitForKeyboard()
+        waitForUnclippedField(purchase)
+
         purchase.performTextReplacement("1050")
-        compose.onNodeWithContentDescription("Закупка, ₽").assertTextContains("1050")
-        try {
-            compose.onNodeWithText("Готово").assertIsDisplayed()
-        } catch (failure: AssertionError) {
-            throw AssertionError("POSITION_EDITOR: fixed Done header is hidden after scrolling to purchase with IME open", failure)
+        purchase.assertTextContains("1050")
+        header.assertIsDisplayed()
+        assertEquals(headerTop, header.fetchSemanticsNode().positionInRoot.y, 1f)
+        compose.onNodeWithContentDescription("Название товара").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun groupExpenseFieldScrollsAboveTheKeyboard() {
+        compose.runOnUiThread {
+            val window = compose.activity.window
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        showScreen(1f)
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("Добавить расход"))
+        compose.onNodeWithText("Добавить расход").performClick()
+        val comment = hasText("Комментарий") and hasSetTextAction()
+        list.performScrollToNode(comment)
+        val field = compose.onNode(comment)
+        field.performClick()
+        waitForKeyboard()
+        waitForUnclippedField(field)
+        val bottom = field.fetchSemanticsNode().boundsInWindow.bottom
+        val decor = compose.activity.window.decorView
+        val keyboardTop = decor.height - decor.rootWindowInsets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+        org.junit.Assert.assertTrue("Expense field ends at $bottom, keyboard starts at $keyboardTop", bottom <= keyboardTop + 1f)
+        field.performTextReplacement("Комментарий к расходу")
+        field.assertTextContains("Комментарий к расходу")
+    }
+
+    private fun waitForKeyboard() {
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.activity.window.decorView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+        }
+    }
+
+    private fun waitForUnclippedField(field: SemanticsNodeInteraction) {
+        compose.waitUntil(timeoutMillis = 10_000) {
+            val node = field.fetchSemanticsNode()
+            node.boundsInRoot.height >= node.size.height - 1f
         }
     }
 

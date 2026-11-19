@@ -29,7 +29,7 @@ fun CompactSearchField(value: String, onChange: (String) -> Unit, hint: String, 
         textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-        modifier = Modifier.fillMaxWidth().height(44.dp).testTag(tag)
+        modifier = Modifier.fillMaxWidth().height(44.dp).testTag(tag).keepVisibleWithKeyboard()
             .semantics { contentDescription = description }
             .background(Color.White, RoundedCornerShape(10.dp))
             .border(1.dp, Color(0xFFD8E1E5), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp),
