@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app.feature.orders
 
+import ru.liftzip.orders.app.ui.rememberLoaded
 import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.webkit.WebView
@@ -26,7 +27,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import androidx.compose.runtime.produceState
 import ru.liftzip.orders.app.ui.parseDecimal
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Link
@@ -171,8 +171,8 @@ fun OrderEditorScreen(
         }
     }
     val galleryButtonFixed by settings.galleryButtonFixed.collectAsState(initial = true)
-    val hasMailDraft by produceState(false, state.groupId, state.orderId) {
-        value = withContext(Dispatchers.IO) {
+    val hasMailDraft by rememberLoaded(false, state.groupId, state.orderId) {
+        withContext(Dispatchers.IO) {
             val group = state.groupId
             val order = state.orderId
             group != null && order != null && runCatching { mailStore.get(group, order) != null }.getOrDefault(false)
@@ -351,8 +351,8 @@ fun OrderEditorScreen(
                                         Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
-                            val attachedDocuments by produceState(false, line.editorId, documentsRevision) {
-                                value = withContext(Dispatchers.IO) {
+                            val attachedDocuments by rememberLoaded(false, line.editorId, documentsRevision) {
+                                withContext(Dispatchers.IO) {
                                     documentStore.lineFiles(model.attachmentOrderId, line.editorId).isNotEmpty()
                                 }
                             }
@@ -603,8 +603,8 @@ fun OrderEditorScreen(
                         CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                             "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
                         Spacer(Modifier.height(6.dp))
-                        val docs by produceState(emptyList<java.io.File>(), line.editorId, documentsRevision) {
-                            value = withContext(Dispatchers.IO) { documentStore.lineFiles(model.attachmentOrderId, line.editorId) }
+                        val docs by rememberLoaded(emptyList<java.io.File>(), line.editorId, documentsRevision) {
+                            withContext(Dispatchers.IO) { documentStore.lineFiles(model.attachmentOrderId, line.editorId) }
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
@@ -652,8 +652,8 @@ fun OrderEditorScreen(
                                     }
                                 }
                             line.images.forEachIndexed { photoIndex, bytes ->
-                                val bitmap by produceState<android.graphics.Bitmap?>(null, bytes) {
-                                    value = withContext(Dispatchers.IO) {
+                                val bitmap by rememberLoaded<android.graphics.Bitmap?>(null, bytes) {
+                                    withContext(Dispatchers.IO) {
                                         val options = BitmapFactory.Options().apply { inSampleSize = 4 }
                                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
                                     }

@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app
 
+import ru.liftzip.orders.app.ui.rememberLoaded
 import android.os.Bundle
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -20,7 +21,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -68,8 +68,8 @@ class MainActivity : ComponentActivity() {
                         Text(failure)
                         Text("Исходная база сохранена. Восстановление создаст отдельную базу из выбранной копии.")
                         OutlinedButton(onClick = { scope.launch { open(app::openOrders) } }) { Text("Повторить") }
-                        val local by produceState<java.io.File?>(null, failure) {
-                            value = withContext(Dispatchers.IO) { BackupManager.latestRecoveryCopy(app.filesDir) }
+                        val local by rememberLoaded<java.io.File?>(null, failure) {
+                            withContext(Dispatchers.IO) { BackupManager.latestRecoveryCopy(app.filesDir) }
                         }
                         local?.let { copy ->
                             OutlinedButton(onClick = { scope.launch { open { app.restoreOrders(Uri.fromFile(copy)) } } }) {

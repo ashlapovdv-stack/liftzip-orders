@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app.feature.orders
 
+import ru.liftzip.orders.app.ui.rememberLoaded
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -47,7 +48,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
@@ -125,8 +125,8 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
             }
             if (orders.isEmpty()) item { EmptyState(if (deliveryOnly) "Заказов на доставке нет" else "Заказов нет") }
             items(orders, key = { it.order.id }) { summary ->
-                val hasDraft by produceState(false, summary.order.id, draftRevision) {
-                    value = withContext(Dispatchers.IO) {
+                val hasDraft by rememberLoaded(false, summary.order.id, draftRevision) {
+                    withContext(Dispatchers.IO) {
                         runCatching { draftStore.get(summary.order.groupId, summary.order.id) != null }.getOrDefault(false)
                     }
                 }

@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app.feature.prices
 
+import ru.liftzip.orders.app.ui.rememberLoaded
 import android.graphics.BitmapFactory
 import android.content.ContentValues
 import android.content.Intent
@@ -23,7 +24,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.core.content.FileProvider
@@ -157,8 +157,8 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                                 Text("Курс закупки: ${it.record.rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             }
                             source.deliveryTariff?.let { Text("Тариф доставки: ${it.formatDecimal()} ¥/кг", style = MaterialTheme.typography.bodySmall) }
-                            val docs by produceState(emptyList<java.io.File>(), entry.order.id, source.id) {
-                                value = withContext(Dispatchers.IO) { OrderDocumentStore(context).lineFiles(entry.order.id, source.id) }
+                            val docs by rememberLoaded(emptyList<java.io.File>(), entry.order.id, source.id) {
+                                withContext(Dispatchers.IO) { OrderDocumentStore(context).lineFiles(entry.order.id, source.id) }
                             }
                             docs.forEach { file ->
                                 TextButton(onClick = {
@@ -232,8 +232,8 @@ private fun saveHistoryPhoto(context: Context, bytes: ByteArray): Boolean = runC
 
 @Composable
 private fun historyBitmap(bytes: ByteArray, thumbnail: Boolean) =
-    produceState<android.graphics.Bitmap?>(null, bytes, thumbnail) {
-        value = withContext(Dispatchers.IO) {
+    rememberLoaded<android.graphics.Bitmap?>(null, bytes, thumbnail) {
+        withContext(Dispatchers.IO) {
             val options = BitmapFactory.Options().apply { inSampleSize = if (thumbnail) 4 else 1 }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
         }

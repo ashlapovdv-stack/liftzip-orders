@@ -1,5 +1,6 @@
 package ru.liftzip.orders.app.feature.mail
 
+import ru.liftzip.orders.app.ui.rememberLoaded
 import android.content.Intent
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -154,8 +155,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 modifier = Modifier.fillMaxWidth().height(245.dp)
                     .border(1.dp, Color(0xFFCECECE), RoundedCornerShape(10.dp))
                     .padding(12.dp))
-            val files by produceState(emptyList<File>() to emptyList<File>(), current.orderId, draftVersion) {
-                value = withContext(Dispatchers.IO) {
+            val files by rememberLoaded(emptyList<File>() to emptyList<File>(), current.orderId, draftVersion) {
+                withContext(Dispatchers.IO) {
                     store.attachments(groupId, current.orderId) to store.documents(groupId, current.orderId)
                 }
             }
@@ -164,8 +165,8 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     photos.forEachIndexed { index, photo ->
-                        val preview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, photo.absolutePath) {
-                            value = withContext(Dispatchers.IO) {
+                        val preview by rememberLoaded<androidx.compose.ui.graphics.ImageBitmap?>(null, photo.absolutePath) {
+                            withContext(Dispatchers.IO) {
                                 val options = BitmapFactory.Options().apply { inSampleSize = 4 }
                                 BitmapFactory.decodeFile(photo.absolutePath, options)?.asImageBitmap()
                             }
