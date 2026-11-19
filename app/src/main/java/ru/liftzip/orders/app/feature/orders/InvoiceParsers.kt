@@ -9,8 +9,13 @@ internal data class InvoiceWord(val text: String, val x: Int, val y: Int, val wi
 
 private fun InvoiceWord.label() = text.trim('|', '[', ']', ' ').lowercase()
 internal fun InvoiceWord.isInvoiceNameHeader() = label().startsWith("наименован") || label() == "товары"
-internal fun InvoiceWord.isInvoiceQuantityHeader() = label().let {
-    it.startsWith("кол-во") || it.startsWith("количество") || it in setOf("кол", "кол.") || it.startsWith("к-во")
+internal fun InvoiceWord.isInvoiceQuantityHeader() = isInvoiceQuantityLabel(label())
+
+internal fun isInvoiceQuantityLabel(text: String): Boolean {
+    val label = text.trim('|', '[', ']', ' ', '\n').lowercase()
+        .replace('o', 'о').replace(Regex("\\s+"), "").replace('–', '-').replace('—', '-')
+    return label.startsWith("кол-во") || label.startsWith("колво") ||
+        label.startsWith("количество") || label in setOf("кол", "кол.") || label.startsWith("к-во")
 }
 
 /** Parse the table by column position, keeping an unknown quantity editable. */

@@ -4,7 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class InvoiceGridTest {
-    private fun grid(width: Int): List<InvoiceGrid.Row> {
+    private fun grid(
+        width: Int,
+        quantityHeader: InvoiceWord? = InvoiceWord("Кол-во", 174, 94, 32, 12),
+        recognizeHeader: (InvoiceGrid.Cell) -> String = { "" },
+    ): List<InvoiceGrid.Row> {
         val height = 170
         val pixels = IntArray(width * height) { -1 }
         for (y in 90..150) {
@@ -16,10 +20,9 @@ class InvoiceGridTest {
         }
         return InvoiceGrid.locate(
             pixels, width, height,
-            listOf(
-                InvoiceWord("Товары", 80, 94, 48, 12),
-                InvoiceWord("Кол-во", 174, 94, 32, 12),
-            ).filter { it.x < width },
+            listOfNotNull(InvoiceWord("Товары", 80, 94, 48, 12), quantityHeader)
+                .filter { it.x < width },
+            recognizeHeader,
         )
     }
 
@@ -32,8 +35,25 @@ class InvoiceGridTest {
             ),
             rows,
         )
-        val items = InvoiceGrid.read(rows) { if (it.left == 41) "Тестовая деталь" else if (it.top == 111) "5" else "8" }
+        val items = InvoiceGrid.read(rows, recognizeQuantity = { if (it.top == 111) "5" else "8" }) { "Тестовая деталь" }
         assertEquals(listOf(InvoiceItem("Тестовая деталь", "5"), InvoiceItem("Тестовая деталь", "8")), items)
+    }
+
+    @Test fun readsHeaderCellWhenPageOcrLosesOrMergesTheQuantityHeading() {
+        val mergedHeader = InvoiceWord("Кол-во|Ед", 165, 94, 50, 12)
+        for (heading in listOf(null, mergedHeader)) {
+            val rows = grid(300, heading) {
+                if (it.left == 171) "Кoл – вo" else "Цена"
+            }
+            val items = InvoiceGrid.read(rows, recognizeQuantity = { "|5|" }) { "Тестовая деталь" }
+            assertEquals(listOf("5", "5"), items.map { it.quantity })
+        }
+    }
+
+    @Test fun neverReadsUnitOrPriceAsQuantityWhenHeadingIsUnclear() {
+        val rows = grid(300, quantityHeader = null) { "Цена" }
+        assertEquals(listOf(null, null), rows.map { it.quantity })
+        assertEquals("", InvoiceGrid.quantityOrEmpty("5|шт"))
     }
 
     @Test fun croppedTableCanReturnBothNamesWithoutGuessingQuantities() {
@@ -45,7 +65,7 @@ class InvoiceGridTest {
             ),
             rows,
         )
-        val items = InvoiceGrid.read(rows) { if (it.top == 111) "Первая деталь A5" else "Вторая деталь V4" }
+        val items = InvoiceGrid.read(rows, recognizeQuantity = { error("Column outside the screenshot") }) { if (it.top == 111) "Первая деталь A5" else "Вторая деталь V4" }
         assertEquals(listOf(InvoiceItem("Первая деталь A5", ""), InvoiceItem("Вторая деталь V4", "")), items)
     }
 }

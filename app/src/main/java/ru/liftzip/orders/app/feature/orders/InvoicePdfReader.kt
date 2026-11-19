@@ -56,29 +56,53 @@ class InvoicePdfReader {
         return OcrPass(text, extractWords(tess))
     }
 
-    private fun recognizeGrid(tess: TessBaseAPI, bitmap: Bitmap, words: List<InvoiceWord>): List<InvoiceItem> {
+    private fun recognizeGrid(
+        tess: TessBaseAPI,
+        bitmap: Bitmap,
+        words: List<InvoiceWord>,
+        report: ((String) -> Unit)?,
+    ): List<InvoiceItem> {
         val header = InvoiceTableParser.tableHeader(words)
         if (header.isEmpty()) return emptyList()
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        val rows = InvoiceGrid.locate(pixels, bitmap.width, bitmap.height, header)
-        return InvoiceGrid.read(rows) { cell ->
-            val source = Rect(cell.left, cell.top, cell.right, cell.bottom)
-            // Leave the antialiased fringe of the ruling lines outside the OCR image.
-            if (source.width() > 2 && source.height() > 2) source.inset(1, 1)
-            val padding = (source.height() / 3).coerceAtLeast(12)
-            val crop = Bitmap.createBitmap(source.width() + padding * 2, source.height() + padding * 2, Bitmap.Config.ARGB_8888)
-            try {
-                crop.eraseColor(Color.WHITE)
-                val target = Rect(padding, padding, padding + source.width(), padding + source.height())
-                Canvas(crop).drawBitmap(bitmap, source, target, null)
-                tess.clear()
-                tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
-                tess.setImage(crop)
-                tess.getUTF8Text().orEmpty()
-            } finally {
-                crop.recycle()
-            }
+        val rows = InvoiceGrid.locate(pixels, bitmap.width, bitmap.height, header) { cell ->
+            recognizeCell(tess, bitmap, cell, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE)
+        }
+        report?.invoke("table rows=${rows.size}; quantityCells=${rows.count { it.quantity != null }}")
+        return InvoiceGrid.read(
+            rows,
+            recognizeQuantity = { cell ->
+                val text = recognizeCell(tess, bitmap, cell, TessBaseAPI.PageSegMode.PSM_SINGLE_LINE)
+                InvoiceGrid.quantityOrEmpty(text).ifEmpty {
+                    tess.setVariable("tessedit_char_whitelist", "0123456789,.")
+                    try {
+                        recognizeCell(tess, bitmap, cell, TessBaseAPI.PageSegMode.PSM_SINGLE_WORD)
+                    } finally {
+                        tess.setVariable("tessedit_char_whitelist", "")
+                    }
+                }
+            },
+            recognizeName = { cell -> recognizeCell(tess, bitmap, cell, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK) },
+        )
+    }
+
+    private fun recognizeCell(tess: TessBaseAPI, bitmap: Bitmap, cell: InvoiceGrid.Cell, mode: Int): String {
+        val source = Rect(cell.left, cell.top, cell.right, cell.bottom)
+        // Leave the antialiased fringe of the ruling lines outside the OCR image.
+        if (source.width() > 2 && source.height() > 2) source.inset(1, 1)
+        val padding = (source.height() / 3).coerceAtLeast(12)
+        val crop = Bitmap.createBitmap(source.width() + padding * 2, source.height() + padding * 2, Bitmap.Config.ARGB_8888)
+        try {
+            crop.eraseColor(Color.WHITE)
+            val target = Rect(padding, padding, padding + source.width(), padding + source.height())
+            Canvas(crop).drawBitmap(bitmap, source, target, null)
+            tess.clear()
+            tess.setPageSegMode(mode)
+            tess.setImage(crop)
+            return tess.getUTF8Text().orEmpty()
+        } finally {
+            crop.recycle()
         }
     }
 
@@ -99,7 +123,7 @@ class InvoicePdfReader {
                 candidates.count { it.quantity.isNotEmpty() } >= previous.count { it.quantity.isNotEmpty() }
 
         if (complete(page.items)) return page.items
-        val grid = recognizeGrid(tess, bitmap, page.words)
+        val grid = recognizeGrid(tess, bitmap, page.words, report)
         report?.invoke("cells rows=${grid.size}; withQuantity=${grid.count { it.quantity.isNotEmpty() }}")
         val gridPreferred = grid.isNotEmpty() && atLeastAsComplete(grid, page.items)
         val best = if (gridPreferred) grid else page.items

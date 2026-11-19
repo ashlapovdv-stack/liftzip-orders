@@ -19,7 +19,13 @@ internal object InvoiceGrid {
         return ranges
     }
 
-    fun locate(pixels: IntArray, width: Int, height: Int, headers: List<InvoiceWord>): List<Row> {
+    fun locate(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        headers: List<InvoiceWord>,
+        recognizeHeader: (Cell) -> String = { "" },
+    ): List<Row> {
         val name = headers.firstOrNull { it.isInvoiceNameHeader() } ?: return emptyList()
         val quantity = headers.firstOrNull { it.isInvoiceQuantityHeader() }
         val headerCenter = name.y + name.height / 2
@@ -57,26 +63,38 @@ internal object InvoiceGrid {
         // The title can be centered in a wide cell. The last open cell may be cut off by the screenshot.
         val nameColumn = vertical.indexOfLast { it.last < name.x + name.width / 2 }
         if (nameColumn < 1) return emptyList()
-        val quantityColumn = quantity?.let { label -> vertical.indexOfLast { it.last < label.x + 2 } }
-            ?.takeIf { it >= 0 && it != nameColumn && it + 1 < vertical.size }
+        fun cell(column: Int, top: Int, bottom: Int): Cell = Cell(
+            vertical[column].last + 1, top, vertical.getOrNull(column + 1)?.first ?: width, bottom,
+        )
+        val closedColumns = (0 until vertical.lastIndex).filter { it != nameColumn }
+        val quantityColumn = closedColumns.singleOrNull { column ->
+            val header = cell(column, scanTop, headerBottom.first)
+            quantity != null && quantity.x >= header.left && quantity.x + quantity.width <= header.right
+        } ?: closedColumns.singleOrNull { column ->
+            isInvoiceQuantityLabel(recognizeHeader(cell(column, scanTop, headerBottom.first)))
+        }
 
         return rowRules.zipWithNext().map { (above, below) ->
-            fun cell(column: Int): Cell {
-                val left = vertical[column].last + 1
-                val right = vertical.getOrNull(column + 1)?.first ?: width
-                return Cell(left, above.last + 1, right, below.first)
-            }
-            Row(cell(nameColumn), quantityColumn?.let(::cell))
+            Row(
+                cell(nameColumn, above.last + 1, below.first),
+                quantityColumn?.let { cell(it, above.last + 1, below.first) },
+            )
         }
     }
 
-    fun read(rows: List<Row>, recognize: (Cell) -> String): List<InvoiceItem> =
-        rows.mapNotNull { row ->
-            val name = recognize(row.name).trim().replace(Regex("\\s+"), " ")
-            if (!name.any(Char::isLetter)) return@mapNotNull null
-            val quantity = row.quantity?.let(recognize)?.trim()
-                ?.takeIf { it.matches(Regex("(?:[1-9][0-9]{0,5}(?:[.,][0-9]+)?|0[.,][0-9]*[1-9][0-9]*)")) }
-                .orEmpty()
-            InvoiceItem(name, quantity)
-        }
+    private val positiveQuantity = Regex("(?:[1-9][0-9]{0,5}(?:[.,][0-9]+)?|0[.,][0-9]*[1-9][0-9]*)")
+
+    fun quantityOrEmpty(text: String): String =
+        text.trim().trim('|', '[', ']', ' ').takeIf(positiveQuantity::matches).orEmpty()
+
+    fun read(
+        rows: List<Row>,
+        recognizeQuantity: (Cell) -> String,
+        recognizeName: (Cell) -> String,
+    ): List<InvoiceItem> = rows.mapNotNull { row ->
+        val name = recognizeName(row.name).trim().replace(Regex("\\s+"), " ")
+        if (!name.any(Char::isLetter)) return@mapNotNull null
+        val quantity = row.quantity?.let { quantityOrEmpty(recognizeQuantity(it)) }.orEmpty()
+        InvoiceItem(name, quantity)
+    }
 }
