@@ -429,6 +429,7 @@ class GroupDetailScreenTest {
     }
 
     @Test fun positionEditorRevealsTheFocusedFieldAndKeepsTheHeaderStill() {
+        configureKeyboardInsets()
         showOrder = true
         newOrderPreview = true
         showScreen(1f)
@@ -441,26 +442,33 @@ class GroupDetailScreenTest {
         name.performClick()
         waitForKeyboard()
         assertEquals(nameTop, name.fetchSemanticsNode().positionInRoot.y, 1f)
+        val scroll = compose.onNodeWithTag("position-scroll")
+        val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
+        scroll.performTouchInput { swipeUp(durationMillis = 400) }
+        waitForFieldAboveKeyboard(purchase)
+        scroll.performTouchInput { swipeDown(durationMillis = 400) }
+        waitForFieldAboveKeyboard(name)
         androidx.test.espresso.Espresso.closeSoftKeyboard()
+        compose.waitUntil(10_000) {
+            compose.activity.window.decorView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == false
+        }
 
-        val purchase = compose.onNodeWithContentDescription("Закупка, ₽").performScrollTo()
+        purchase.performScrollTo()
         purchase.performClick()
         waitForKeyboard()
-        waitForUnclippedField(purchase)
+        waitForFieldAboveKeyboard(purchase)
 
         purchase.performTextReplacement("1050")
         purchase.assertTextContains("1050")
         header.assertIsDisplayed()
         assertEquals(headerTop, header.fetchSemanticsNode().positionInRoot.y, 1f)
-        compose.onNodeWithContentDescription("Название товара").performScrollTo().assertIsDisplayed()
+        scroll.performTouchInput { swipeDown(durationMillis = 400) }
+        waitForFieldAboveKeyboard(name)
+        header.assertIsDisplayed()
     }
 
     @Test fun groupExpenseFieldScrollsAboveTheKeyboard() {
-        compose.runOnUiThread {
-            val window = compose.activity.window
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        }
+        configureKeyboardInsets()
         showScreen(1f)
         val list = compose.onNode(hasScrollToIndexAction())
         list.performScrollToNode(hasText("Добавить расход"))
@@ -470,11 +478,7 @@ class GroupDetailScreenTest {
         val field = compose.onNode(comment)
         field.performClick()
         waitForKeyboard()
-        waitForUnclippedField(field)
-        val bottom = field.fetchSemanticsNode().boundsInWindow.bottom
-        val decor = compose.activity.window.decorView
-        val keyboardTop = decor.height - decor.rootWindowInsets.getInsets(android.view.WindowInsets.Type.ime()).bottom
-        org.junit.Assert.assertTrue("Expense field ends at $bottom, keyboard starts at $keyboardTop", bottom <= keyboardTop + 1f)
+        waitForFieldAboveKeyboard(field)
         field.performTextReplacement("Комментарий к расходу")
         field.assertTextContains("Комментарий к расходу")
     }
@@ -485,10 +489,22 @@ class GroupDetailScreenTest {
         }
     }
 
-    private fun waitForUnclippedField(field: SemanticsNodeInteraction) {
+    private fun configureKeyboardInsets() {
+        compose.runOnUiThread {
+            val window = compose.activity.window
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+    }
+
+    private fun waitForFieldAboveKeyboard(field: SemanticsNodeInteraction) {
         compose.waitUntil(timeoutMillis = 10_000) {
             val node = field.fetchSemanticsNode()
-            node.boundsInRoot.height >= node.size.height - 1f
+            val decor = compose.activity.window.decorView
+            val ime = decor.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+            val keyboardTop = decor.height - ime
+            ime > 0 && node.boundsInRoot.height >= node.size.height - 1f &&
+                node.boundsInWindow.bottom <= keyboardTop + 1f
         }
     }
 
