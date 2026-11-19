@@ -33,7 +33,7 @@ internal object InvoiceGrid {
             return (rgb shr 16 and 255) < 145 && (rgb shr 8 and 255) < 145 && (rgb and 255) < 145
         }
 
-        val maxThickness = maxOf((name?.height ?: 0) / 2, width / 100, 4)
+        val maxThickness = maxOf((name?.height ?: 0) / 2, width / 80, 4)
         val horizontal = rules(height) { y ->
             var count = 0
             for (x in 0 until width) if (dark(x, y)) count++
