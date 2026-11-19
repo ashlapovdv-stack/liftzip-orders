@@ -12,8 +12,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.await
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
@@ -24,19 +26,28 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import ru.liftzip.orders.app.OrdersApplication
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 private const val DRIVE_FOLDER = "application/vnd.google-apps.folder"
 private const val API = "https://www.googleapis.com/drive/v3"
+private const val UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files"
+private const val ZIP = "application/zip"
+private const val CHUNK_BYTES = 256 * 1024
+private const val RESUME_INCOMPLETE = 308
+private const val FILE_FIELDS = "id,size,sha256Checksum,md5Checksum"
 private const val DRIVE_JOB = "orders-upload-backup"
 private val Context.driveBackupStore by preferencesDataStore("drive_backup")
 
@@ -93,37 +104,58 @@ internal class DriveBackupStore(context: Context) {
 
 internal object DriveBackupSchedule {
     fun enqueue(context: Context) {
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            DRIVE_JOB, ExistingWorkPolicy.APPEND_OR_REPLACE,
+        enqueue(WorkManager.getInstance(context), ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
+
+    fun observe(context: Context) = WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(DRIVE_JOB)
+
+    suspend fun retryNow(context: Context) {
+        val manager = WorkManager.getInstance(context)
+        if (observe(context).first().any { it.state == WorkInfo.State.RUNNING }) return
+        enqueue(manager, ExistingWorkPolicy.REPLACE).await()
+    }
+
+    private fun enqueue(manager: WorkManager, policy: ExistingWorkPolicy) =
+        manager.enqueueUniqueWork(
+            DRIVE_JOB, policy,
             OneTimeWorkRequestBuilder<DriveBackupWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build(),
         )
-    }
 
     fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(DRIVE_JOB) }
 }
 
 class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        uploadLock.withLock { uploadLatest() }
+    }
+
+    private suspend fun uploadLatest(): Result {
         val app = applicationContext as OrdersApplication
         val store = DriveBackupStore(app)
         val state = store.settings.first()
-        val email = state.email ?: return@withContext Result.success()
-        val sealed = state.sealedCode ?: return@withContext Result.success()
-        val uri = app.settings.localBackup.first().folder ?: return@withContext Result.success()
+        val email = state.email ?: return Result.success()
+        val sealed = state.sealedCode ?: return Result.success()
+        val uri = app.settings.localBackup.first().folder ?: return Result.success()
         val archive = latestDailyBackup(DocumentFile.fromTreeUri(app, uri))
-            ?: return@withContext Result.success()
-        val name = archive.name ?: return@withContext Result.success()
-        if (state.lastFile == name) return@withContext Result.success()
+        val name = archive?.name
+        if (archive == null || name == null) {
+            store.record(sealed, error = "В выбранной папке нет локальной автокопии для отправки.")
+            return Result.success()
+        }
+        if (state.lastFile == name) {
+            if (state.error != null) store.record(sealed)
+            return Result.success()
+        }
 
         var stage = "доступ к Google Диску"
-        try {
+        return try {
             val result = Tasks.await(Identity.getAuthorizationClient(app).authorize(driveAuthorization(email)), 30, TimeUnit.SECONDS)
             val token = result.accessToken
             if (result.hasResolution() || token.isNullOrBlank()) {
                 store.record(sealed, error = "Откройте настройки и обновите разрешение Google Диска.")
-                return@withContext Result.success()
+                return Result.success()
             }
             val drive = DriveBackupApi(token)
             val fileName = name.removeSuffix(".zip") + ".orders.zip"
@@ -134,8 +166,8 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                 try {
                     stage = "шифрование архива"
                     DriveArchive.encrypt(app, archive.uri, encrypted, DriveRecoveryCode.unseal(sealed))
-                    ensureActive()
-                    if (store.settings.first().sealedCode != sealed) return@withContext Result.success()
+                    currentCoroutineContext().ensureActive()
+                    if (store.settings.first().sealedCode != sealed) return Result.success()
                     stage = "отправка архива"
                     val coroutine = currentCoroutineContext()
                     drive.upload(folder, fileName, encrypted) { coroutine.ensureActive() }
@@ -143,6 +175,7 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                     encrypted.delete()
                 }
             }
+            currentCoroutineContext().ensureActive()
             store.record(sealed, name)
             Result.success()
         } catch (error: CancellationException) {
@@ -160,6 +193,10 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             store.record(sealed, error = "Ошибка облачной копии ($detail). Локальная копия сохранена.")
             if (permanent || runAttemptCount >= 4) Result.success() else Result.retry()
         }
+    }
+
+    private companion object {
+        val uploadLock = Mutex()
     }
 }
 
@@ -209,54 +246,115 @@ internal class DriveBackupApi(
 
     fun upload(folder: String, name: String, file: File, checkActive: () -> Unit = {}) {
         val length = file.length().also { require(it > 0) }
-        val fields = "id,size,sha256Checksum,md5Checksum"
-        val metadata = JSONObject().put("name", name).put("mimeType", "application/zip")
+        val metadata = JSONObject().put("name", name).put("mimeType", ZIP)
             .put("parents", org.json.JSONArray(listOf(folder)))
-        val boundary = "orders-" + java.util.UUID.randomUUID()
-        val prefix = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
-            metadata + "\r\n--$boundary\r\nContent-Type: application/zip\r\n\r\n").toByteArray(Charsets.UTF_8)
-        val suffix = "\r\n--$boundary--\r\n".toByteArray(Charsets.US_ASCII)
-        val upload = open("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=$fields", "POST")
-        val sha = java.security.MessageDigest.getInstance("SHA-256")
-        val md5 = java.security.MessageDigest.getInstance("MD5")
-        val saved = try {
-            upload.doOutput = true
-            upload.setRequestProperty("Content-Type", "multipart/related; boundary=$boundary")
-            upload.setFixedLengthStreamingMode(length + prefix.size + suffix.size)
-            transferStep("передача архива") {
-                upload.outputStream.use { output ->
-                    output.write(prefix)
-                    file.inputStream().use { input ->
-                        val buffer = ByteArray(128 * 1024)
-                        while (true) {
-                            checkActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            sha.update(buffer, 0, count)
-                            md5.update(buffer, 0, count)
-                            output.write(buffer, 0, count)
-                        }
-                    }
-                    output.write(suffix)
-                }
-            }
-            transferStep("ответ на загрузку") {
-                upload.checkResponse("приём архива Google Диском")
-                upload.readJson()
-            }
-        } finally { upload.disconnect() }
-
+        val session = startUpload(metadata, length)
+        val saved = sendArchive(session, file, length, checkActive)
         val id = URLEncoder.encode(saved.getString("id"), "UTF-8")
-        val checksumFields = listOf("sha256Checksum", "md5Checksum")
-        val info = if (saved.has("size") && checksumFields.any { saved.optString(it).isNotBlank() }) saved
-            else request("$API/files/$id?fields=$fields")
+        val info = if (saved.has("size") && (saved.optString("sha256Checksum").isNotBlank() ||
+                saved.optString("md5Checksum").isNotBlank())
+        ) saved else request("$API/files/$id?fields=$FILE_FIELDS")
+
         val remoteSha = info.optString("sha256Checksum")
-        val matches = if (remoteSha.isNotBlank()) remoteSha.equals(sha.hexDigest(), ignoreCase = true)
-            else info.optString("md5Checksum").equals(md5.hexDigest(), ignoreCase = true)
-        if (info.optLong("size", -1) != length || !matches) {
+        val (algorithm, expected) = if (remoteSha.isNotBlank()) "SHA-256" to remoteSha
+            else "MD5" to info.optString("md5Checksum")
+        if (info.optLong("size", -1) != length || !file.checksum(algorithm, checkActive).equals(expected, true)) {
             runCatching { request("$API/files/$id", "PATCH", JSONObject().put("trashed", true)) }
             throw DriveUploadError("контрольная сумма копии не совпала")
         }
+    }
+
+    private fun startUpload(metadata: JSONObject, length: Long): String {
+        val request = open("$UPLOAD_API?uploadType=resumable&fields=$FILE_FIELDS", "POST")
+        return try {
+            transferStep("открытие сессии загрузки") {
+                request.setRequestProperty("X-Upload-Content-Type", ZIP)
+                request.setRequestProperty("X-Upload-Content-Length", length.toString())
+                request.writeJson(metadata)
+                request.checkResponse("открытие сессии загрузки")
+                request.getHeaderField("Location") ?: throw IOException("Missing upload session")
+            }
+        } finally { request.disconnect() }
+    }
+
+    private sealed interface UploadProgress {
+        data class Incomplete(val nextByte: Long) : UploadProgress
+        data class Complete(val metadata: JSONObject) : UploadProgress
+    }
+
+    private fun sendArchive(session: String, file: File, length: Long, checkActive: () -> Unit): JSONObject {
+        RandomAccessFile(file, "r").use { input ->
+            val buffer = ByteArray(CHUNK_BYTES)
+            var offset = 0L
+            var stalled = 0
+            while (offset < length) {
+                checkActive()
+                val count = minOf(buffer.size.toLong(), length - offset).toInt()
+                input.seek(offset)
+                input.readFully(buffer, 0, count)
+                val end = offset + count
+                val progress = try {
+                    sendChunk(session, length, offset, buffer, count)
+                } catch (error: IOException) {
+                    if (error is DriveResponseError && error.status !in 500..599) throw error
+                    checkActive()
+                    sendChunk(session, length, 0, buffer, 0)
+                }
+                when (progress) {
+                    is UploadProgress.Complete -> return progress.metadata
+                    is UploadProgress.Incomplete -> {
+                        val next = progress.nextByte
+                        if (next < offset || next > end || next == length) {
+                            throw DriveUploadError("Google Диск вернул неверную позицию загрузки")
+                        }
+                        stalled = if (next == offset) stalled + 1 else 0
+                        if (stalled >= 3) throw DriveUploadError("Google Диск не подтвердил получение архива")
+                        offset = next
+                    }
+                }
+            }
+        }
+        throw DriveUploadError("Google Диск не подтвердил завершение загрузки")
+    }
+
+    private fun sendChunk(
+        session: String, total: Long, offset: Long, buffer: ByteArray, count: Int,
+    ): UploadProgress {
+        val request = open(session, "PUT")
+        return try {
+            request.doOutput = true
+            request.setRequestProperty("Content-Type", ZIP)
+            val bytes = if (count == 0) "*" else "${offset}-${offset + count - 1}"
+            request.setRequestProperty("Content-Range", "bytes $bytes/$total")
+            request.setFixedLengthStreamingMode(count)
+            transferStep(if (count == 0) "проверка принятой части архива" else "передача части архива") {
+                request.outputStream.use { it.write(buffer, 0, count) }
+                when (val status = request.responseCode) {
+                    HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_CREATED -> UploadProgress.Complete(request.readJson())
+                    RESUME_INCOMPLETE -> {
+                        val range = request.getHeaderField("Range")
+                        val last = range?.let { Regex("""bytes=0-(\d+)""").matchEntire(it)?.groupValues?.get(1)?.toLongOrNull() }
+                        if (range != null && last == null) throw IOException("Invalid upload range")
+                        UploadProgress.Incomplete(last?.plus(1) ?: 0)
+                    }
+                    else -> throw DriveResponseError(status, "приём архива Google Диском")
+                }
+            }
+        } finally { request.disconnect() }
+    }
+
+    private fun File.checksum(algorithm: String, checkActive: () -> Unit): String {
+        val digest = MessageDigest.getInstance(algorithm)
+        inputStream().use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                checkActive()
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private inline fun <T> transferStep(step: String, block: () -> T): T = try {
@@ -266,8 +364,6 @@ internal class DriveBackupApi(
     } catch (error: IOException) {
         throw DriveUploadError(step, error)
     }
-
-    private fun java.security.MessageDigest.hexDigest(): String = digest().joinToString("") { "%02x".format(it) }
 
     private fun request(url: String, method: String = "GET", json: JSONObject? = null): JSONObject {
         val connection = open(url, method)

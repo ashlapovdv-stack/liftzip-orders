@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.work.WorkInfo
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.tasks.Tasks
@@ -52,17 +53,35 @@ internal fun DriveBackupCard(localEnabled: Boolean) {
     val store = remember(context) { DriveBackupStore(context) }
     val config by store.settings.collectAsState(initial = DriveBackupSettings())
     val scope = rememberCoroutineScope()
+    val queue by remember(context) { DriveBackupSchedule.observe(context) }.collectAsState(initial = emptyList())
+    val uploading = queue.any { it.state == WorkInfo.State.RUNNING }
+    val queued = queue.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+    var submitting by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var newConnection by remember { mutableStateOf<Pair<String, String>?>(null) }
     var recoveryCode by remember { mutableStateOf<String?>(null) }
     val client = remember(context) { Identity.getAuthorizationClient(context) }
 
+    suspend fun retryUpload() {
+        submitting = true
+        notice = null
+        try {
+            DriveBackupSchedule.retryNow(context)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            notice = "Не удалось запустить отправку копии."
+        } finally {
+            submitting = false
+        }
+    }
+
     suspend fun connected(result: AuthorizationResult) {
         val token = result.accessToken ?: error("Google не предоставил доступ к Диску")
         val email = withContext(Dispatchers.IO) { DriveBackupApi(token).accountEmail() }
         if (config.email == email && config.sealedCode != null) {
-            DriveBackupSchedule.enqueue(context)
+            retryUpload()
         } else {
             newConnection = email to DriveArchive.newCode()
         }
@@ -88,7 +107,14 @@ internal fun DriveBackupCard(localEnabled: Boolean) {
             Text("В Google Диск отправляется зашифрованная копия. Для восстановления нужен код.")
             config.email?.let { Text(it) }
             config.lastUpload?.let { Text("Последняя загрузка: ${Instant.ofEpochMilli(it).formatDateTime()}") }
-            config.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            if (localEnabled && config.email != null) {
+                when {
+                    uploading -> Text("Отправляем копию в Google Диск…")
+                    submitting -> Text("Запускаем отправку…")
+                    queued -> Text(if (config.error != null) "Ожидается повторная отправка." else "Копия в очереди на отправку.")
+                }
+            }
+            if (!uploading && !submitting) config.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(enabled = localEnabled && !working, onClick = {
                 working = true
@@ -116,9 +142,9 @@ internal fun DriveBackupCard(localEnabled: Boolean) {
             }) { Text(if (config.email == null) "Подключить Google Диск" else "Обновить доступ") }
 
             if (config.email != null) {
-                OutlinedButton(enabled = localEnabled, onClick = {
-                    DriveBackupSchedule.enqueue(context)
-                }) { Text("Загрузить последнюю копию") }
+                OutlinedButton(enabled = localEnabled && !submitting && !uploading && !working, onClick = {
+                    scope.launch { retryUpload() }
+                }) { Text(if (uploading) "Копия отправляется…" else "Отправить последнюю копию") }
                 TextButton(onClick = {
                     val sealedCode = config.sealedCode
                     if (sealedCode != null) scope.launch {
