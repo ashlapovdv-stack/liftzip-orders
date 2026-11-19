@@ -104,6 +104,36 @@ class BackupManagerTest {
         }
     }
 
+    @Test fun legacyZipPreservesPhotosAlreadyPresentForMatchingLineIds() = runTest {
+        val draft = orderCommand("Архив старого формата")
+        val id = repository.saveOrder(draft.copy(lines = draft.lines.map { it.copy(images = listOf(byteArrayOf(7, 8))) }))
+        val current = File.createTempFile("current-orders-", ".zip", context.cacheDir)
+        val legacy = File.createTempFile("legacy-orders-", ".zip", context.cacheDir)
+        try {
+            manager.exportTo(Uri.fromFile(current))
+            java.util.zip.ZipFile(current).use { source ->
+                val manifest = source.getInputStream(source.getEntry("manifest.json")).bufferedReader()
+                    .use { Json.decodeFromString(BackupManifest.serializer(), it.readText()) }
+                ZipOutputStream(legacy.outputStream()).use { target ->
+                    target.putNextEntry(ZipEntry("manifest.json"))
+                    target.write(Json.encodeToString(BackupManifest.serializer(), manifest.copy(
+                        formatVersion = 1, images = emptyList(), media = emptyList(),
+                    )).toByteArray())
+                    target.closeEntry()
+                    target.putNextEntry(ZipEntry("data.json"))
+                    source.getInputStream(source.getEntry("data.json")).use { it.copyTo(target) }
+                    target.closeEntry()
+                }
+            }
+            val inspection = manager.importFrom(Uri.fromFile(legacy))
+            assertEquals(false, inspection.includesAttachments)
+            assertTrue(repository.observeOrder(id).first()!!.lines.single().images.single().contentEquals(byteArrayOf(7, 8)))
+        } finally {
+            current.delete()
+            legacy.delete()
+        }
+    }
+
     @Test fun corruptAndNewerArchivesLeaveCurrentDataUntouched() = runTest {
         val orderId = repository.saveOrder(orderCommand("Сохранить"))
         val valid = File(context.cacheDir, "valid.zip")

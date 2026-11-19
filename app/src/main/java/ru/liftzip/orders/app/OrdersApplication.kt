@@ -39,7 +39,7 @@ class OrdersApplication : Application() {
             container.repository.initialize()
             return container
         } catch (error: Exception) {
-            container.database.close()
+            container.backup.closeDatabase()
             throw error
         }
     }
@@ -57,7 +57,7 @@ class OrdersApplication : Application() {
             opening.withLock { active = container }
             container
         } catch (error: Exception) {
-            container.database.close()
+            container.backup.closeDatabase()
             throw error
         }
     }

@@ -652,10 +652,15 @@ fun OrderEditorScreen(
                                     }
                                 }
                             line.images.forEachIndexed { photoIndex, bytes ->
-                                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                                val bitmap by produceState<android.graphics.Bitmap?>(null, bytes) {
+                                    value = withContext(Dispatchers.IO) {
+                                        val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                                    }
+                                }
                                 Box(Modifier.size(76.dp)) {
                                     if (bitmap != null) Image(
-                                        bitmap.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
+                                        bitmap!!.asImageBitmap(), contentDescription = "Фото ${photoIndex + 1}",
                                         modifier = Modifier.fillMaxSize().clickable { enlargedPhoto = bytes }, contentScale = ContentScale.Crop,
                                     )
                                     IconButton(

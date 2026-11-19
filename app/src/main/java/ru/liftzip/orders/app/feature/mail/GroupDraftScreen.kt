@@ -216,7 +216,9 @@ fun GroupDraftScreen(repository: OrdersRepository, groupId: UUID, orderId: UUID,
             DraftActionButton("Поделиться", Icons.Default.Share, darkGreen, onClick = { draftAction {
                 save(syncAttachments = true)
                 val files = withContext(Dispatchers.IO) {
-                    store.attachments(groupId, current.orderId) + store.documents(groupId, current.orderId)
+                    val shareDir = File(context.cacheDir, "shared_letters/${UUID.randomUUID()}").apply { mkdirs() }
+                    val originals = store.attachments(groupId, current.orderId) + store.documents(groupId, current.orderId)
+                    originals.map { it.copyTo(File(shareDir, it.name)) }
                 }
                 val uris = ArrayList<Uri>(files.map {
                     FileProvider.getUriForFile(context, "${context.packageName}.files", it)

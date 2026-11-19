@@ -124,8 +124,16 @@ class SettingsViewModel(
     val message = _message.asStateFlow()
     private val _pendingImport = MutableStateFlow<PendingImport?>(null)
     val pendingImport = _pendingImport.asStateFlow()
-    private val _recoveryAvailable = MutableStateFlow(backup.latestRecoveryCopy() != null)
+    private val _recoveryAvailable = MutableStateFlow(false)
     val recoveryAvailable = _recoveryAvailable.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _recoveryAvailable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                backup.latestRecoveryCopy() != null
+            }
+        }
+    }
 
     fun export(uri: Uri) {
         if (_busy.value) return
@@ -154,8 +162,10 @@ class SettingsViewModel(
     }
 
     fun inspectLatestRecovery() {
-        val file = backup.latestRecoveryCopy() ?: return
-        inspect(Uri.fromFile(file))
+        viewModelScope.launch {
+            val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backup.latestRecoveryCopy() }
+            if (file != null) inspect(Uri.fromFile(file))
+        }
     }
 
     fun confirmImport() {
@@ -168,8 +178,13 @@ class SettingsViewModel(
                 _recoveryAvailable.value = true
                 _message.value = "Данные восстановлены. Перед заменой создана локальная копия"
             } catch (error: Exception) {
-                _message.value = error.message ?: "Восстановление не выполнено; текущие данные сохранены"
-            } finally { _busy.value = false }
+                _message.value = error.message ?: "Не удалось завершить восстановление"
+            } finally {
+                _recoveryAvailable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    backup.latestRecoveryCopy() != null
+                }
+                _busy.value = false
+            }
         }
     }
 

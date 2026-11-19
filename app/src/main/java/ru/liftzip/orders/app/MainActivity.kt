@@ -1,6 +1,7 @@
 package ru.liftzip.orders.app
 
 import android.os.Bundle
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,10 +20,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import ru.liftzip.orders.data.backup.BackupManager
 import kotlinx.coroutines.launch
 import ru.liftzip.orders.app.ui.OrdersApp
 import ru.liftzip.orders.app.ui.OrdersTheme
@@ -63,6 +68,14 @@ class MainActivity : ComponentActivity() {
                         Text(failure)
                         Text("Исходная база сохранена. Восстановление создаст отдельную базу из выбранной копии.")
                         OutlinedButton(onClick = { scope.launch { open(app::openOrders) } }) { Text("Повторить") }
+                        val local by produceState<java.io.File?>(null, failure) {
+                            value = withContext(Dispatchers.IO) { BackupManager.latestRecoveryCopy(app.filesDir) }
+                        }
+                        local?.let { copy ->
+                            OutlinedButton(onClick = { scope.launch { open { app.restoreOrders(Uri.fromFile(copy)) } } }) {
+                                Text("Восстановить последнюю локальную копию")
+                            }
+                        }
                         OutlinedButton(onClick = { picker.launch(arrayOf("application/zip", "application/octet-stream")) }) {
                             Text("Выбрать резервную копию")
                         }

@@ -33,6 +33,8 @@ class BackupManager(
     private val json = Json { prettyPrint = true; encodeDefaults = true; ignoreUnknownKeys = false }
     private val backupDao = database.backupDao()
 
+    fun closeDatabase() = database.close()
+
     private data class Snapshot(
         val payload: BackupPayload,
         val manifest: BackupManifest,
@@ -113,9 +115,7 @@ class BackupManager(
         if (!preservePrevious) journal.deleteRecursively()
     }
 
-    fun latestRecoveryCopy(): File? = File(context.filesDir, "recovery-backups")
-        .listFiles { file -> file.isFile && file.name.endsWith(".zip") }
-        ?.maxByOrNull { it.lastModified() }
+    fun latestRecoveryCopy(): File? = latestRecoveryCopy(context.filesDir)
 
     suspend fun createLocalRecoveryCopy(): File = withContext(Dispatchers.IO) {
         mutex.withLock { finishPendingRestore(); writeLocalRecoveryCopy() }
@@ -277,8 +277,10 @@ class BackupManager(
         database.withTransaction {
             val oldImages = if (manifest.formatVersion == 1) {
                 val lineIds = payload.lines.mapTo(hashSetOf()) { it.id }
-                backupDao.imageIndex().filter { it.lineId in lineIds }
-                    .map { OrderLineImageEntity(it.id, it.lineId, it.position, backupDao.imageBytes(it.id)) }
+                val legacy = File(snapshot.staging, "legacy-photos").apply { mkdirs() }
+                backupDao.imageIndex().filter { it.lineId in lineIds }.onEach {
+                    File(legacy, it.id).writeBytes(backupDao.imageBytes(it.id))
+                }
             } else emptyList()
             backupDao.deleteDeliveryPayments()
             backupDao.deleteDeliveryInvoices()
@@ -302,7 +304,10 @@ class BackupManager(
             backupDao.insertProducts(payload.products)
             backupDao.insertOrders(payload.orders)
             backupDao.insertLines(payload.lines)
-            for (image in oldImages) database.ordersDao().insertLineImage(image)
+            for (image in oldImages) {
+                val bytes = File(snapshot.staging, "legacy-photos/${image.id}").readBytes()
+                database.ordersDao().insertLineImage(OrderLineImageEntity(image.id, image.lineId, image.position, bytes))
+            }
             for (image in manifest.images) {
                 val bytes = File(snapshot.staging, "photos/${image.id}").readBytes()
                 database.ordersDao().insertLineImage(OrderLineImageEntity(image.id, image.lineId, image.position, bytes))
@@ -447,6 +452,14 @@ class BackupManager(
         .digest(data).joinToString("") { String.format(Locale.ROOT, "%02x", it) }
 
     companion object {
+        fun latestRecoveryCopy(filesDir: File): File? = File(filesDir, "recovery-backups")
+                .listFiles { file -> file.isFile && file.name.endsWith(".zip") }
+                ?.sortedByDescending { it.lastModified() }
+                ?.firstOrNull { file ->
+                    runCatching { java.util.zip.ZipFile(file).use { it.getEntry("manifest.json") != null && it.getEntry("data.json") != null } }
+                        .getOrDefault(false)
+                }
+
         const val FORMAT = "liftzip-orders-backup"
         const val FORMAT_VERSION = 2
         private const val MAX_PHOTO = 1_500_000L

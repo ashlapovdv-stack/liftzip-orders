@@ -469,35 +469,28 @@ class RoomOrdersRepository(
         }
     }
 
-    private suspend fun loadOrderDetails(order: OrderEntity, group: SettlementGroupEntity): OrderDetails = OrderDetails(
-        order = order.toDomain(), group = group.toDomain(),
-        lines = dao.getOrderLines(order.id).map { line ->
-            line.toDomain().copy(images = dao.getLineImages(line.id).map { it.jpeg })
-        },
-        costs = dao.getOrderCosts(order.id).map { it.toDomain() },
-        history = dao.getOrderHistory(order.id).map { it.toDomain() },
-    )
+    private suspend fun loadOrderDetails(order: OrderEntity, group: SettlementGroupEntity): OrderDetails =
+        database.withTransaction {
+            val lines = dao.getOrderLines(order.id)
+            val photos = lines.map { it.id }.chunked(500).flatMap { dao.getImagesForLines(it) }.groupBy { it.lineId }
+            OrderDetails(
+                order = order.toDomain(), group = group.toDomain(),
+                lines = lines.map { line -> line.toDomain().copy(images = photos[line.id].orEmpty().map { it.jpeg }) },
+                costs = dao.getOrderCosts(order.id).map { it.toDomain() },
+                history = dao.getOrderHistory(order.id).map { it.toDomain() },
+            )
+        }
 
-    private suspend fun toSummary(
+    private fun toSummary(
         order: OrderEntity,
-        knownGroup: SettlementGroupEntity? = null,
-        knownLines: List<OrderLineEntity>? = null,
-        knownCosts: List<CostEntryEntity>? = null,
-    ): OrderSummary {
-        val group = knownGroup ?: dao.getGroup(order.groupId)
-            ?: throw DomainValidationException("Группа заказа не найдена")
-        val lines = knownLines ?: dao.getOrderLines(order.id)
-        val costs = knownCosts?.filter {
-            (it.ownerType == CostOwnerType.ORDER.name && it.ownerId == order.id) ||
-                (it.ownerType == CostOwnerType.LINE.name && lines.any { line -> line.id == it.ownerId })
-        } ?: dao.getOrderCosts(order.id)
-        val calculation = OrderCalculator.calculate(order.toDomain(), lines.map { it.toDomain() }, costs.map { it.toDomain() })
-        return OrderSummary(
-            order = order.toDomain(), groupNumber = group.number, groupState = GroupState.valueOf(group.state),
-            composition = lines.joinToString(", ") { it.productNameSnapshot }.take(160),
-            calculation = calculation,
-        )
-    }
+        group: SettlementGroupEntity,
+        lines: List<OrderLineEntity>,
+        costs: List<CostEntryEntity>,
+    ): OrderSummary = OrderSummary(
+        order = order.toDomain(), groupNumber = group.number, groupState = GroupState.valueOf(group.state),
+        composition = lines.joinToString(", ") { it.productNameSnapshot }.take(160),
+        calculation = OrderCalculator.calculate(order.toDomain(), lines.map { it.toDomain() }, costs.map { it.toDomain() }),
+    )
 
     private suspend fun createInitialGroupIfNeeded(now: Instant): SettlementGroupEntity {
         if (dao.nextGroupNumber() != 1L) throw DomainValidationException("Нет формируемой группы")
