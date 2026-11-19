@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
             ?.toIntOrNull()?.coerceAtLeast(4) ?: 4
-        versionName = "0.4.6"
+        versionName = "0.4.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -35,6 +35,9 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
+            if (providers.environmentVariable("ORDERS_KEYSTORE_PATH").isPresent) {
+                signingConfig = signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

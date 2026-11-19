@@ -318,13 +318,21 @@ private fun GroupOrdersTable(
         // never move actions outside the order's row.
         val amountWidth = (maxWidth - 4.dp) * 0.13f - 2.dp
         val actionWidth = (maxWidth - 4.dp) * 0.28f / 3f
-        val orders = details.orders.sortedBy { it.order.number }
-        val totals = listOf((details.summary.income?.formatAmount() ?: "—"), (details.summary.purchaseCost?.formatAmount() ?: "—"),
-            details.summary.profit?.formatAmount() ?: "—")
-        val values = orders.map { summary -> listOf((summary.calculation.income?.formatAmount() ?: "—"), (summary.calculation.purchaseCost?.formatAmount() ?: "—"),
-            summary.calculation.profit?.formatAmount() ?: "—") }
+        val orders = remember(details.orders) { details.orders.sortedBy { it.order.number } }
+        val totals = remember(details.summary.income, details.summary.purchaseCost, details.summary.profit) {
+            listOf(details.summary.income?.formatAmount() ?: "—", details.summary.purchaseCost?.formatAmount() ?: "—",
+                details.summary.profit?.formatAmount() ?: "—")
+        }
+        val values = remember(orders) {
+            orders.map { summary ->
+                listOf(summary.calculation.income?.formatAmount() ?: "—",
+                    summary.calculation.purchaseCost?.formatAmount() ?: "—",
+                    summary.calculation.profit?.formatAmount() ?: "—")
+            }
+        }
+        val columnValues = remember(values, totals) { totals.indices.map { column -> values.map { it[column] } + totals[column] } }
         val amountStyles = (0..2).map { index ->
-            fittedTableStyle(values.map { it[index] } + totals[index], amountWidth,
+            fittedTableStyle(columnValues[index], amountWidth,
                 MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, letterSpacing = 0.sp,
                     fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"))
         }
@@ -360,7 +368,7 @@ private fun fittedTableStyle(values: List<String>, width: Dp, style: TextStyle):
     val density = LocalDensity.current
     return remember(values, width, style, measurer, density) {
         val available = with(density) { width.toPx() } - 2f
-        val measured = values.maxOf { measurer.measure(AnnotatedString(it), style, softWrap = false).size.width }.toFloat()
+        val measured = values.distinct().maxOf { measurer.measure(AnnotatedString(it), style, softWrap = false).size.width }.toFloat()
         val scale = minOf(1f, available.coerceAtLeast(1f) / measured.coerceAtLeast(1f))
         style.copy(fontSize = style.fontSize * scale, lineHeight = style.lineHeight * scale)
     }

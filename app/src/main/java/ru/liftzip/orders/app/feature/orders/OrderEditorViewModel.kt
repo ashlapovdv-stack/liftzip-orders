@@ -12,6 +12,10 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.liftzip.orders.app.ui.parseDecimal
@@ -117,6 +121,22 @@ class OrderEditorViewModel(
     private var commandId = UUID.randomUUID()
     val attachmentOrderId = existingOrderId ?: UUID.randomUUID()
     private val calculationOrderId = attachmentOrderId
+
+    data class Preview(val totals: OrderCalculation? = null, val delivery: Money? = null)
+
+    val preview = state.map { snapshot ->
+        val rate = snapshot.orderRate.parseDecimal()
+        val lines = try {
+            snapshot.lines.map { it.toDomain(calculationOrderId, rate) }
+        } catch (_: IllegalArgumentException) {
+            return@map Preview()
+        }
+        Preview(
+            totals = calculatePreview(snapshot, lines),
+            delivery = runCatching { ru.liftzip.orders.domain.delivery.DeliveryCalculator.totalPlan(lines) }.getOrNull(),
+        )
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Preview())
 
     init {
         if (existingOrderId == null) {
@@ -332,9 +352,7 @@ class OrderEditorViewModel(
         }
     }
 
-    fun preview(): OrderCalculation? = try {
-        val state = _state.value
-        val lines = state.lines.mapIndexed { index, line -> line.toDomain(calculationOrderId, index) }
+    private fun calculatePreview(state: OrderEditorState, lines: List<OrderLine>): OrderCalculation? = try {
         val order = Order(
             id = calculationOrderId, number = state.orderNumber ?: 0, date = state.date,
             counterparty = state.counterparty, groupId = state.groupId ?: calculationOrderId,
@@ -472,17 +490,17 @@ class OrderEditorViewModel(
         comment = comment, createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
     )
 
-    private fun EditorLineDraft.toDomain(orderId: UUID, index: Int) = OrderLine(
-        id = id ?: UUID.nameUUIDFromBytes("$orderId-preview-$index".toByteArray()), orderId = orderId,
+    private fun EditorLineDraft.toDomain(orderId: UUID, orderRate: BigDecimal?) = OrderLine(
+        id = editorId, orderId = orderId,
         productId = productId ?: orderId, productNameSnapshot = name, articleSnapshot = article.ifBlank { null },
         quantity = quantity.parseDecimal(),
         saleUnitPrice = salePrice.parseDecimal()?.let(Money::fromRubles),
         purchaseUnitPrice = purchasePrice.parseDecimal(),
         purchaseCurrency = if (purchasePrice.isBlank()) null else purchaseCurrency,
-        purchaseRate = if (purchasePrice.isBlank()) null else if (purchaseCurrency == Currency.RUB) BigDecimal.ONE else _state.value.orderRate.parseDecimal(),
+        purchaseRate = if (purchasePrice.isBlank()) null else if (purchaseCurrency == Currency.RUB) BigDecimal.ONE else orderRate,
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
-        deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
+        deliveryRate = orderRate, deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
         productUrl = productUrl.ifBlank { null }, temporaryProductUrl = temporaryProductUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(), images = images,
     )
 
@@ -498,11 +516,6 @@ class OrderEditorViewModel(
         deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
         actualWeight = line.actualWeight?.toPlainString().orEmpty(), images = line.images,
     )
-
-    fun deliveryPreview(): Money? = try {
-        val state=_state.value
-        ru.liftzip.orders.domain.delivery.DeliveryCalculator.totalPlan(state.lines.mapIndexed { i,l -> l.toDomain(calculationOrderId,i) })
-    } catch (_:Exception) { null }
 
     private fun toEditorCost(cost: CostEntry) = EditorCostDraft(
         id = cost.id, kind = cost.kind, amount = cost.amount.toPlainString(), currency = cost.currency,

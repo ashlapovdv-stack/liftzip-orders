@@ -15,7 +15,7 @@ import java.util.UUID
 
 /** Private, persistent draft snapshots. Original order photos are never modified. */
 class GroupDraftStore(private val context: Context) {
-    private val root = File(context.filesDir, "mail_drafts").apply { mkdirs() }
+    private val root = File(context.filesDir, "mail_drafts")
 
     data class Draft(val orderId: UUID, val subject: String, val recipient: String, val body: String, val count: Int)
 
@@ -26,6 +26,14 @@ class GroupDraftStore(private val context: Context) {
         folder(groupId).listFiles { f -> f.extension == "json" }?.mapNotNull { f ->
             runCatching { parse(f.readText()) }.getOrNull()
         }?.sortedBy { it.subject } ?: emptyList()
+
+    fun draftOrderIdsByGroup(groupIds: Set<UUID>): Map<UUID, Set<UUID>> =
+        groupIds.associateWith { groupId ->
+            folder(groupId).listFiles { f -> f.isFile && f.extension == "json" }
+                ?.mapNotNullTo(mutableSetOf()) { file ->
+                    runCatching { UUID.fromString(file.nameWithoutExtension) }.getOrNull()
+                }.orEmpty()
+        }
 
     fun get(groupId: UUID, orderId: UUID): Draft? =
         file(groupId, orderId).takeIf { it.isFile }?.let { parse(it.readText()) }

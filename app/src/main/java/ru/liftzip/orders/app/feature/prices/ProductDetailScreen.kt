@@ -126,7 +126,7 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                     current.product.article?.let { Text("Артикул: $it", style = MaterialTheme.typography.bodySmall) }
                 }
                 if (current.lines.isEmpty()) item { EmptyState("Записей пока нет") }
-                items(current.lines, key = { it.sourceLineId }) { entry ->
+                items(current.lines, key = { it.sourceLineId }, contentType = { "price-history-entry" }) { entry ->
                     val source = entry.source
                     Card(Modifier.fillMaxWidth().testTag("history-line-${entry.sourceLineId}"),
                         shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White),

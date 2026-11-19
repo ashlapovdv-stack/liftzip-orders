@@ -1,17 +1,10 @@
 package ru.liftzip.orders.app.feature.orders
 
-import ru.liftzip.orders.app.ui.rememberLoaded
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.border
-import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,11 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,10 +23,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -50,12 +40,7 @@ import ru.liftzip.orders.app.feature.mail.GroupDraftStore
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -65,7 +50,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import ru.liftzip.orders.app.ui.AppTextField
 import ru.liftzip.orders.app.ui.OrdersViewModel
 import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.OrderStatusBadge
@@ -96,6 +80,11 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
     val filter by model.currentFilter.collectAsState()
     val limit by model.currentLimit.collectAsState()
     val deliveryOnly = filter == OrdersFilter.IN_DELIVERY
+    val groupIds = remember(orders) { orders.mapTo(mutableSetOf()) { it.order.groupId } }
+    var draftsByGroup by remember(draftStore) { mutableStateOf(emptyMap<UUID, Set<UUID>>()) }
+    LaunchedEffect(draftStore, groupIds, draftRevision) {
+        draftsByGroup = withContext(Dispatchers.IO) { draftStore.draftOrderIdsByGroup(groupIds) }
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -124,13 +113,10 @@ fun OrdersScreen(repository: OrdersRepository, onOpenOrder: (UUID) -> Unit, onNe
                 }
             }
             if (orders.isEmpty()) item { EmptyState(if (deliveryOnly) "Заказов на доставке нет" else "Заказов нет") }
-            items(orders, key = { it.order.id }) { summary ->
-                val hasDraft by rememberLoaded(false, summary.order.id, draftRevision) {
-                    withContext(Dispatchers.IO) {
-                        runCatching { draftStore.get(summary.order.groupId, summary.order.id) != null }.getOrDefault(false)
-                    }
-                }
-                OrderCard(summary, onClick = { onOpenOrder(summary.order.id) }, onOpenGroup = { onOpenGroup(summary.order.groupId) },
+            items(orders, key = { it.order.id }, contentType = { "order" }) { summary ->
+                val order = summary.order
+                val hasDraft = draftsByGroup[order.groupId]?.contains(order.id) == true
+                OrderCard(summary, onClick = { onOpenOrder(order.id) }, onOpenGroup = { onOpenGroup(order.groupId) },
                     hasDraft = hasDraft)
             }
             if (orders.size >= limit) {

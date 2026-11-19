@@ -23,6 +23,24 @@ if [ "${GITHUB_HEAD_REF:-}" = "diagnostics/taobao-short-link" ]; then
         test_status=1
     fi
 fi
+if [ "$test_status" -eq 0 ] && [ -n "${ORDERS_KEYSTORE_PATH:-}" ]; then
+    (
+        adb install -r app/build/outputs/apk/debug/app-debug.apk || exit 1
+        adb install -r app/build/outputs/apk/release/app-release.apk || exit 1
+        adb shell am start -W -n ru.liftzip.orders/.app.MainActivity || exit 1
+        for attempt in {1..3}; do
+            if adb shell uiautomator dump /sdcard/orders-release-smoke.xml >/dev/null; then
+                screen="$(adb shell cat /sdcard/orders-release-smoke.xml)"
+                if grep -Fq 'content-desc="Новый заказ"' <<< "$screen"; then
+                    echo "Non-debuggable APK updated and opened the orders screen"
+                    exit 0
+                fi
+            fi
+        done
+        echo "Non-debuggable APK did not open the orders screen" >&2
+        exit 1
+    ) || test_status=1
+fi
 if [ "$test_status" -ne 0 ]; then
     adb logcat -d -v threadtime > artifacts/android-test-logcat.txt
 fi

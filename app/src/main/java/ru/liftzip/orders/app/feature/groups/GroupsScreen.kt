@@ -43,7 +43,7 @@ fun GroupsScreen(repository: OrdersRepository, onOpenGroup: (UUID) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (groups.isEmpty()) item { EmptyState("Подготовка первой группы…") }
-        items(groups, key = { it.group.id }) { group -> GroupCard(group) { onOpenGroup(group.group.id) } }
+        items(groups, key = { it.group.id }, contentType = { "group" }) { group -> GroupCard(group) { onOpenGroup(group.group.id) } }
     }
 }
 

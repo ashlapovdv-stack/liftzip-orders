@@ -44,7 +44,7 @@ fun PricesScreen(repository: OrdersRepository, onOpenProduct: (UUID) -> Unit) {
             ru.liftzip.orders.app.ui.CompactSearchField(query, model::search, "Поиск товара", "Поиск по названию, артикулу и вариантам", "prices-search")
         }
         if (products.isEmpty()) item { EmptyState("Товары появятся после сохранения заказа") }
-        items(products, key = { it.id }) { product -> ProductCard(product) { onOpenProduct(product.id) } }
+        items(products, key = { it.id }, contentType = { "product" }) { product -> ProductCard(product) { onOpenProduct(product.id) } }
         if (products.size >= limit) item {
             androidx.compose.material3.OutlinedButton(onClick = model::showMore) { Text("Показать ещё") }
         }

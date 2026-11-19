@@ -69,6 +69,10 @@ jobs:
       - name: Build APK and Android test APK
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :core:data:assembleDebugAndroidTest --no-daemon
 
+      - name: Build non-debuggable APK
+        if: github.event_name != 'pull_request'
+        run: ./gradlew :app:assembleRelease --no-daemon
+
       - name: Verify migration SQL
         run: python3 tests/verify_migration_sql.py
 
@@ -113,10 +117,11 @@ jobs:
         run: |
           set -euo pipefail
           APK_SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          "$APK_SIGNER" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > "$RUNNER_TEMP/orders-signature.txt"
-          cat "$RUNNER_TEMP/orders-signature.txt"
-          CERTIFICATE="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/orders-signature.txt")"
-          test "$CERTIFICATE" = "82a94fb920b5eb7ef1afe9ab250b0f59d3fecf52ec789fad9734b83eb7a73200"
+          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk; do
+            "$APK_SIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/orders-signature.txt"
+            CERTIFICATE="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/orders-signature.txt")"
+            test "$CERTIFICATE" = "82a94fb920b5eb7ef1afe9ab250b0f59d3fecf52ec789fad9734b83eb7a73200"
+          done
 
       - name: Upload installable APK
         if: github.event_name != 'pull_request'
@@ -124,6 +129,15 @@ jobs:
         with:
           name: Orders-debug-apk-${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload non-debuggable APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Orders-release-apk-${{ github.run_number }}
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
 

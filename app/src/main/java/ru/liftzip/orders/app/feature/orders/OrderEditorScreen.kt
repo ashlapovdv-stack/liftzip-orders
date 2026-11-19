@@ -158,6 +158,7 @@ fun OrderEditorScreen(
         factory = viewModelFactory { initializer { OrderEditorViewModel(repository, orderId) } },
     )
     val state by model.state.collectAsState()
+    val preview = model.preview.collectAsState()
     val context = LocalContext.current
     val mailStore = remember { GroupDraftStore(context.applicationContext) }
     val documentStore = remember { OrderDocumentStore(context.applicationContext) }
@@ -409,7 +410,7 @@ fun OrderEditorScreen(
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("Расчётная", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(model.deliveryPreview()?.format() ?: "Нет данных", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                Text(preview.value.delivery?.format() ?: "Нет данных", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -417,7 +418,7 @@ fun OrderEditorScreen(
                 item { AppTextField(state.purchaseTotal, { value -> model.update { it.copy(purchaseTotal = value) } },
                     "Закупка заказа, ₽", error = state.errors["purchaseTotal"], decimal = true) }
                 item { AppTextField(state.comment, { value -> model.update { it.copy(comment = value) } }, "Комментарий", minLines = 2) }
-                model.preview()?.let { calculation -> item {
+                item { preview.value.totals?.let { calculation ->
                     OrderSection {
                         Text("Итого", style = MaterialTheme.typography.titleSmall)
                         listOf("Цена для Дениса" to (calculation.priceForDenis?.format() ?: "—"),
@@ -912,9 +913,11 @@ fun OrderEditorScreen(
             properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Box(Modifier.fillMaxSize().background(Color(0xED101010))
                 .clickable { enlargedPhoto = null }, contentAlignment = Alignment.Center) {
-                val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                if (bitmap != null) {
-                    Image(bitmap.asImageBitmap(), contentDescription = "Увеличенное фото товара",
+                val bitmap by rememberLoaded<android.graphics.Bitmap?>(null, bytes) {
+                    withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                }
+                bitmap?.let { photo ->
+                    Image(photo.asImageBitmap(), contentDescription = "Увеличенное фото товара",
                         modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f),
                         contentScale = ContentScale.Fit)
                 }
