@@ -6,14 +6,20 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -74,6 +80,7 @@ class GroupDetailScreenTest {
     private var newOrderPreview = false
     private var showPrices by mutableStateOf(false)
     private var openedProduct by mutableStateOf<UUID?>(null)
+    private var keyboardHasSettled: () -> Boolean = { false }
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -444,9 +451,9 @@ class GroupDetailScreenTest {
         assertEquals(nameTop, name.fetchSemanticsNode().positionInRoot.y, 1f)
         val scroll = compose.onNodeWithTag("position-scroll")
         val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
-        scroll.performTouchInput { swipeUp(durationMillis = 400) }
+        scroll.swipePositionForm(up = true)
         waitForFieldAboveKeyboard(purchase)
-        scroll.performTouchInput { swipeDown(durationMillis = 400) }
+        scroll.swipePositionForm(up = false)
         waitForFieldAboveKeyboard(name)
         androidx.test.espresso.Espresso.closeSoftKeyboard()
         compose.waitUntil(10_000) {
@@ -462,7 +469,7 @@ class GroupDetailScreenTest {
         purchase.assertTextContains("1050")
         header.assertIsDisplayed()
         assertEquals(headerTop, header.fetchSemanticsNode().positionInRoot.y, 1f)
-        scroll.performTouchInput { swipeDown(durationMillis = 400) }
+        scroll.swipePositionForm(up = false)
         waitForFieldAboveKeyboard(name)
         header.assertIsDisplayed()
     }
@@ -484,9 +491,8 @@ class GroupDetailScreenTest {
     }
 
     private fun waitForKeyboard() {
-        compose.waitUntil(timeoutMillis = 10_000) {
-            compose.activity.window.decorView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
-        }
+        compose.waitUntil(timeoutMillis = 10_000) { keyboardHasSettled() }
+        compose.waitForIdle()
     }
 
     private fun configureKeyboardInsets() {
@@ -497,14 +503,36 @@ class GroupDetailScreenTest {
         }
     }
 
+    private fun SemanticsNodeInteraction.swipePositionForm(up: Boolean) = performTouchInput {
+        // Drag from the edge of the form so text-selection handles cannot consume the gesture.
+        val nearTop = Offset(x = 4f, y = top + 8f)
+        val nearBottom = Offset(x = 4f, y = bottom - 8f)
+        if (up) swipe(nearBottom, nearTop, durationMillis = 400)
+        else swipe(nearTop, nearBottom, durationMillis = 400)
+    }
+
     private fun waitForFieldAboveKeyboard(field: SemanticsNodeInteraction) {
-        compose.waitUntil(timeoutMillis = 10_000) {
+        val decor = compose.activity.window.decorView
+        fun keyboardTop(): Int {
+            val inset = decor.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+            return decor.height - inset
+        }
+        try {
+            compose.waitUntil(timeoutMillis = 10_000) {
+                val node = field.fetchSemanticsNode()
+                keyboardTop() < decor.height && node.boundsInRoot.height >= node.size.height - 1f &&
+                    node.boundsInWindow.bottom <= keyboardTop() + 1f
+            }
+        } catch (timeout: ComposeTimeoutException) {
             val node = field.fetchSemanticsNode()
-            val decor = compose.activity.window.decorView
-            val ime = decor.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
-            val keyboardTop = decor.height - ime
-            ime > 0 && node.boundsInRoot.height >= node.size.height - 1f &&
-                node.boundsInWindow.bottom <= keyboardTop + 1f
+            val scroll = compose.onAllNodesWithTag("position-scroll").fetchSemanticsNodes().singleOrNull()
+            val range = scroll?.config?.takeIf { it.contains(SemanticsProperties.VerticalScrollAxisRange) }
+                ?.get(SemanticsProperties.VerticalScrollAxisRange)
+            throw AssertionError(
+                "Field bounds=${node.boundsInWindow}, size=${node.size}, keyboard top=${keyboardTop()}, " +
+                    "scroll viewport=${scroll?.boundsInWindow}, position=${range?.value?.invoke()}/${range?.maxValue?.invoke()}",
+                timeout,
+            )
         }
     }
 
@@ -650,9 +678,18 @@ class GroupDetailScreenTest {
         .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString("") { it.text }
         .replace('\u00a0', ' ').replace('\u202f', ' ')
 
+    @OptIn(ExperimentalLayoutApi::class)
     private fun showScreen(fontScale: Float, width: Float = 393f) {
         compose.setContent {
             val density = LocalDensity.current
+            val ime = WindowInsets.ime
+            val target = WindowInsets.imeAnimationTarget
+            SideEffect {
+                keyboardHasSettled = {
+                    val bottom = ime.getBottom(density)
+                    bottom > 0 && bottom == target.getBottom(density)
+                }
+            }
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val viewportDensity = density.density * minOf(maxWidth.value / width, 1f)
                 CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
