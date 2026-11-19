@@ -42,7 +42,8 @@ internal object DailyBackupSchedule {
     fun schedule(context: Context) {
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             DAILY, ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<DailyBackupWorker>(1, TimeUnit.DAYS).build(),
+            PeriodicWorkRequestBuilder<DailyBackupWorker>(1, TimeUnit.DAYS)
+                .setInitialDelay(1, TimeUnit.DAYS).build(),
         )
     }
 
