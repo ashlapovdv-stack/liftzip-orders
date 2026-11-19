@@ -21,6 +21,7 @@ import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -116,6 +117,7 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         val name = archive.name ?: return@withContext Result.success()
         if (state.lastFile == name) return@withContext Result.success()
 
+        var stage = "доступ к Google Диску"
         try {
             val result = Tasks.await(Identity.getAuthorizationClient(app).authorize(driveAuthorization(email)), 30, TimeUnit.SECONDS)
             val token = result.accessToken
@@ -125,14 +127,18 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             }
             val drive = DriveBackupApi(token)
             val fileName = name.removeSuffix(".zip") + ".orders.zip"
+            stage = "проверка папки и копий"
             val folder = drive.backupFolder()
             if (!drive.contains(folder, fileName)) {
                 val encrypted = File.createTempFile("orders-upload-", ".zip", app.cacheDir)
                 try {
+                    stage = "шифрование архива"
                     DriveArchive.encrypt(app, archive.uri, encrypted, DriveRecoveryCode.unseal(sealed))
                     ensureActive()
                     if (store.settings.first().sealedCode != sealed) return@withContext Result.success()
-                    drive.upload(folder, fileName, encrypted)
+                    stage = "отправка архива"
+                    val coroutine = currentCoroutineContext()
+                    drive.upload(folder, fileName, encrypted) { coroutine.ensureActive() }
                 } finally {
                     encrypted.delete()
                 }
@@ -142,17 +148,28 @@ class DriveBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            val permanent = error is DriveResponseError && error.status in listOf(400, 401, 403)
-            store.record(sealed, error = if (permanent) "Google Диск отклонил загрузку. Проверьте доступ и свободное место."
-                else "Не удалось загрузить копию в Google Диск. Локальная копия сохранена.")
+            val remote = error as? DriveResponseError
+            val permanent = remote?.status in setOf(400, 401, 403)
+            val detail = when (error) {
+                is DriveResponseError -> "${error.step}, HTTP ${error.status}"
+                is DriveUploadError -> error.step
+                is java.net.SocketTimeoutException -> "$stage, истекло время ожидания"
+                is java.net.UnknownHostException -> "$stage, сервер недоступен"
+                else -> "$stage, ${error.javaClass.simpleName}"
+            }
+            store.record(sealed, error = "Ошибка облачной копии ($detail). Локальная копия сохранена.")
             if (permanent || runAttemptCount >= 4) Result.success() else Result.retry()
         }
     }
 }
 
-private class DriveResponseError(val status: Int) : IOException("Drive HTTP $status")
+private class DriveResponseError(val status: Int, val step: String) : IOException("Drive HTTP $status")
+private class DriveUploadError(val step: String) : IOException(step)
 
-internal class DriveBackupApi(private val token: String) {
+internal class DriveBackupApi(
+    private val token: String,
+    private val connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+) {
     fun accountEmail(): String =
         request("$API/about?fields=user(emailAddress)").getJSONObject("user").getString("emailAddress")
 
@@ -170,69 +187,95 @@ internal class DriveBackupApi(private val token: String) {
         request("$API/files?fields=files(id)&pageSize=1&q=${URLEncoder.encode(query, "UTF-8")}")
             .getJSONArray("files").optJSONObject(0)?.optString("id")
 
-    fun upload(folder: String, name: String, file: File) {
+    fun upload(folder: String, name: String, file: File, checkActive: () -> Unit = {}) {
+        val length = file.length().also { require(it > 0) }
+        val fields = "id,size,sha256Checksum,md5Checksum"
         val metadata = JSONObject().put("name", name).put("mimeType", "application/zip")
             .put("parents", org.json.JSONArray(listOf(folder)))
-        val start = open("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size,sha256Checksum", "POST")
+        val start = open("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=$fields", "POST")
         val session = try {
             start.setRequestProperty("X-Upload-Content-Type", "application/zip")
-            start.setRequestProperty("X-Upload-Content-Length", file.length().toString())
+            start.setRequestProperty("X-Upload-Content-Length", length.toString())
             start.writeJson(metadata)
-            start.checkResponse()
-            start.getHeaderField("Location") ?: throw IOException("Drive did not return an upload session")
+            start.checkResponse("открытие сессии загрузки")
+            start.getHeaderField("Location") ?: throw DriveUploadError("Google не вернул адрес сессии")
         } finally { start.disconnect() }
 
-        val upload = open(session, "PUT", authorize = false)
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        try {
+        checkActive()
+        val upload = open(session, "PUT")
+        val sha = java.security.MessageDigest.getInstance("SHA-256")
+        val md5 = java.security.MessageDigest.getInstance("MD5")
+        val saved = try {
             upload.doOutput = true
             upload.setRequestProperty("Content-Type", "application/zip")
-            upload.setFixedLengthStreamingMode(file.length())
+            upload.setRequestProperty("Content-Range", "bytes 0-${length - 1}/$length")
+            upload.setFixedLengthStreamingMode(length)
             upload.outputStream.use { output ->
-                java.security.DigestInputStream(file.inputStream(), digest).use { it.copyTo(output) }
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(128 * 1024)
+                    while (true) {
+                        checkActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        sha.update(buffer, 0, count)
+                        md5.update(buffer, 0, count)
+                        output.write(buffer, 0, count)
+                    }
+                }
             }
-            upload.checkResponse()
-            val saved = upload.readJson()
-            val checksum = digest.digest().joinToString("") { "%02x".format(it) }
-            if (saved.getString("size").toLong() != file.length() || !saved.getString("sha256Checksum").equals(checksum, ignoreCase = true)) {
-                val id = URLEncoder.encode(saved.getString("id"), "UTF-8")
-                runCatching { request("$API/files/$id", "PATCH", JSONObject().put("trashed", true)) }
-                throw IOException("Drive checksum does not match")
-            }
+            upload.checkResponse("передача архива")
+            upload.readJson()
         } finally { upload.disconnect() }
+
+        val id = URLEncoder.encode(saved.getString("id"), "UTF-8")
+        val checksumFields = listOf("sha256Checksum", "md5Checksum")
+        val info = if (saved.has("size") && checksumFields.any { saved.optString(it).isNotBlank() }) saved
+            else request("$API/files/$id?fields=$fields")
+        val remoteSha = info.optString("sha256Checksum")
+        val matches = if (remoteSha.isNotBlank()) remoteSha.equals(sha.hexDigest(), ignoreCase = true)
+            else info.optString("md5Checksum").equals(md5.hexDigest(), ignoreCase = true)
+        if (info.optLong("size", -1) != length || !matches) {
+            runCatching { request("$API/files/$id", "PATCH", JSONObject().put("trashed", true)) }
+            throw DriveUploadError("контрольная сумма копии не совпала")
+        }
     }
+
+    private fun java.security.MessageDigest.hexDigest(): String = digest().joinToString("") { "%02x".format(it) }
 
     private fun request(url: String, method: String = "GET", json: JSONObject? = null): JSONObject {
         val connection = open(url, method)
         return try {
             if (json != null) connection.writeJson(json)
-            connection.checkResponse()
+            connection.checkResponse("запрос Google Диска")
             connection.readJson()
         } finally { connection.disconnect() }
     }
 
-    private fun open(address: String, method: String, authorize: Boolean = true): HttpURLConnection {
+    private fun open(address: String, method: String): HttpURLConnection {
         val url = URL(address)
-        require(url.protocol == "https" && url.host == "www.googleapis.com" && url.userInfo == null &&
-            url.port in listOf(-1, 443))
-        return (url.openConnection() as HttpURLConnection).apply {
+        if (url.protocol != "https" || url.host != "www.googleapis.com" || url.userInfo != null ||
+            url.port !in listOf(-1, 443)
+        ) throw DriveUploadError("неподдерживаемый адрес сессии Google")
+        return connect(url).apply {
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = 60_000
             instanceFollowRedirects = false
-            if (authorize) setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Authorization", "Bearer $token")
         }
     }
 
     private fun HttpURLConnection.writeJson(value: JSONObject) {
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-        outputStream.use { it.write(value.toString().toByteArray(Charsets.UTF_8)) }
+        val encoded = value.toString().toByteArray(Charsets.UTF_8)
+        setFixedLengthStreamingMode(encoded.size)
+        outputStream.use { it.write(encoded) }
     }
 
-    private fun HttpURLConnection.checkResponse() {
+    private fun HttpURLConnection.checkResponse(step: String) {
         val status = responseCode
-        if (status !in 200..299) throw DriveResponseError(status)
+        if (status !in 200..299) throw DriveResponseError(status, step)
     }
 
     private fun HttpURLConnection.readJson() = JSONObject(inputStream.bufferedReader().use { it.readText() })
