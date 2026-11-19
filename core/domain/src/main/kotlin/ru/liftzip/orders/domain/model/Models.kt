@@ -9,8 +9,11 @@ import java.util.UUID
 enum class Currency { RUB, CNY }
 enum class GroupState { FORMING, CALCULATING, COMPLETED, ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY }
 
-fun groupProgressState(orders: List<OrderFulfillment>): GroupState =
-    if (orders.isNotEmpty() && orders.all { it.isComplete }) GroupState.COMPLETED else GroupState.CALCULATING
+fun groupProgressState(orders: List<OrderFulfillment>): GroupState = when {
+    orders.isEmpty() || orders.any { !it.withdrawn || !it.transferred } -> GroupState.CALCULATING
+    orders.all { it.received } -> GroupState.COMPLETED
+    else -> GroupState.IN_DELIVERY
+}
 enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
 enum class OrderStage { ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
 

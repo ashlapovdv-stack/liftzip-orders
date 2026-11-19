@@ -9,10 +9,11 @@ import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.groupProgressState
 
 class OrderFulfillmentTest {
-    @Test fun groupStatusFollowsEarliestMissingActionAcrossAllOrders() {
+    @Test fun groupEntersDeliveryOnceEveryOrderHasBothPaymentMarks() {
         val delivery = OrderFulfillment(true, true, false)
         val done = OrderFulfillment(true, true, true)
-        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, done)))
+        assertEquals(GroupState.IN_DELIVERY, groupProgressState(List(5) { delivery }))
+        assertEquals(GroupState.IN_DELIVERY, groupProgressState(listOf(delivery, done)))
         assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, OrderFulfillment(true, false, true))))
         assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, OrderFulfillment(false, true, true))))
         assertEquals(GroupState.COMPLETED, groupProgressState(listOf(done, done)))

@@ -159,7 +159,7 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Выполнена").performScrollTo()
         capture("group-completed.png")
         clickAction("Товар получен")
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("На расчёте").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Доставка").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(longTitle).performScrollTo().performClick()
         assertEquals(orderId, openedOrder)
         compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
@@ -397,7 +397,7 @@ class GroupDetailScreenTest {
         }
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.COMPLETED } }
         clickAction("Товар получен", 4)
-        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.IN_DELIVERY } }
     }
 
     @Test fun taobaoLinkCanBeCanonicalizedAndSavedFromPositionEditor() {
