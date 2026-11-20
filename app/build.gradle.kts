@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
             ?.toIntOrNull()?.coerceAtLeast(4) ?: 4
-        versionName = "0.4.13"
+        versionName = "0.4.14"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

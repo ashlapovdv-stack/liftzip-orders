@@ -22,13 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TopAppBarDefaults
@@ -37,20 +35,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,38 +64,23 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import kotlinx.coroutines.launch
-import ru.liftzip.orders.app.feature.orders.EditorCostDraft
-import ru.liftzip.orders.app.ui.CostsEditor
 import ru.liftzip.orders.app.ui.GroupDetailViewModel
 import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.format
-import ru.liftzip.orders.app.ui.label
 import ru.liftzip.orders.app.ui.formatAmount
-import ru.liftzip.orders.app.ui.parseDecimal
-import ru.liftzip.orders.domain.model.CostDraft
-import ru.liftzip.orders.domain.model.CostKind
+import ru.liftzip.orders.app.ui.formatDate
+import ru.liftzip.orders.app.ui.formatDecimal
+import ru.liftzip.orders.app.ui.russian
+import ru.liftzip.orders.domain.model.CostEntry
 import ru.liftzip.orders.domain.model.Currency
 import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.GroupDetails
 import ru.liftzip.orders.domain.model.Money
 import ru.liftzip.orders.domain.model.OrderAction
 import ru.liftzip.orders.domain.model.OrderSummary
-import ru.liftzip.orders.domain.model.SaveGroupCostsCommand
 import ru.liftzip.orders.domain.repository.OrdersRepository
-import java.math.BigDecimal
 import java.util.UUID
-
-private val costDraftsSaver = listSaver<List<EditorCostDraft>, String>(
-    save = { costs -> costs.flatMap { listOf(it.id?.toString().orEmpty(), it.kind.name, it.amount,
-        it.currency.name, it.rate, it.isConfirmed.toString(), it.date.toString(), it.comment) } },
-    restore = { values -> values.chunked(8).map { EditorCostDraft(
-        id = it[0].takeIf(String::isNotEmpty)?.let(UUID::fromString), kind = CostKind.valueOf(it[1]),
-        amount = it[2], currency = Currency.valueOf(it[3]), rate = it[4], isConfirmed = it[5].toBoolean(),
-        date = java.time.LocalDate.parse(it[6]), comment = it[7],
-    ) } },
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,27 +98,6 @@ fun GroupDetailScreen(
     val busy by model.busy.collectAsState()
     val message by model.message.collectAsState()
     var confirmFinish by remember { mutableStateOf(false) }
-    var costs by rememberSaveable(stateSaver = costDraftsSaver) { mutableStateOf<List<EditorCostDraft>>(emptyList()) }
-    var confirmed by rememberSaveable { mutableStateOf(false) }
-    var costsDirty by rememberSaveable { mutableStateOf(false) }
-    var costsExpanded by rememberSaveable(groupId) { mutableStateOf(false) }
-    var loadedRevision by rememberSaveable { mutableStateOf<Long?>(null) }
-    var localMessage by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(details?.summary?.group?.revision) {
-        details?.let { current ->
-            if (loadedRevision == current.summary.group.revision || costsDirty) return@let
-            loadedRevision = current.summary.group.revision
-            costs = current.costs.map {
-                EditorCostDraft(
-                    id = it.id, kind = it.kind, amount = it.amount.toPlainString(), currency = it.currency,
-                    rate = it.rate.toPlainString(), isConfirmed = it.isConfirmed, date = it.date, comment = it.comment,
-                )
-            }
-            confirmed = current.summary.group.costsConfirmed
-        }
-    }
 
     // Read the snapshot during composition, rather than only inside the lazy item builder.
     val current = details
@@ -181,71 +139,9 @@ fun GroupDetailScreen(
                         ) { Text("Завершить формирование") }
                     }
                 }
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp), color = Color.White,
-                        border = BorderStroke(1.dp, GroupOutline),
-                    ) {
-                        Column(Modifier.fillMaxWidth()) {
-                            Row(
-                                Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                                    .clickable { costsExpanded = !costsExpanded }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ReceiptLong, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-                                Text("Расходы группы", Modifier.weight(1f).padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
-                                if (costs.isNotEmpty()) Text(costs.size.toString(), Modifier.padding(end = 8.dp), style = MaterialTheme.typography.labelMedium)
-                                Icon(if (costsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    if (costsExpanded) "Свернуть расходы" else "Развернуть расходы")
-                            }
-                            if (costsExpanded) {
-                                HorizontalDivider(color = GroupOutline)
-                                Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    CostsEditor(
-                                        title = "Расходы группы", costs = costs, errors = emptyMap(), errorPrefix = "group_cost",
-                                        onAdd = { costsDirty = true; costs = costs + EditorCostDraft() },
-                                        onChange = { index, transform -> costsDirty = true; costs = costs.mapIndexed { i, cost -> if (i == index) transform(cost) else cost } },
-                                        onRemove = { index -> costsDirty = true; costs = costs.filterIndexed { i, _ -> i != index } },
-                                        showHeadingAndAdd = false,
-                                    )
-                                    Row(Modifier.fillMaxWidth().clickable { costsDirty = true; confirmed = !confirmed }, verticalAlignment = Alignment.CenterVertically) {
-                                        Checkbox(checked = confirmed, onCheckedChange = { costsDirty = true; confirmed = it })
-                                        Text("Все групповые затраты указаны, включая нулевые", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    TextButton(onClick = {
-                            val parsed = costs.mapIndexedNotNull { index, cost ->
-                                val amount = cost.amount.parseDecimal()
-                                val rate = cost.rate.parseDecimal()
-                                if (amount == null || amount < BigDecimal.ZERO || rate == null || rate <= BigDecimal.ZERO ||
-                                    (cost.currency == Currency.RUB && rate.compareTo(BigDecimal.ONE) != 0)
-                                ) {
-                                    localMessage = "Проверьте сумму и курс расхода №${index + 1}"; null
-                                } else CostDraft(
-                                    id = cost.id, kind = cost.kind, amount = amount, currency = cost.currency,
-                                    rate = rate, isConfirmed = cost.isConfirmed, date = cost.date, comment = cost.comment,
-                                )
-                            }
-                            if (parsed.size != costs.size) return@TextButton
-                            scope.launch {
-                                try {
-                                    repository.saveGroupCosts(SaveGroupCostsCommand(groupId, confirmed, parsed))
-                                    costsDirty = false
-                                    localMessage = "Расходы группы сохранены"
-                                } catch (error: Exception) { localMessage = error.message }
-                            }
-                                    }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить расходы группы") }
-                                }
-                            }
-                            HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = GroupOutline)
-                            TextButton(
-                                onClick = { costsDirty = true; costs = costs + EditorCostDraft(); costsExpanded = true },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                            ) {
-                                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                                Text("Добавить расход", Modifier.padding(start = 6.dp))
-                            }
-                        }
+                if (current.costs.isNotEmpty()) {
+                    item(key = "saved-group-costs") {
+                        SavedGroupCosts(groupId, current.costs)
                     }
                 }
             }
@@ -266,12 +162,53 @@ fun GroupDetailScreen(
             dismissButton = { TextButton(onClick = { confirmFinish = false }) { Text("Отмена") } },
         )
     }
-    (message ?: localMessage)?.let { text ->
+    message?.let { text ->
         AlertDialog(
-            onDismissRequest = { model.clearMessage(); localMessage = null },
+            onDismissRequest = model::clearMessage,
             text = { Text(text) },
-            confirmButton = { TextButton(onClick = { model.clearMessage(); localMessage = null }) { Text("Понятно") } },
+            confirmButton = { TextButton(onClick = model::clearMessage) { Text("Понятно") } },
         )
+    }
+}
+
+@Composable
+private fun SavedGroupCosts(groupId: UUID, costs: List<CostEntry>) {
+    var expanded by rememberSaveable(groupId) { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(12.dp), color = Color.White,
+        border = BorderStroke(1.dp, GroupOutline),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ReceiptLong, null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Text("Ранее внесённые расходы", Modifier.weight(1f).padding(start = 10.dp), fontWeight = FontWeight.SemiBold)
+                Text(costs.size.toString(), Modifier.padding(end = 8.dp), style = MaterialTheme.typography.labelMedium)
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (expanded) "Свернуть расходы" else "Развернуть расходы")
+            }
+            if (expanded) {
+                costs.forEach { cost ->
+                    HorizontalDivider(color = GroupOutline)
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val suffix = if (cost.currency == Currency.RUB) "₽" else "¥"
+                        Text("${cost.kind.russian()} · ${cost.amount.formatDecimal()} $suffix",
+                            style = MaterialTheme.typography.titleSmall)
+                        val status = if (cost.isConfirmed) "Подтверждён" else "Не подтверждён"
+                        Text("${cost.date.formatDate()} · $status", style = MaterialTheme.typography.bodySmall)
+                        if (cost.currency == Currency.CNY) {
+                            Text("Курс: ${cost.rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (cost.comment.isNotBlank()) Text(cost.comment, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
     }
 }
 

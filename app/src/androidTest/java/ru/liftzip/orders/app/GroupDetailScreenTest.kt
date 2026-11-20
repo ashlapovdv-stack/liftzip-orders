@@ -169,13 +169,10 @@ class GroupDetailScreenTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Доставка").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(longTitle).performScrollTo().performClick()
         assertEquals(orderId, openedOrder)
-        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
-        compose.onNodeWithText("Расходы группы").performScrollTo().performClick()
-        compose.onNodeWithText("Сохранить расходы группы").assertExists()
-        compose.onNodeWithText("Расходы группы").performClick()
-        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
-        compose.onNodeWithText("Добавить расход").performScrollTo().performClick()
-        compose.onNodeWithText("Сумма расхода").assertExists()
+        compose.onNode(hasScrollToIndexAction()).performTouchInput { swipeUp() }
+        compose.onNodeWithText("Расходы группы").assertDoesNotExist()
+        compose.onNodeWithText("Ранее внесённые расходы").assertDoesNotExist()
+        compose.onNodeWithText("Добавить расход").assertDoesNotExist()
         // Reuse this fixture for a visual preview of all three lifecycle colors.
         runBlocking {
             repository.setOrderAction(orderId, OrderAction.RECEIVED, true)
@@ -474,20 +471,32 @@ class GroupDetailScreenTest {
         header.assertIsDisplayed()
     }
 
-    @Test fun groupExpenseFieldScrollsAboveTheKeyboard() {
-        configureKeyboardInsets()
+    @Test fun savedGroupExpensesRemainReadableWithoutChangingTotals() {
+        runBlocking {
+            repository.saveGroupCosts(SaveGroupCostsCommand(
+                groupId = groupId,
+                costsConfirmed = true,
+                costs = listOf(CostDraft(
+                    kind = CostKind.COMMISSION,
+                    amount = BigDecimal("125"),
+                    date = LocalDate.parse("2026-11-11"),
+                    comment = "Ранее учтённая комиссия",
+                )),
+            ))
+        }
+
         showScreen(1f)
         val list = compose.onNode(hasScrollToIndexAction())
-        list.performScrollToNode(hasText("Добавить расход"))
-        compose.onNodeWithText("Добавить расход").performClick()
-        val comment = hasText("Комментарий") and hasSetTextAction()
-        list.performScrollToNode(comment)
-        val field = compose.onNode(comment)
-        field.performClick()
-        waitForKeyboard()
-        waitForFieldAboveKeyboard(field)
-        field.performTextReplacement("Комментарий к расходу")
-        field.assertTextContains("Комментарий к расходу")
+        list.performScrollToNode(hasText("Ранее внесённые расходы"))
+        compose.onNodeWithText("Ранее внесённые расходы").performClick()
+        list.performScrollToNode(hasText("Ранее учтённая комиссия"))
+        compose.onNodeWithText("Комиссия · 125 ₽").assertIsDisplayed()
+        compose.onNodeWithText("Ранее учтённая комиссия").assertIsDisplayed()
+        compose.onNodeWithText("Добавить расход").assertDoesNotExist()
+        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
+        list.performScrollToIndex(0)
+        assertEquals("270 000 ₽", summaryText("К"))
+        assertEquals("270 000 ₽", summaryText("∆"))
     }
 
     private fun waitForKeyboard() {
