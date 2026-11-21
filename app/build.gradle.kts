@@ -15,7 +15,11 @@ android {
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
             ?.toIntOrNull()?.coerceAtLeast(4) ?: 4
         versionName = "0.4.18"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = if (providers.gradleProperty("ordersReleaseSmoke").orNull == "true") {
+            "ru.liftzip.orders.app.ReleaseSmokeInstrumentation"
+        } else {
+            "androidx.test.runner.AndroidJUnitRunner"
+        }
         vectorDrawables { useSupportLibrary = true }
     }
 
