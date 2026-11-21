@@ -32,17 +32,15 @@ object OrderMailDraftFactory {
                 append("Постоянная ссылка: ").append(line.productUrl.orEmpty()).append("\n")
                 append("Наименование: ").append(line.productNameSnapshot).append("\n")
                 append("Количество: ").append(line.quantity?.stripTrailingZeros()?.toPlainString() ?: "—")
+                if (line.comment.isNotBlank()) append("\nКомментарий к позиции:\n").append(line.comment)
             }
         }.joinToString("\n\n")
         val bodyWithComment = buildString {
             append(text)
             if (order.comment.isNotBlank()) {
                 if (isNotEmpty()) append("\n\n")
-                append("Комментарий к заказу: ").append(order.comment)
+                append("Комментарий к заказу:\n").append(order.comment)
             }
-        }.let { positions ->
-            val comment = order.comment.trim()
-            if (comment.isEmpty()) positions else "$positions\n\nКомментарий к заказу:\n$comment"
         }
         return OrderMailDraft(
             orderId = order.id,
@@ -56,4 +54,20 @@ object OrderMailDraftFactory {
             },
         )
     }
+
+    /** Removes the duplicate footer written by older versions while retaining the rest of the draft. */
+    fun repairLegacyBody(body: String): String {
+        val duplicateMarker = "\n\nКомментарий к заказу:\n"
+        val duplicateStart = body.lastIndexOf(duplicateMarker)
+        if (duplicateStart < 0) return body
+        val comment = body.substring(duplicateStart + duplicateMarker.length)
+        if (comment.isBlank() || comment != comment.trim()) return body
+        val original = body.substring(0, duplicateStart)
+        val inlineMarker = "Комментарий к заказу: "
+        val firstStart = original.lastIndexOf("\n\n$inlineMarker").let { index ->
+            if (index >= 0) index + 2 else if (original.startsWith(inlineMarker)) 0 else return body
+        }
+        return if (original.substring(firstStart + inlineMarker.length).trim() == comment) original else body
+    }
+
 }

@@ -376,6 +376,7 @@ class RoomOrdersRepository(
                     deliveryPlanDate = draft.deliveryPlanDate?.toString(), productUrl = draft.productUrl,
                     temporaryProductUrl = draft.temporaryProductUrl,
                     actualWeight = draft.actualWeight?.canonical(),
+                    comment = draft.comment.ifBlank { null },
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.

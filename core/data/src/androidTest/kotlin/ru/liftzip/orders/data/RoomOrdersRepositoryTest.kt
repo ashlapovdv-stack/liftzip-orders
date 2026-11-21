@@ -109,6 +109,30 @@ class RoomOrdersRepositoryTest {
         assertEquals(6, updated.records.size)
     }
 
+    @Test fun positionCommentSurvivesEditingAFormedOrderAndAppearsInItsProductHistory() = runTest {
+        val command = orderCommand()
+        val line = command.lines.single()
+        val notes = listOf("Проверить маркировку", "Упаковать отдельно")
+        val ids = notes.map { note ->
+            repository.saveOrder(command.copy(
+                commandId = UUID.randomUUID(), comment = "Общий комментарий",
+                lines = listOf(line.copy(comment = note)),
+            ))
+        }
+        val saved = repository.observeOrder(ids.first()).first()!!
+        val savedLine = saved.lines.single()
+        assertEquals(notes.first(), savedLine.comment)
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), saved.group.id))
+        val edited = "Уточнить маркировку\nСверить упаковку"
+        repository.saveOrder(command.copy(
+            commandId = UUID.randomUUID(), orderId = saved.order.id, comment = saved.order.comment,
+            lines = listOf(line.copy(id = savedLine.id, productId = savedLine.productId, comment = edited)),
+        ))
+        val history = repository.observeProductHistory(savedLine.productId).first()!!
+        assertEquals(mapOf(ids[0] to edited, ids[1] to notes[1]), history.lines.associate { it.order.id to it.source.comment })
+        assertTrue(history.lines.all { it.order.comment == "Общий комментарий" })
+    }
+
     @Test fun finishIsAtomicAndRepeatedCommandDoesNotCreateThirdGroup() = runTest {
         repository.saveOrder(orderCommand())
         val first = repository.observeGroups().first().single()

@@ -30,7 +30,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 12
+        const val SCHEMA_VERSION = 13
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -128,6 +128,12 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE order_lines ADD COLUMN comment TEXT")
+            }
+        }
+
         fun create(context: Context, name: String = DATABASE_NAME): OrdersDatabase {
             preserveBeforeMigration(context, name)
             return Room.databaseBuilder(
@@ -135,7 +141,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             name,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
             .addCallback(IntegrityCallback)
             .build()
         }

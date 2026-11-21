@@ -641,6 +641,10 @@ fun OrderEditorScreen(
                                     Text("Подтверждаю нулевую цену", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
+                            CompactPositionField(
+                                line.comment, { value -> model.updateLine(index) { it.copy(comment = value) } },
+                                "Комментарий к позиции", minLines = 2, maxLines = 3,
+                            )
                         }
                         CompactItemSection {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -1024,6 +1028,7 @@ private fun CompactPositionField(
     enabled: Boolean = true,
     decimal: Boolean = false,
     minLines: Int = 1,
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     Column(modifier,
         verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1033,7 +1038,7 @@ private fun CompactPositionField(
         Surface(shape = RoundedCornerShape(9.dp), color = Color.White,
             border = BorderStroke(1.dp, if (error != null) MaterialTheme.colorScheme.error else Color(0xFF888888))) {
             BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled,
-                singleLine = minLines <= 1,
+                singleLine = minLines <= 1, minLines = minLines, maxLines = maxLines,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = if (decimal) KeyboardOptions(keyboardType = KeyboardType.Decimal)
                                   else KeyboardOptions.Default,

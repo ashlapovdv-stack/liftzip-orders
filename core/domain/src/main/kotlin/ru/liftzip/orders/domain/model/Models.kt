@@ -128,6 +128,7 @@ data class OrderLine(
     val temporaryProductUrl: String? = null,
     val actualWeight: BigDecimal? = null,
     val images: List<ByteArray> = emptyList(),
+    val comment: String = "",
 )
 
 data class CostEntry(
@@ -274,6 +275,7 @@ data class OrderLineDraft(
     val temporaryProductUrl: String? = null,
     val actualWeight: BigDecimal? = null,
     val images: List<ByteArray> = emptyList(),
+    val comment: String = "",
 )
 
 data class SaveOrderCommand(

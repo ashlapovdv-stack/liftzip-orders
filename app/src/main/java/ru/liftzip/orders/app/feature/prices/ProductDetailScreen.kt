@@ -77,6 +77,9 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
         factory = viewModelFactory { initializer { ProductDetailViewModel(repository, productId) } },
     )
     val history by model.history.collectAsState()
+    val orderCommentLines = remember(history) {
+        history?.lines.orEmpty().distinctBy { it.order.id }.mapTo(hashSetOf()) { it.sourceLineId }
+    }
     val context = LocalContext.current
     var enlarged by remember { mutableStateOf<ByteArray?>(null) }
     var savePhoto by remember { mutableStateOf<ByteArray?>(null) }
@@ -157,6 +160,12 @@ fun ProductDetailScreen(repository: OrdersRepository, productId: UUID, onBack: (
                                 Text("Курс закупки: ${it.record.rate.formatDecimal()} ₽/¥", style = MaterialTheme.typography.bodySmall)
                             }
                             source.deliveryTariff?.let { Text("Тариф доставки: ${it.formatDecimal()} ¥/кг", style = MaterialTheme.typography.bodySmall) }
+                            if (source.comment.isNotBlank()) {
+                                Text("Комментарий к позиции: ${source.comment}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (entry.sourceLineId in orderCommentLines && entry.order.comment.isNotBlank()) {
+                                Text("Комментарий к заказу: ${entry.order.comment}", style = MaterialTheme.typography.bodySmall)
+                            }
                             val docs by rememberLoaded(emptyList<java.io.File>(), entry.order.id, source.id) {
                                 withContext(Dispatchers.IO) { OrderDocumentStore(context).lineFiles(entry.order.id, source.id) }
                             }

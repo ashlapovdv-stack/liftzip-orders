@@ -94,13 +94,15 @@ class GroupDetailScreenTest {
             repository.saveOrder(SaveOrderCommand(
                 commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = title,
                 receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+                comment = if (index == 2) "Общий комментарий заказа" else "",
                 lines = listOf(OrderLineDraft(productName = "Тестовая позиция", quantity = BigDecimal.ONE,
                     saleUnitPrice = BigDecimal(sale), zeroSalePriceConfirmed = true,
                     purchaseUnitPrice = if (index == 2) BigDecimal("800") else null,
                     purchaseCurrency = if (index == 2) Currency.CNY else null, purchaseRate = if (index == 2) BigDecimal("10") else null,
                     deliveryWeight = if (index == 2) BigDecimal("0.2") else null,
                     deliveryTariff = if (index == 2) BigDecimal("55") else null,
-                    deliveryPlanDate = if (index == 2) LocalDate.parse("2026-11-11") else null)),
+                    deliveryPlanDate = if (index == 2) LocalDate.parse("2026-11-11") else null,
+                    comment = if (index == 2) "Примечание позиции" else "")),
                 orderRate = BigDecimal("10"),
                 costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal(purchase),
                     date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
@@ -351,6 +353,8 @@ class GroupDetailScreenTest {
         compose.onNode(hasText("800 ¥") and hasAnyAncestor(hasTestTag(tag))).assertExists()
         compose.onNode(hasText("Курс заказа: 10 ₽/¥") and hasAnyAncestor(hasTestTag(tag))).assertExists()
         compose.onNodeWithText("Тариф доставки: 55 ¥/кг").assertExists()
+        compose.onAllNodesWithText("Комментарий к позиции: Примечание позиции").assertCountEquals(1)
+        compose.onAllNodesWithText("Комментарий к заказу: Общий комментарий заказа").assertCountEquals(1)
         compose.onNodeWithText("Последние известные цены").assertDoesNotExist()
         capture("price-history.png")
         card.performTouchInput { click(center) }
@@ -560,6 +564,8 @@ class GroupDetailScreenTest {
         compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
         compose.onNodeWithContentDescription("Вес, кг").performScrollTo().performTextReplacement("0.2")
         compose.onNodeWithContentDescription("Тариф, ¥/кг").performTextReplacement("55")
+        val positionComment = compose.onNodeWithContentDescription("Комментарий к позиции")
+        positionComment.performScrollTo().performTextReplacement("Сверить маркировку\nОтдельная упаковка")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
         compose.onNodeWithContentDescription("Название товара").performScrollTo()
         captureSheet("position-editor.png")
@@ -569,6 +575,9 @@ class GroupDetailScreenTest {
         val saved = runBlocking { repository.observeOrders("", OrdersFilter.ALL, 50).first().single { it.order.counterparty == "Заказ с отметками" } }
         assertEquals(OrderFulfillment(), saved.order.fulfillment)
         assertEquals(GroupState.FORMING, saved.groupState)
+        assertEquals("Сверить маркировку\nОтдельная упаковка", runBlocking {
+            repository.observeOrder(saved.order.id).first()!!.lines.single().comment
+        })
     }
 
     @Test fun approvedFormulaAndMissingPurchaseAreConsistentInOrderAndGroup() {

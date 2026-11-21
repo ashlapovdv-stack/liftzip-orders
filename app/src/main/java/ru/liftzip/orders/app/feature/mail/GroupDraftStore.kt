@@ -125,7 +125,7 @@ class GroupDraftStore(private val context: Context) {
     private fun parse(json: String): Draft {
         val obj = JSONObject(json)
         return Draft(UUID.fromString(obj.getString("orderId")), obj.getString("subject"),
-            obj.optString("recipient"), obj.getString("body"), obj.optInt("count"))
+            obj.optString("recipient"), OrderMailDraftFactory.repairLegacyBody(obj.getString("body")), obj.optInt("count"))
     }
 
     private fun numberedImage(source: Bitmap, number: Int): Bitmap {

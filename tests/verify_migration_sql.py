@@ -53,6 +53,8 @@ def compare(db, version):
         expected.execute('CREATE INDEX index_order_line_images_lineId ON order_line_images(lineId)')
     if version >= 11:
         expected.execute('ALTER TABLE order_lines ADD COLUMN temporaryProductUrl TEXT')
+    if version >= 13:
+        expected.execute('ALTER TABLE order_lines ADD COLUMN comment TEXT')
     for table in definition['entities'] + ([{'tableName': 'order_line_images'}] if version >= 10 else []):
         name = table['tableName']
         for pragma in ('table_info', 'foreign_key_list'):
@@ -106,6 +108,10 @@ for start in range(1, CURRENT):
         db.execute('UPDATE orders SET manualDeliveryPriceMinor=0')
     if start >= 5:
         db.execute("UPDATE orders SET orderRate='13.25'")
+    if start == 12:
+        migrate(db, 11)
+        db.execute("UPDATE order_lines SET quantity=NULL,saleUnitPriceMinor=NULL,productUrl='saved-url'")
+        db.execute("INSERT INTO order_line_images VALUES('photo','line',0,X'0102')")
     for version in range(start, CURRENT):
         migrate(db, version)
         compare(db, version + 1)
@@ -119,6 +125,10 @@ for start in range(1, CURRENT):
     assert db.execute('SELECT manualDeliveryPriceMinor FROM orders').fetchone() == ((0 if start >= 4 else None),)
     assert db.execute("SELECT amount FROM cost_entries WHERE id='legacy-delivery'").fetchone() == ('350',)
     assert db.execute('SELECT count(*) FROM delivery_payments').fetchone() == (0,)
-    assert db.execute('SELECT productUrl FROM order_lines WHERE id=\'line\'').fetchone() == (None,)
+    assert db.execute('SELECT productUrl FROM order_lines WHERE id=\'line\'').fetchone() == (('saved-url' if start == 12 else None),)
+    if start == 12:
+        assert db.execute('SELECT quantity,saleUnitPriceMinor FROM order_lines').fetchone() == (None, None)
+        assert db.execute('SELECT jpeg FROM order_line_images').fetchone() == (bytes([1, 2]),)
+    assert db.execute('SELECT comment FROM order_lines').fetchone() == (None,)
     db.close()
     print(f'PASS: {start}->{CURRENT}; schemas, amounts, rates, null/zero, legacy costs and empty action marks preserved')

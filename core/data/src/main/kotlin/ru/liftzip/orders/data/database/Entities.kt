@@ -108,6 +108,7 @@ data class OrderLineEntity(
     val productUrl: String? = null,
     val temporaryProductUrl: String? = null,
     val actualWeight: String? = null,
+    val comment: String? = null,
 )
 
 @Serializable

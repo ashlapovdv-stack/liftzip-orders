@@ -77,6 +77,7 @@ data class EditorLineDraft(
     val images: List<ByteArray> = emptyList(),
     val editorId: UUID = id ?: UUID.randomUUID(),
     val hasDocuments: Boolean = false,
+    val comment: String = "",
 )
 
 data class OrderEditorState(
@@ -404,6 +405,7 @@ class OrderEditorViewModel(
             OrderLineDraft(
                 id = line.id ?: line.editorId, productId = line.productId, productName = name,
                 article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity,
+                comment = line.comment,
                 saleUnitPrice = sale, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
@@ -514,7 +516,7 @@ class OrderEditorViewModel(
         costs = emptyList(), deliveryWeight = line.deliveryWeight?.toPlainString().orEmpty(),
         deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = "",
         deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
-        actualWeight = line.actualWeight?.toPlainString().orEmpty(), images = line.images,
+        actualWeight = line.actualWeight?.toPlainString().orEmpty(), images = line.images, comment = line.comment,
     )
 
     private fun toEditorCost(cost: CostEntry) = EditorCostDraft(

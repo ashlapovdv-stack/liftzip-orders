@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -26,6 +30,7 @@ import ru.liftzip.orders.domain.model.SaveOrderCommand
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.math.BigDecimal
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -68,7 +73,7 @@ class BackupManagerTest {
     @Test fun backupRoundTripRestoresPhotosDocumentsDraftAndEmptyOrderOnCleanDatabase() = runTest {
         val jpeg = byteArrayOf(1, 2, 3)
         val order = orderCommand("Товар с вложениями")
-        val orderId = repository.saveOrder(order.copy(lines = order.lines.map { it.copy(images = listOf(jpeg)) }))
+        val orderId = repository.saveOrder(order.copy(lines = order.lines.map { it.copy(images = listOf(jpeg), comment = "Комментарий позиции\nВторая строка") }))
         val details = repository.observeOrder(orderId).first()!!
         val groupId = details.group.id
         val lineId = details.lines.single().id
@@ -93,6 +98,7 @@ class BackupManagerTest {
             BackupManager(context, clean).importFrom(Uri.fromFile(archive))
             val restored = cleanRepository.observeOrder(orderId).first()!!
             assertTrue(restored.lines.single().images.single().contentEquals(jpeg))
+            assertEquals("Комментарий позиции\nВторая строка", restored.lines.single().comment)
             assertEquals("Тестовый документ", document.readText())
             assertTrue(draft.readText().contains("Сохранённое письмо"))
             assertTrue(cleanRepository.observeOrder(emptyId).first()!!.lines.isEmpty())
@@ -114,20 +120,27 @@ class BackupManagerTest {
             java.util.zip.ZipFile(current).use { source ->
                 val manifest = source.getInputStream(source.getEntry("manifest.json")).bufferedReader()
                     .use { Json.decodeFromString(BackupManifest.serializer(), it.readText()) }
+                val payload = source.getInputStream(source.getEntry("data.json")).bufferedReader()
+                    .use { Json.parseToJsonElement(it.readText()).jsonObject }
+                val legacyLines = payload.getValue("lines").jsonArray.map { JsonObject(it.jsonObject - "comment") }
+                val data = JsonObject(payload + ("lines" to JsonArray(legacyLines))).toString().toByteArray()
+                val checksum = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
                 ZipOutputStream(legacy.outputStream()).use { target ->
                     target.putNextEntry(ZipEntry("manifest.json"))
                     target.write(Json.encodeToString(BackupManifest.serializer(), manifest.copy(
-                        formatVersion = 1, images = emptyList(), media = emptyList(),
+                        formatVersion = 1, schemaVersion = 12, dataSha256 = checksum, images = emptyList(), media = emptyList(),
                     )).toByteArray())
                     target.closeEntry()
                     target.putNextEntry(ZipEntry("data.json"))
-                    source.getInputStream(source.getEntry("data.json")).use { it.copyTo(target) }
+                    target.write(data)
                     target.closeEntry()
                 }
             }
             val inspection = manager.importFrom(Uri.fromFile(legacy))
             assertEquals(false, inspection.includesAttachments)
-            assertTrue(repository.observeOrder(id).first()!!.lines.single().images.single().contentEquals(byteArrayOf(7, 8)))
+            val restored = repository.observeOrder(id).first()!!.lines.single()
+            assertEquals("", restored.comment)
+            assertTrue(restored.images.single().contentEquals(byteArrayOf(7, 8)))
         } finally {
             current.delete()
             legacy.delete()

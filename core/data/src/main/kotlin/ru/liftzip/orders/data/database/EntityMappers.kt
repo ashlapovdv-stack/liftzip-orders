@@ -60,6 +60,7 @@ fun OrderLineEntity.toDomain(): OrderLine = OrderLine(
     purchaseRate = purchaseRate?.decimal(), createdAt = createdAt.instant(), updatedAt = updatedAt.instant(),
     revision = revision, deliveryWeight = deliveryWeight?.decimal(), deliveryTariff = deliveryTariff?.decimal(),
     deliveryRate = deliveryRate?.decimal(), deliveryPlanDate = deliveryPlanDate?.let(LocalDate::parse), productUrl = productUrl, temporaryProductUrl = temporaryProductUrl, actualWeight = actualWeight?.decimal(),
+    comment = comment.orEmpty(),
 )
 
 fun CostEntryEntity.toDomain(): CostEntry = CostEntry(
