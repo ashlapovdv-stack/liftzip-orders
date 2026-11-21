@@ -596,6 +596,7 @@ class GroupDetailScreenTest {
                 productUrl = "https://item.taobao.com/item.htm?id=45184215152",
                 temporaryProductUrl = "https://e.tb.cn/fixture",
                 deliveryWeight = BigDecimal("0.25"), deliveryTariff = BigDecimal("40"),
+                deliveryPlanDate = LocalDate.parse("2026-11-20"),
                 actualWeight = BigDecimal("0.3"),
             )),
             costs = emptyList(),
