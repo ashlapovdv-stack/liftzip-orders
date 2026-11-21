@@ -67,7 +67,7 @@ class MigrationTest {
             close()
         }
         helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true,
-            OrdersDatabase.MIGRATION_3_4, OrdersDatabase.MIGRATION_4_5, OrdersDatabase.MIGRATION_5_6).use { db ->
+            OrdersDatabase.MIGRATION_3_4, OrdersDatabase.MIGRATION_4_5, OrdersDatabase.MIGRATION_5_6, OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8, OrdersDatabase.MIGRATION_8_9, OrdersDatabase.MIGRATION_9_10, OrdersDatabase.MIGRATION_10_11, OrdersDatabase.MIGRATION_11_12, OrdersDatabase.MIGRATION_12_13).use { db ->
             db.query("SELECT receivedPaymentMinor,manualDeliveryPriceMinor,orderRate,withdrawn,transferred,received FROM orders").use { c ->
                 c.moveToFirst(); assertEquals(500000L, c.getLong(0))
                 assertEquals(true, c.isNull(1)); assertEquals(true, c.isNull(2))
@@ -83,7 +83,7 @@ class MigrationTest {
             execSQL("CREATE UNIQUE INDEX index_settlement_groups_one_forming ON settlement_groups(state) WHERE state='FORMING'")
             close()
         }
-        helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true, OrdersDatabase.MIGRATION_5_6).use { db ->
+        helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true, OrdersDatabase.MIGRATION_5_6, OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8, OrdersDatabase.MIGRATION_8_9, OrdersDatabase.MIGRATION_9_10, OrdersDatabase.MIGRATION_10_11, OrdersDatabase.MIGRATION_11_12, OrdersDatabase.MIGRATION_12_13).use { db ->
             db.query("SELECT orderRate,manualDeliveryPriceMinor,withdrawn,transferred,received FROM orders").use { c ->
                 c.moveToFirst(); assertEquals("13.25", c.getString(0)); assertEquals(0L, c.getLong(1))
                 for (index in 2..4) assertEquals(0, c.getInt(index))
@@ -91,4 +91,41 @@ class MigrationTest {
         }
     }
 
+
+    @Test fun migration6ToCurrentPreservesExistingOrdersAndPriceHistory() {
+        helper.createDatabase(databaseName, 6).apply {
+            execSQL("INSERT INTO settlement_groups VALUES('g',1,'CALCULATING',0,1,1,1,1)")
+            execSQL("INSERT INTO products VALUES('p','Товар',NULL,NULL,NULL,'[]',1,1,1)")
+            execSQL("INSERT INTO orders(id,number,date,counterparty,groupId,receivedPaymentMinor,comment,costsConfirmed,calculationState,createdAt,updatedAt,revision,manualDeliveryPriceMinor,orderRate,withdrawn,transferred,received) VALUES('o',1,'2026-11-11','Тест','g',500000,'old',0,'INCOMPLETE',1,1,1,NULL,'13.25',0,0,0)")
+            execSQL("INSERT INTO order_lines(id,orderId,productId,productNameSnapshot,articleSnapshot,quantity,saleUnitPriceMinor,purchaseUnitPrice,purchaseCurrency,purchaseRate,createdAt,updatedAt,revision,deliveryWeight,deliveryTariff,deliveryRate,deliveryPlanDate) VALUES('l','o','p','Товар',NULL,'2',250000,NULL,NULL,NULL,1,1,1,NULL,NULL,NULL,NULL)")
+            execSQL("INSERT INTO price_records(id,productId,sourceLineId,orderId,type,eventAt,price,currency,rate,quantity,preliminary,createdAt,updatedAt,revision) VALUES('r','p','l','o','SALE',1,'2500','RUB','1','2',0,1,1,1)")
+            close()
+        }
+        helper.runMigrationsAndValidate(databaseName, OrdersDatabase.SCHEMA_VERSION, true,
+            OrdersDatabase.MIGRATION_6_7, OrdersDatabase.MIGRATION_7_8,
+            OrdersDatabase.MIGRATION_8_9, OrdersDatabase.MIGRATION_9_10,
+            OrdersDatabase.MIGRATION_10_11, OrdersDatabase.MIGRATION_11_12, OrdersDatabase.MIGRATION_12_13).use { db ->
+            db.query("SELECT quantity,saleUnitPriceMinor,comment FROM order_lines WHERE id='l'").use { c ->
+                assertEquals(true, c.moveToFirst())
+                assertEquals("2", c.getString(0))
+                assertEquals(250000L, c.getLong(1))
+                assertEquals(true, c.isNull(2))
+            }
+            db.execSQL("INSERT INTO order_line_images(id,lineId,position,jpeg) VALUES('img','l',0,X'010203')")
+            db.query("SELECT hex(jpeg) FROM order_line_images WHERE id='img'").use { c ->
+                assertEquals(true, c.moveToFirst())
+                assertEquals("010203", c.getString(0))
+            }
+            db.query("SELECT price FROM price_records WHERE id='r'").use { c ->
+                assertEquals(true, c.moveToFirst())
+                assertEquals("2500", c.getString(0))
+            }
+            db.execSQL("UPDATE order_lines SET quantity=NULL,saleUnitPriceMinor=NULL WHERE id='l'")
+            db.query("SELECT quantity,saleUnitPriceMinor FROM order_lines WHERE id='l'").use { c ->
+                assertEquals(true, c.moveToFirst())
+                assertEquals(true, c.isNull(0))
+                assertEquals(true, c.isNull(1))
+            }
+        }
+    }
 }

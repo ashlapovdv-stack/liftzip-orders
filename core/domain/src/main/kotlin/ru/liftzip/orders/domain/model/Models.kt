@@ -7,7 +7,13 @@ import java.time.LocalDate
 import java.util.UUID
 
 enum class Currency { RUB, CNY }
-enum class GroupState { FORMING, CALCULATING, COMPLETED }
+enum class GroupState { FORMING, CALCULATING, COMPLETED, ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY }
+
+fun groupProgressState(orders: List<OrderFulfillment>): GroupState = when {
+    orders.isEmpty() || orders.any { !it.withdrawn || !it.transferred } -> GroupState.CALCULATING
+    orders.all { it.received } -> GroupState.COMPLETED
+    else -> GroupState.IN_DELIVERY
+}
 enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
 enum class OrderStage { ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
 
@@ -36,7 +42,7 @@ enum class CalculationState { INCOMPLETE, PRELIMINARY }
 enum class CostOwnerType { LINE, ORDER, GROUP }
 enum class CostKind { PURCHASE, DELIVERY, COMMISSION, OTHER }
 enum class PriceEventType { SALE, PURCHASE }
-enum class OrdersFilter { ALL, NEEDS_CALCULATION }
+enum class OrdersFilter { ALL, NEEDS_CALCULATION, IN_DELIVERY }
 
 @JvmInline
 value class Money(val minorUnits: Long) : Comparable<Money> {
@@ -106,8 +112,8 @@ data class OrderLine(
     val productId: UUID,
     val productNameSnapshot: String,
     val articleSnapshot: String?,
-    val quantity: BigDecimal,
-    val saleUnitPrice: Money,
+    val quantity: BigDecimal?,
+    val saleUnitPrice: Money?,
     val purchaseUnitPrice: BigDecimal?,
     val purchaseCurrency: Currency?,
     val purchaseRate: BigDecimal?,
@@ -118,6 +124,17 @@ data class OrderLine(
     val deliveryTariff: BigDecimal? = null,
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
+    val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
+    val actualWeight: BigDecimal? = null,
+    val images: List<ByteArray> = emptyList(),
+    val comment: String = "",
+)
+
+data class CatalogPositionSource(
+    val line: OrderLine,
+    val orderDate: LocalDate,
+    val orderTitle: String,
 )
 
 data class CostEntry(
@@ -203,28 +220,30 @@ data class PriceRecordView(
     val unitWeight: BigDecimal? = null,
     val orderRate: BigDecimal? = null,
     val deliveryTariff: BigDecimal? = null,
+    val actualWeight: BigDecimal? = null,
+    val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
+    val images: List<ByteArray> = emptyList(),
 )
 
 data class ProductPriceHistory(
     val product: Product,
-    val records: List<PriceRecordView>,
+    val lines: List<PriceHistoryLine>,
 ) {
-    val lines: List<PriceHistoryLine> = records.groupBy { it.record.sourceLineId }.map { (id, events) ->
-        PriceHistoryLine(id, events.firstOrNull { it.record.type == PriceEventType.SALE },
-            events.firstOrNull { it.record.type == PriceEventType.PURCHASE })
-    }
+    val records: List<PriceRecordView> get() = lines.flatMap { listOfNotNull(it.sale, it.purchase) }
 }
 
 data class PriceHistoryLine(
-    val sourceLineId: UUID,
+    val source: OrderLine,
+    val order: Order,
     val sale: PriceRecordView?,
     val purchase: PriceRecordView?,
 ) {
-    val source: PriceRecordView get() = requireNotNull(sale ?: purchase)
+    val sourceLineId: UUID get() = source.id
 }
 
 data class OrderCalculation(
-    val priceForDenis: Money,
+    val priceForDenis: Money?,
     val income: Money?,
     val purchaseCost: Money?,
     val profit: Money?,
@@ -247,8 +266,8 @@ data class OrderLineDraft(
     val productId: UUID? = null,
     val productName: String,
     val article: String? = null,
-    val quantity: BigDecimal,
-    val saleUnitPrice: BigDecimal,
+    val quantity: BigDecimal?,
+    val saleUnitPrice: BigDecimal?,
     val zeroSalePriceConfirmed: Boolean = false,
     val purchaseUnitPrice: BigDecimal? = null,
     val purchaseCurrency: Currency? = null,
@@ -258,6 +277,11 @@ data class OrderLineDraft(
     val deliveryTariff: BigDecimal? = null,
     val deliveryRate: BigDecimal? = null,
     val deliveryPlanDate: LocalDate? = null,
+    val productUrl: String? = null,
+    val temporaryProductUrl: String? = null,
+    val actualWeight: BigDecimal? = null,
+    val images: List<ByteArray> = emptyList(),
+    val comment: String = "",
 )
 
 data class SaveOrderCommand(
@@ -272,6 +296,7 @@ data class SaveOrderCommand(
     val costs: List<CostDraft>,
     val manualDeliveryPrice: BigDecimal? = null,
     val orderRate: BigDecimal? = null,
+    val creationId: UUID? = null,
 )
 
 data class SaveGroupCostsCommand(

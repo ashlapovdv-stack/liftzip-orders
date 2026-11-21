@@ -1,6 +1,7 @@
 package ru.liftzip.orders.domain.repository
 
 import kotlinx.coroutines.flow.Flow
+import ru.liftzip.orders.domain.model.CatalogPositionSource
 import ru.liftzip.orders.domain.model.FinishGroupCommand
 import ru.liftzip.orders.domain.model.FinishGroupResult
 import ru.liftzip.orders.domain.model.GroupDetails
@@ -26,6 +27,7 @@ interface OrdersRepository {
     fun observeGroup(groupId: UUID): Flow<GroupDetails?>
     fun observeProducts(query: String, limit: Int = 100): Flow<List<Product>>
     fun observeProductHistory(productId: UUID): Flow<ProductPriceHistory?>
+    suspend fun latestCatalogPosition(productId: UUID, excludeOrderId: UUID?): CatalogPositionSource?
     suspend fun deleteOrder(orderId: UUID)
     suspend fun saveOrder(command: SaveOrderCommand): UUID
     suspend fun setOrderAction(orderId: UUID, action: ru.liftzip.orders.domain.model.OrderAction, checked: Boolean)

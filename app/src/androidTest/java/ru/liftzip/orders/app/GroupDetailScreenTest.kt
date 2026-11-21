@@ -6,14 +6,20 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -74,6 +80,7 @@ class GroupDetailScreenTest {
     private var newOrderPreview = false
     private var showPrices by mutableStateOf(false)
     private var openedProduct by mutableStateOf<UUID?>(null)
+    private var keyboardHasSettled: () -> Boolean = { false }
 
     @Before fun setUp(): Unit = runBlocking {
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), OrdersDatabase::class.java).build()
@@ -87,13 +94,15 @@ class GroupDetailScreenTest {
             repository.saveOrder(SaveOrderCommand(
                 commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = title,
                 receivedPayment = BigDecimal.ZERO, costsConfirmed = false,
+                comment = if (index == 2) "Общий комментарий заказа" else "",
                 lines = listOf(OrderLineDraft(productName = "Тестовая позиция", quantity = BigDecimal.ONE,
                     saleUnitPrice = BigDecimal(sale), zeroSalePriceConfirmed = true,
                     purchaseUnitPrice = if (index == 2) BigDecimal("800") else null,
                     purchaseCurrency = if (index == 2) Currency.CNY else null, purchaseRate = if (index == 2) BigDecimal("10") else null,
                     deliveryWeight = if (index == 2) BigDecimal("0.2") else null,
                     deliveryTariff = if (index == 2) BigDecimal("55") else null,
-                    deliveryPlanDate = if (index == 2) LocalDate.parse("2026-11-11") else null)),
+                    deliveryPlanDate = if (index == 2) LocalDate.parse("2026-11-11") else null,
+                    comment = if (index == 2) "Примечание позиции" else "")),
                 orderRate = BigDecimal("10"),
                 costs = listOf(CostDraft(kind = CostKind.PURCHASE, amount = BigDecimal(purchase),
                     date = LocalDate.parse("2026-11-11"))), manualDeliveryPrice = BigDecimal.ZERO,
@@ -159,16 +168,13 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Выполнена").performScrollTo()
         capture("group-completed.png")
         clickAction("Товар получен")
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("На расчёте").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Доставка").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(longTitle).performScrollTo().performClick()
         assertEquals(orderId, openedOrder)
-        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
-        compose.onNodeWithText("Расходы группы").performScrollTo().performClick()
-        compose.onNodeWithText("Сохранить расходы группы").assertExists()
-        compose.onNodeWithText("Расходы группы").performClick()
-        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
-        compose.onNodeWithText("Добавить расход").performScrollTo().performClick()
-        compose.onNodeWithText("Сумма расхода").assertExists()
+        compose.onNode(hasScrollToIndexAction()).performTouchInput { swipeUp() }
+        compose.onNodeWithText("Расходы группы").assertDoesNotExist()
+        compose.onNodeWithText("Ранее внесённые расходы").assertDoesNotExist()
+        compose.onNodeWithText("Добавить расход").assertDoesNotExist()
         // Reuse this fixture for a visual preview of all three lifecycle colors.
         runBlocking {
             repository.setOrderAction(orderId, OrderAction.RECEIVED, true)
@@ -347,6 +353,8 @@ class GroupDetailScreenTest {
         compose.onNode(hasText("800 ¥") and hasAnyAncestor(hasTestTag(tag))).assertExists()
         compose.onNode(hasText("Курс заказа: 10 ₽/¥") and hasAnyAncestor(hasTestTag(tag))).assertExists()
         compose.onNodeWithText("Тариф доставки: 55 ¥/кг").assertExists()
+        compose.onAllNodesWithText("Комментарий к позиции: Примечание позиции").assertCountEquals(1)
+        compose.onAllNodesWithText("Комментарий к заказу: Общий комментарий заказа").assertCountEquals(1)
         compose.onNodeWithText("Последние известные цены").assertDoesNotExist()
         capture("price-history.png")
         card.performTouchInput { click(center) }
@@ -397,7 +405,148 @@ class GroupDetailScreenTest {
         }
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.COMPLETED } }
         clickAction("Товар получен", 4)
-        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
+        compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.IN_DELIVERY } }
+    }
+
+    @Test fun taobaoLinkCanBeCanonicalizedAndSavedFromPositionEditor() {
+        showOrder = true
+        newOrderPreview = true
+        showScreen(1f)
+        compose.onNodeWithText("Название заказа").performTextReplacement("Заказ Taobao UI")
+        compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар Taobao UI")
+        compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithContentDescription("Временная ссылка").performScrollTo().performTextReplacement(
+            "https://item.taobao.com/item.htm?id=45184215152&spm=abc",
+        )
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("https://item.taobao.com/item.htm?id=45184215152").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Готово").performClick()
+        compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) {
+            runBlocking { repository.observeOrders("", OrdersFilter.ALL, 50).first().any { it.order.counterparty == "Заказ Taobao UI" } }
+        }
+        val saved = runBlocking {
+            val id = repository.observeOrders("", OrdersFilter.ALL, 50).first()
+                .single { it.order.counterparty == "Заказ Taobao UI" }.order.id
+            repository.observeOrder(id).first()!!
+        }
+        assertEquals("https://item.taobao.com/item.htm?id=45184215152&spm=abc", saved.lines.single().temporaryProductUrl)
+        assertEquals("https://item.taobao.com/item.htm?id=45184215152", saved.lines.single().productUrl)
+    }
+
+    @Test fun positionEditorRevealsTheFocusedFieldAndKeepsTheHeaderStill() {
+        configureKeyboardInsets()
+        showOrder = true
+        newOrderPreview = true
+        showScreen(1f)
+        compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
+
+        val name = compose.onNodeWithContentDescription("Название товара")
+        val header = compose.onNodeWithText("Готово")
+        val nameTop = name.fetchSemanticsNode().positionInRoot.y
+        val headerTop = header.fetchSemanticsNode().positionInRoot.y
+        name.performClick()
+        waitForKeyboard()
+        assertEquals(nameTop, name.fetchSemanticsNode().positionInRoot.y, 1f)
+        val scroll = compose.onNodeWithTag("position-scroll")
+        val purchase = compose.onNodeWithContentDescription("Закупка, ₽")
+        scroll.swipePositionForm(up = true)
+        waitForFieldAboveKeyboard(purchase)
+        scroll.swipePositionForm(up = false)
+        waitForFieldAboveKeyboard(name)
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        compose.waitUntil(10_000) {
+            compose.activity.window.decorView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == false
+        }
+
+        purchase.performScrollTo()
+        purchase.performClick()
+        waitForKeyboard()
+        waitForFieldAboveKeyboard(purchase)
+
+        purchase.performTextReplacement("1050")
+        purchase.assertTextContains("1050")
+        header.assertIsDisplayed()
+        assertEquals(headerTop, header.fetchSemanticsNode().positionInRoot.y, 1f)
+        scroll.swipePositionForm(up = false)
+        waitForFieldAboveKeyboard(name)
+        header.assertIsDisplayed()
+    }
+
+    @Test fun savedGroupExpensesRemainReadableWithoutChangingTotals() {
+        runBlocking {
+            repository.saveGroupCosts(SaveGroupCostsCommand(
+                groupId = groupId,
+                costsConfirmed = true,
+                costs = listOf(CostDraft(
+                    kind = CostKind.COMMISSION,
+                    amount = BigDecimal("125"),
+                    date = LocalDate.parse("2026-11-11"),
+                    comment = "Ранее учтённая комиссия",
+                )),
+            ))
+        }
+
+        showScreen(1f)
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("Ранее внесённые расходы"))
+        compose.onNodeWithText("Ранее внесённые расходы").performClick()
+        list.performScrollToNode(hasText("Ранее учтённая комиссия"))
+        compose.onNodeWithText("Комиссия · 125 ₽").assertIsDisplayed()
+        compose.onNodeWithText("Ранее учтённая комиссия").assertIsDisplayed()
+        compose.onNodeWithText("Добавить расход").assertDoesNotExist()
+        compose.onNodeWithText("Сохранить расходы группы").assertDoesNotExist()
+        list.performScrollToIndex(0)
+        assertEquals("270 000 ₽", summaryText("К"))
+        assertEquals("270 000 ₽", summaryText("∆"))
+    }
+
+    private fun waitForKeyboard() {
+        compose.waitUntil(timeoutMillis = 10_000) { keyboardHasSettled() }
+        compose.waitForIdle()
+    }
+
+    private fun configureKeyboardInsets() {
+        compose.runOnUiThread {
+            val window = compose.activity.window
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+    }
+
+    private fun SemanticsNodeInteraction.swipePositionForm(up: Boolean) = performTouchInput {
+        // Drag from the edge of the form so text-selection handles cannot consume the gesture.
+        val nearTop = Offset(x = 4f, y = top + 8f)
+        val nearBottom = Offset(x = 4f, y = bottom - 8f)
+        if (up) swipe(nearBottom, nearTop, durationMillis = 400)
+        else swipe(nearTop, nearBottom, durationMillis = 400)
+    }
+
+    private fun waitForFieldAboveKeyboard(field: SemanticsNodeInteraction) {
+        val decor = compose.activity.window.decorView
+        fun keyboardTop(): Int {
+            val inset = decor.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+            return decor.height - inset
+        }
+        try {
+            compose.waitUntil(timeoutMillis = 10_000) {
+                val node = field.fetchSemanticsNode()
+                keyboardTop() < decor.height && node.boundsInRoot.height >= node.size.height - 1f &&
+                    node.boundsInWindow.bottom <= keyboardTop() + 1f
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            val node = field.fetchSemanticsNode()
+            val scroll = compose.onAllNodesWithTag("position-scroll").fetchSemanticsNodes().singleOrNull()
+            val range = scroll?.config?.takeIf { it.contains(SemanticsProperties.VerticalScrollAxisRange) }
+                ?.get(SemanticsProperties.VerticalScrollAxisRange)
+            throw AssertionError(
+                "Field bounds=${node.boundsInWindow}, size=${node.size}, keyboard top=${keyboardTop()}, " +
+                    "scroll viewport=${scroll?.boundsInWindow}, position=${range?.value?.invoke()}/${range?.maxValue?.invoke()}",
+                timeout,
+            )
+        }
     }
 
     @Test fun newOrderCannotSetMarksBeforeItsFirstSave() {
@@ -411,12 +560,14 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Название заказа").performTextReplacement("Заказ с отметками")
         compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("10")
         compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
-        compose.onNodeWithText("Название товара").performTextReplacement("Товар с отметками")
-        compose.onNodeWithText("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
-        compose.onNodeWithText("Вес единицы, кг").performScrollTo().performTextReplacement("0.2")
-        compose.onNodeWithText("Тариф, ¥/кг").performTextReplacement("55")
+        compose.onNodeWithContentDescription("Название товара").performTextReplacement("Товар с отметками")
+        compose.onNodeWithContentDescription("Денису, ₽/шт").performScrollTo().performTextReplacement("100")
+        compose.onNodeWithContentDescription("Вес, кг").performScrollTo().performTextReplacement("0.2")
+        compose.onNodeWithContentDescription("Тариф, ¥/кг").performTextReplacement("55")
+        val positionComment = compose.onNodeWithContentDescription("Комментарий к позиции")
+        positionComment.performScrollTo().performTextReplacement("Сверить маркировку\nОтдельная упаковка")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
-        compose.onNodeWithText("Название товара").performScrollTo()
+        compose.onNodeWithContentDescription("Название товара").performScrollTo()
         captureSheet("position-editor.png")
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
@@ -424,6 +575,78 @@ class GroupDetailScreenTest {
         val saved = runBlocking { repository.observeOrders("", OrdersFilter.ALL, 50).first().single { it.order.counterparty == "Заказ с отметками" } }
         assertEquals(OrderFulfillment(), saved.order.fulfillment)
         assertEquals(GroupState.FORMING, saved.groupState)
+        assertEquals("Сверить маркировку\nОтдельная упаковка", runBlocking {
+            repository.observeOrder(saved.order.id).first()!!.lines.single().comment
+        })
+    }
+
+    @Test fun catalogUsesLatestOrderFieldsAndKeepsEnteredQuantity() {
+        val product = "Каталожный контактор"
+        val lastOrder = SaveOrderCommand(
+            commandId = UUID.randomUUID(),
+            date = LocalDate.parse("2026-11-20"),
+            counterparty = "Прежний заказ для каталога",
+            receivedPayment = BigDecimal.ZERO,
+            costsConfirmed = false,
+            orderRate = BigDecimal("12"),
+            lines = listOf(OrderLineDraft(
+                productName = product, article = "ZIP-448", quantity = BigDecimal("23"),
+                saleUnitPrice = BigDecimal("1850"), purchaseUnitPrice = BigDecimal("75"),
+                purchaseCurrency = Currency.CNY, purchaseRate = BigDecimal("12"),
+                productUrl = "https://item.taobao.com/item.htm?id=45184215152",
+                temporaryProductUrl = "https://e.tb.cn/fixture",
+                deliveryWeight = BigDecimal("0.25"), deliveryTariff = BigDecimal("40"),
+                deliveryPlanDate = LocalDate.parse("2026-11-20"),
+                actualWeight = BigDecimal("0.3"),
+            )),
+            costs = emptyList(),
+        )
+        runBlocking {
+            val id = repository.saveOrder(lastOrder)
+            val line = repository.observeOrder(id).first()!!.lines.single()
+            repository.saveOrder(lastOrder.copy(
+                commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-09"),
+                counterparty = "Заказ, введённый позже задним числом",
+                lines = listOf(lastOrder.lines.single().copy(productId = line.productId, saleUnitPrice = BigDecimal("9999"))),
+            ))
+        }
+
+        showOrder = true
+        newOrderPreview = true
+        showScreen(1f)
+        compose.onNodeWithText("Название заказа").performTextReplacement("Новый заказ из каталога")
+        compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("13")
+        compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Количество").performScrollTo().performTextReplacement("7")
+        val note = compose.onNodeWithContentDescription("Комментарий к позиции")
+        note.performScrollTo().performTextReplacement("Проверить упаковку")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        compose.onNodeWithText("Из каталога").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(product).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(product).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Каталог товаров").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithContentDescription("Количество").performScrollTo().assertTextContains("7")
+        note.performScrollTo().assertTextContains("Проверить упаковку\n\nПрошлый заказ от 20.11.2026: Прежний заказ для каталога")
+        compose.onNodeWithText("Готово").performClick()
+        compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Новый заказ из каталога").fetchSemanticsNodes().isNotEmpty() }
+        val saved = runBlocking {
+            val summary = repository.observeOrders("Новый заказ из каталога", OrdersFilter.ALL, 50).first().single()
+            repository.observeOrder(summary.order.id).first()!!
+        }
+        val selected = saved.lines.single()
+        val expected = lastOrder.lines.single()
+        assertEquals(expected.article, selected.articleSnapshot)
+        assertEquals(expected.saleUnitPrice?.let(Money::fromRubles), selected.saleUnitPrice)
+        assertEquals(expected.purchaseUnitPrice, selected.purchaseUnitPrice)
+        assertEquals(expected.purchaseCurrency, selected.purchaseCurrency)
+        assertEquals(expected.productUrl, selected.productUrl)
+        assertEquals(expected.temporaryProductUrl, selected.temporaryProductUrl)
+        assertEquals(expected.deliveryWeight, selected.deliveryWeight)
+        assertEquals(expected.deliveryTariff, selected.deliveryTariff)
+        assertEquals(expected.actualWeight, selected.actualWeight)
+        assertEquals(BigDecimal("7"), selected.quantity)
+        assertEquals(BigDecimal("13"), saved.order.orderRate)
     }
 
     @Test fun approvedFormulaAndMissingPurchaseAreConsistentInOrderAndGroup() {
@@ -542,9 +765,18 @@ class GroupDetailScreenTest {
         .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString("") { it.text }
         .replace('\u00a0', ' ').replace('\u202f', ' ')
 
+    @OptIn(ExperimentalLayoutApi::class)
     private fun showScreen(fontScale: Float, width: Float = 393f) {
         compose.setContent {
             val density = LocalDensity.current
+            val ime = WindowInsets.ime
+            val target = WindowInsets.imeAnimationTarget
+            SideEffect {
+                keyboardHasSettled = {
+                    val bottom = ime.getBottom(density)
+                    bottom > 0 && bottom == target.getBottom(density)
+                }
+            }
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val viewportDensity = density.density * minOf(maxWidth.value / width, 1f)
                 CompositionLocalProvider(LocalDensity provides Density(viewportDensity, fontScale)) {
@@ -553,7 +785,7 @@ class GroupDetailScreenTest {
                             if (openedProduct != null) ProductDetailScreen(repository, openedProduct!!,
                                 onBack = { openedProduct = null })
                             else if (showPrices) PricesScreen(repository, onOpenProduct = { openedProduct = it })
-                            else if (showOrder) OrderEditorScreen(repository, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
+                            else if (showOrder) OrderEditorScreen(repository, ApplicationProvider.getApplicationContext<OrdersApplication>().settings, if (newOrderPreview) null else orderId, onBack = { showOrder = false; showOrders = true })
                             else if (showOrders) MainScreenScaffold(previewTab, onSelectTab = { previewTab = it }, onSettings = {}) {
                                 OrdersScreen(repository,
                                     onOpenOrder = { openedOrder = it; showOrders = false; showOrder = true }, onNewOrder = {},

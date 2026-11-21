@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="draft_photos" path="mail_drafts/" />
+    <files-path name="order_documents" path="order_documents/" />
+    <cache-path name="draft_eml" path="shared_letters/" />
+</paths>

@@ -29,6 +29,12 @@ data class BackupPayload(
 )
 
 @Serializable
+data class BackupImage(val id: String, val lineId: String, val position: Int)
+
+@Serializable
+data class BackupMedia(val path: String, val sha256: String, val size: Long)
+
+@Serializable
 data class BackupManifest(
     val format: String,
     val formatVersion: Int,
@@ -36,12 +42,15 @@ data class BackupManifest(
     val createdAt: Long,
     val dataSha256: String,
     val counts: Map<String, Int>,
+    val images: List<BackupImage> = emptyList(),
+    val media: List<BackupMedia> = emptyList(),
 )
 
 data class BackupInspection(
     val createdAt: Long,
     val schemaVersion: Int,
     val counts: Map<String, Int>,
+    val includesAttachments: Boolean = false,
 ) {
     val recordCount: Int = counts.values.sum()
 }

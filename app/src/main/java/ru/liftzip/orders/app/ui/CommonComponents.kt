@@ -55,7 +55,7 @@ fun AppTextField(
     minLines: Int = 1,
 ) {
     OutlinedTextField(
-        value = value, onValueChange = onValueChange, label = { Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, modifier = modifier,
+        value = value, onValueChange = onValueChange, label = { Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, modifier = modifier.keepVisibleWithKeyboard(),
         enabled = enabled, isError = error != null, minLines = minLines,
         textStyle = MaterialTheme.typography.bodyMedium, shape = RoundedCornerShape(10.dp),
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, focusedContainerColor = Color.White),
@@ -86,6 +86,9 @@ fun GroupStatusBadge(state: GroupState) {
         GroupState.FORMING -> Color(0xFFE6EFFC) to Color(0xFF184D8D)
         GroupState.CALCULATING -> Color(0xFFFFF0CE) to Color(0xFF805600)
         GroupState.COMPLETED -> Color(0xFFD9F0E3) to Color(0xFF17613B)
+        GroupState.ACCEPTED -> Color(0xFFE6EFFC) to Color(0xFF184D8D)
+        GroupState.AWAITING_PAYMENT -> Color(0xFFFFF0CE) to Color(0xFF805600)
+        GroupState.IN_DELIVERY -> Color(0xFFECE6FA) to Color(0xFF604196)
     }
     Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(
         containerColor = background, contentColor = foreground,

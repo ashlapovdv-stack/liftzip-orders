@@ -23,6 +23,7 @@ import ru.liftzip.orders.data.database.CostEntryEntity
 import ru.liftzip.orders.data.database.GroupCommandEntity
 import ru.liftzip.orders.data.database.OrderCommandEntity
 import ru.liftzip.orders.data.database.OrderEntity
+import ru.liftzip.orders.data.database.OrderLineImageEntity
 import ru.liftzip.orders.data.database.OrderLineEntity
 import ru.liftzip.orders.data.database.OrdersDao
 import ru.liftzip.orders.data.database.OrdersDatabase
@@ -38,6 +39,7 @@ import ru.liftzip.orders.domain.calculation.OrderCalculator
 import ru.liftzip.orders.domain.calculation.OrderValidator
 import ru.liftzip.orders.domain.calculation.normalizeArticle
 import ru.liftzip.orders.domain.model.CalculationState
+import ru.liftzip.orders.domain.model.CatalogPositionSource
 import ru.liftzip.orders.domain.model.CostDraft
 import ru.liftzip.orders.domain.model.CostKind
 import ru.liftzip.orders.domain.model.CostOwnerType
@@ -46,6 +48,7 @@ import ru.liftzip.orders.domain.model.DomainValidationException
 import ru.liftzip.orders.domain.model.FinishGroupCommand
 import ru.liftzip.orders.domain.model.FinishGroupResult
 import ru.liftzip.orders.domain.model.GroupDetails
+import ru.liftzip.orders.domain.model.groupProgressState
 import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.GroupSummary
 import ru.liftzip.orders.domain.model.Money
@@ -61,8 +64,11 @@ import ru.liftzip.orders.domain.model.SaveGroupCostsCommand
 import ru.liftzip.orders.domain.model.SaveOrderCommand
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.Locale
+import java.text.Normalizer
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class RoomOrdersRepository(
@@ -125,14 +131,42 @@ class RoomOrdersRepository(
                     ),
                 )
             }
+            dao.markEmptyOrdersIncomplete()
+            // Reconcile legacy display states without changing order flags.
+            dao.getGroups().filter { it.state != GroupState.FORMING.name }.forEach { group ->
+                val newState = groupProgressState(dao.getGroupOrders(group.id).map { it.toDomain().fulfillment })
+                if (group.state != newState.name) dao.updateGroup(group.copy(state = newState.name))
+            }
         }
     }
 
     override fun observeOrders(query: String, filter: OrdersFilter, limit: Int): Flow<List<OrderSummary>> {
-        val like = "%${query.trim()}%"
-        return dao.observeOrders(like, filter.name, limit.coerceIn(1, 500))
-            .map { orders -> orders.map { toSummary(it) } }
-            .flowOn(Dispatchers.IO)
+        val needle = query.searchKey()
+        val source = if (needle.isEmpty()) dao.observeOrders(filter.name, limit.coerceAtLeast(1))
+        else combine(dao.observeOrders(filter.name, -1), dao.observeOrderSearchLines()) { orders, lines ->
+            val matchingOrders = lines.asSequence().filter {
+                it.productNameSnapshot.searchKey().contains(needle) || it.articleSnapshot.orEmpty().searchKey().contains(needle)
+            }.map { it.orderId }.toHashSet()
+            orders.asSequence().filter {
+                it.id in matchingOrders || it.counterparty.searchKey().contains(needle) || it.number.toString().contains(needle)
+            }.take(limit.coerceAtLeast(1)).toList()
+        }
+        return source.map { orders ->
+            database.withTransaction {
+                val orderIds = orders.map { it.id }
+                val groups = orders.map { it.groupId }.distinct().chunked(500).flatMap { dao.getGroupsByIds(it) }.associateBy { it.id }
+                val lines = orderIds.chunked(500).flatMap { dao.getLinesForOrders(it) }.groupBy { it.orderId }
+                val orderCosts = orderIds.chunked(500).flatMap { dao.getCostsForOwners("ORDER", it) }.groupBy { it.ownerId }
+                val lineCosts = lines.values.flatten().map { it.id }.chunked(500)
+                    .flatMap { dao.getCostsForOwners("LINE", it) }.groupBy { it.ownerId }
+                orders.mapNotNull { order ->
+                    groups[order.groupId]?.let { group ->
+                        val orderLines = lines[order.id].orEmpty()
+                        toSummary(order, group, orderLines, orderCosts[order.id].orEmpty() + orderLines.flatMap { lineCosts[it.id].orEmpty() })
+                    }
+                }
+            }
+        }.flowOn(Dispatchers.IO)
     }
 
     override fun observeOrder(orderId: UUID): Flow<OrderDetails?> =
@@ -144,60 +178,102 @@ class RoomOrdersRepository(
         }.flowOn(Dispatchers.IO)
 
     override fun observeGroups(): Flow<List<GroupSummary>> = combine(
-        dao.observeGroups(),
-        dao.observeAllOrders(),
-        dao.observeAllLines(),
-        dao.observeAllCosts(),
+        dao.observeGroups(), dao.observeAllOrders(), dao.observeAllLines(), dao.observeAllCosts(),
     ) { groups, orders, lines, costs ->
+        val ordersByGroup = orders.groupBy { it.groupId }
+        val linesByOrder = lines.groupBy { it.orderId }
+        val costsByOwner = costs.groupBy { it.ownerType to it.ownerId }
         groups.map { group ->
-            val groupOrders = orders.filter { it.groupId == group.id }
-            summarize(group, groupOrders, lines, costs)
+            val members = ordersByGroup[group.id].orEmpty()
+            val triples = members.map { order ->
+                val ownLines = linesByOrder[order.id].orEmpty()
+                val ownCosts = costsByOwner["ORDER" to order.id].orEmpty() +
+                    ownLines.flatMap { costsByOwner["LINE" to it.id].orEmpty() }
+                Triple(order.toDomain(), ownLines.map { it.toDomain() }, ownCosts.map { it.toDomain() })
+            }
+            OrderCalculator.summarizeGroup(group.toDomain(), triples, costsByOwner["GROUP" to group.id].orEmpty().map { it.toDomain() })
         }
     }.flowOn(Dispatchers.IO)
 
-    override fun observeGroup(groupId: UUID): Flow<GroupDetails?> = combine(
-        dao.observeGroup(groupId.toString()),
-        dao.observeGroupOrders(groupId.toString()),
-        dao.observeAllLines(),
-        dao.observeAllCosts(),
-    ) { group, orders, lines, costs ->
-        if (group == null) null else {
-            val summaries = orders.map { order ->
-                toSummary(order, group, lines.filter { it.orderId == order.id }, costs)
+    override fun observeGroup(groupId: UUID): Flow<GroupDetails?> =
+        combine(
+            dao.observeGroup(groupId.toString()), dao.observeGroupOrders(groupId.toString()),
+            dao.observeGroupLineCount(groupId.toString()), dao.observeGroupCostCount(groupId.toString()),
+        ) { _, _, _, _ -> Unit }.map {
+            database.withTransaction {
+                val group = dao.getGroup(groupId.toString()) ?: return@withTransaction null
+                val orders = dao.getGroupOrders(group.id)
+                val ids = orders.map { it.id }
+                val lines = ids.chunked(500).flatMap { dao.getLinesForOrders(it) }.groupBy { it.orderId }
+                val costs = ids.chunked(500).flatMap { dao.getCostsForOwners("ORDER", it) }.groupBy { it.ownerId }
+                val lineCosts = lines.values.flatten().map { it.id }.chunked(500)
+                    .flatMap { dao.getCostsForOwners("LINE", it) }.groupBy { it.ownerId }
+                val groupCosts = dao.getGroupCosts(group.id).map { it.toDomain() }
+                val triples = orders.map { order ->
+                    val ownLines = lines[order.id].orEmpty()
+                    val ownCosts = costs[order.id].orEmpty() + ownLines.flatMap { lineCosts[it.id].orEmpty() }
+                    Triple(order.toDomain(), ownLines.map { it.toDomain() }, ownCosts.map { it.toDomain() })
+                }
+                GroupDetails(
+                    OrderCalculator.summarizeGroup(group.toDomain(), triples, groupCosts),
+                    triples.map { (order, ownLines, ownCosts) ->
+                        OrderSummary(order, group.number, GroupState.valueOf(group.state),
+                            ownLines.joinToString(", ") { it.productNameSnapshot }.take(160),
+                            OrderCalculator.calculate(order, ownLines, ownCosts))
+                    },
+                    groupCosts,
+                )
             }
-            GroupDetails(
-                summary = summarize(group, orders, lines, costs),
-                orders = summaries,
-                costs = costs.filter { it.ownerType == CostOwnerType.GROUP.name && it.ownerId == group.id }
-                    .map { it.toDomain() },
+        }.flowOn(Dispatchers.IO)
+
+    override fun observeProducts(query: String, limit: Int): Flow<List<Product>> {
+        val needle = query.searchKey()
+        return dao.observeProducts(if (needle.isEmpty()) limit.coerceAtLeast(1) else -1)
+            .map { items -> items.asSequence().filter { product ->
+                needle.isEmpty() || listOf(product.name, product.article, product.normalizedArticle, product.aliasesJson, product.brand)
+                    .any { it.orEmpty().searchKey().contains(needle) }
+            }.take(limit.coerceAtLeast(1)).map { it.toDomain() }.toList() }
+            .flowOn(Dispatchers.IO)
+    }
+
+    override suspend fun latestCatalogPosition(productId: UUID, excludeOrderId: UUID?): CatalogPositionSource? =
+        database.withTransaction {
+            val line = dao.getLatestCatalogLine(productId.toString(), excludeOrderId?.toString())
+                ?: return@withTransaction null
+            val order = checkNotNull(dao.getOrder(line.orderId))
+            CatalogPositionSource(
+                line = line.toDomain().copy(images = dao.getLineImages(line.id).map { it.jpeg }),
+                orderDate = LocalDate.parse(order.date),
+                orderTitle = order.counterparty,
             )
         }
-    }.flowOn(Dispatchers.IO)
-
-    override fun observeProducts(query: String, limit: Int): Flow<List<Product>> =
-        dao.observeProducts("%${query.trim()}%", limit.coerceIn(1, 500))
-            .map { items -> items.map { it.toDomain() } }
-            .flowOn(Dispatchers.IO)
 
     override fun observeProductHistory(productId: UUID): Flow<ProductPriceHistory?> = combine(
         dao.observeProduct(productId.toString()),
         dao.observePriceRecords(productId.toString()),
         dao.observeProductLines(productId.toString()),
-    ) { product, records, lines ->
+        dao.observeProductImageCount(productId.toString()),
+    ) { product, records, lines, _ ->
         if (product == null) null else {
-            val linesById = lines.associateBy { it.id }
-            val orderIds = records.map { it.orderId }.distinct()
-            val orders = if (orderIds.isEmpty()) emptyList() else dao.getOrdersByIds(orderIds)
-            ProductPriceHistory(
-                product = product.toDomain(),
-                records = records.mapNotNull { record ->
-                    orders.firstOrNull { it.id == record.orderId }?.let {
-                        PriceRecordView(record.toDomain(), it.number,
-                            linesById[record.sourceLineId]?.deliveryWeight?.decimal(), it.orderRate?.decimal(),
-                            linesById[record.sourceLineId]?.deliveryTariff?.decimal())
-                    }
-                },
-            )
+            val orders = lines.map { it.orderId }.distinct().chunked(500)
+                .flatMap { dao.getOrdersByIds(it) }.associateBy { it.id }
+            val imagesByLine = lines.map { it.id }.chunked(500)
+                .flatMap { dao.getImagesForLines(it) }.groupBy { it.lineId }
+            val recordsByLine = records.groupBy { it.sourceLineId }
+            ProductPriceHistory(product.toDomain(), lines.mapNotNull { line ->
+                val order = orders[line.orderId] ?: return@mapNotNull null
+                val source = line.toDomain().copy(images = imagesByLine[line.id].orEmpty().map { it.jpeg })
+                val views = recordsByLine[line.id].orEmpty().map {
+                    PriceRecordView(it.toDomain(), order.number, source.deliveryWeight, order.orderRate?.decimal(),
+                        source.deliveryTariff, source.actualWeight, source.productUrl, source.temporaryProductUrl, source.images)
+                }
+                ru.liftzip.orders.domain.model.PriceHistoryLine(
+                    source, order.toDomain(),
+                    views.firstOrNull { it.record.type == PriceEventType.SALE },
+                    views.firstOrNull { it.record.type == PriceEventType.PURCHASE },
+                )
+            }.sortedWith(compareByDescending<ru.liftzip.orders.domain.model.PriceHistoryLine> { it.order.date }
+                .thenByDescending { it.order.number }.thenBy { it.sourceLineId }))
         }
     }.flowOn(Dispatchers.IO)
 
@@ -219,9 +295,7 @@ class RoomOrdersRepository(
             )
             dao.updateOrder(updated)
             val orders = dao.getGroupOrders(group.id)
-            val state = if (group.state == GroupState.FORMING.name) GroupState.FORMING
-                else if (orders.isNotEmpty() && orders.all { it.toDomain().fulfillment.isComplete }) GroupState.COMPLETED
-                else GroupState.CALCULATING
+            val state = groupProgressState(orders.map { it.toDomain().fulfillment })
             if (state.name != group.state) dao.updateGroup(group.copy(
                 state = state.name, updatedAt = now.epoch(), revision = group.revision + 1,
             ))
@@ -257,8 +331,7 @@ class RoomOrdersRepository(
             dao.deleteOrder(old.id)
             if (group.state != GroupState.FORMING.name) {
                 val remaining = dao.getGroupOrders(group.id)
-                val state = if (remaining.isNotEmpty() && remaining.all { it.toDomain().fulfillment.isComplete })
-                    GroupState.COMPLETED else GroupState.CALCULATING
+                val state = groupProgressState(remaining.map { it.toDomain().fulfillment })
                 dao.updateGroup(group.copy(state = state.name, updatedAt = now.epoch(), revision = group.revision + 1))
             }
         }
@@ -279,7 +352,7 @@ class RoomOrdersRepository(
             if (existing != null && group.state != GroupState.FORMING.name) {
                 assertOnlyPurchaseAndCostsChanged(existing, command)
             }
-            val orderId = existing?.id ?: UUID.randomUUID().toString()
+            val orderId = existing?.id ?: (command.creationId ?: UUID.randomUUID()).toString()
             val orderNumber = existing?.number ?: dao.nextOrderNumber()
             val payment = Money.fromRubles(command.receivedPayment)
             var order = OrderEntity(
@@ -303,10 +376,10 @@ class RoomOrdersRepository(
                 val product = resolveProduct(draft, now)
                 val old = draft.id?.let { id -> oldLines.firstOrNull { it.id == id.toString() } }
                 OrderLineEntity(
-                    id = old?.id ?: UUID.randomUUID().toString(), orderId = orderId, productId = product.id,
+                    id = old?.id ?: (draft.id ?: UUID.randomUUID()).toString(), orderId = orderId, productId = product.id,
                     productNameSnapshot = draft.productName.trim(), articleSnapshot = draft.article?.trim()?.ifEmpty { null },
-                    quantity = draft.quantity.stripTrailingZeros().toPlainString(),
-                    saleUnitPriceMinor = Money.fromRubles(draft.saleUnitPrice).minorUnits,
+                    quantity = draft.quantity?.stripTrailingZeros()?.toPlainString(),
+                    saleUnitPriceMinor = draft.saleUnitPrice?.let { Money.fromRubles(it).minorUnits },
                     purchaseUnitPrice = draft.purchaseUnitPrice?.canonical(),
                     purchaseCurrency = draft.purchaseCurrency?.name, purchaseRate = draft.purchaseRate?.canonical(),
                     createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
@@ -314,7 +387,10 @@ class RoomOrdersRepository(
                     deliveryWeight = draft.deliveryWeight?.canonical(), deliveryTariff = draft.deliveryTariff?.canonical(),
                     deliveryRate = if (draft.deliveryWeight != null || draft.deliveryTariff != null || draft.deliveryPlanDate != null)
                         command.orderRate?.canonical() else null,
-                    deliveryPlanDate = draft.deliveryPlanDate?.toString(),
+                    deliveryPlanDate = draft.deliveryPlanDate?.toString(), productUrl = draft.productUrl,
+                    temporaryProductUrl = draft.temporaryProductUrl,
+                    actualWeight = draft.actualWeight?.canonical(),
+                    comment = draft.comment.ifBlank { null },
                 )
             }
             // Сначала удаляем полиморфные расходы, пока исходные позиции ещё доступны.
@@ -322,6 +398,10 @@ class RoomOrdersRepository(
             dao.deleteRemovedLines(orderId, resolvedLines.map { it.id })
             resolvedLines.forEach { line ->
                 if (oldLines.any { it.id == line.id }) dao.updateLine(line) else dao.insertLine(line)
+                dao.deleteLineImages(line.id)
+                command.lines[resolvedLines.indexOf(line)].images.forEachIndexed { position, bytes ->
+                    dao.insertLineImage(OrderLineImageEntity(UUID.randomUUID().toString(), line.id, position, bytes))
+                }
                 syncPriceRecords(order, line, now)
             }
             syncOrderCosts(orderId, command.costs, command.lines, resolvedLines, oldCosts, now)
@@ -389,7 +469,7 @@ class RoomOrdersRepository(
             }
             val now = Instant.now()
             dao.updateGroup(group.copy(
-                state = if (dao.getGroupOrders(group.id).all { it.toDomain().fulfillment.isComplete }) GroupState.COMPLETED.name else GroupState.CALCULATING.name,
+                state = groupProgressState(dao.getGroupOrders(group.id).map { it.toDomain().fulfillment }).name,
                 completedAt = now.epoch(), updatedAt = now.epoch(),
                 revision = group.revision + 1,
             ))
@@ -404,52 +484,28 @@ class RoomOrdersRepository(
         }
     }
 
-    private suspend fun loadOrderDetails(order: OrderEntity, group: SettlementGroupEntity): OrderDetails = OrderDetails(
-        order = order.toDomain(), group = group.toDomain(),
-        lines = dao.getOrderLines(order.id).map { it.toDomain() },
-        costs = dao.getOrderCosts(order.id).map { it.toDomain() },
-        history = dao.getOrderHistory(order.id).map { it.toDomain() },
-    )
-
-    private suspend fun toSummary(
-        order: OrderEntity,
-        knownGroup: SettlementGroupEntity? = null,
-        knownLines: List<OrderLineEntity>? = null,
-        knownCosts: List<CostEntryEntity>? = null,
-    ): OrderSummary {
-        val group = knownGroup ?: dao.getGroup(order.groupId)
-            ?: throw DomainValidationException("Группа заказа не найдена")
-        val lines = knownLines ?: dao.getOrderLines(order.id)
-        val costs = knownCosts?.filter {
-            (it.ownerType == CostOwnerType.ORDER.name && it.ownerId == order.id) ||
-                (it.ownerType == CostOwnerType.LINE.name && lines.any { line -> line.id == it.ownerId })
-        } ?: dao.getOrderCosts(order.id)
-        val calculation = OrderCalculator.calculate(order.toDomain(), lines.map { it.toDomain() }, costs.map { it.toDomain() })
-        return OrderSummary(
-            order = order.toDomain(), groupNumber = group.number, groupState = GroupState.valueOf(group.state),
-            composition = lines.joinToString(", ") { it.productNameSnapshot }.take(160),
-            calculation = calculation,
-        )
-    }
-
-    private fun summarize(
-        group: SettlementGroupEntity,
-        orders: List<OrderEntity>,
-        allLines: List<OrderLineEntity>,
-        allCosts: List<CostEntryEntity>,
-    ): GroupSummary {
-        val triples = orders.map { order ->
-            val lines = allLines.filter { it.orderId == order.id }
-            val costs = allCosts.filter {
-                (it.ownerType == CostOwnerType.ORDER.name && it.ownerId == order.id) ||
-                    (it.ownerType == CostOwnerType.LINE.name && lines.any { line -> line.id == it.ownerId })
-            }
-            Triple(order.toDomain(), lines.map { it.toDomain() }, costs.map { it.toDomain() })
+    private suspend fun loadOrderDetails(order: OrderEntity, group: SettlementGroupEntity): OrderDetails =
+        database.withTransaction {
+            val lines = dao.getOrderLines(order.id)
+            val photos = lines.map { it.id }.chunked(500).flatMap { dao.getImagesForLines(it) }.groupBy { it.lineId }
+            OrderDetails(
+                order = order.toDomain(), group = group.toDomain(),
+                lines = lines.map { line -> line.toDomain().copy(images = photos[line.id].orEmpty().map { it.jpeg }) },
+                costs = dao.getOrderCosts(order.id).map { it.toDomain() },
+                history = dao.getOrderHistory(order.id).map { it.toDomain() },
+            )
         }
-        val groupCosts = allCosts.filter { it.ownerType == CostOwnerType.GROUP.name && it.ownerId == group.id }
-            .map { it.toDomain() }
-        return OrderCalculator.summarizeGroup(group.toDomain(), triples, groupCosts)
-    }
+
+    private fun toSummary(
+        order: OrderEntity,
+        group: SettlementGroupEntity,
+        lines: List<OrderLineEntity>,
+        costs: List<CostEntryEntity>,
+    ): OrderSummary = OrderSummary(
+        order = order.toDomain(), groupNumber = group.number, groupState = GroupState.valueOf(group.state),
+        composition = lines.joinToString(", ") { it.productNameSnapshot }.take(160),
+        calculation = OrderCalculator.calculate(order.toDomain(), lines.map { it.toDomain() }, costs.map { it.toDomain() }),
+    )
 
     private suspend fun createInitialGroupIfNeeded(now: Instant): SettlementGroupEntity {
         if (dao.nextGroupNumber() != 1L) throw DomainValidationException("Нет формируемой группы")
@@ -467,7 +523,7 @@ class RoomOrdersRepository(
             return dao.getProduct(id.toString()) ?: throw DomainValidationException("Выбранный товар не найден")
         }
         val normalized = normalizeArticle(draft.article)
-        dao.findReusableProduct(draft.productName.trim(), normalized)?.let { return it }
+        dao.reusableProducts(normalized).firstOrNull { it.name.searchKey() == draft.productName.searchKey() }?.let { return it }
         val product = ProductEntity(
             id = UUID.randomUUID().toString(), name = draft.productName.trim(), article = draft.article?.trim()?.ifEmpty { null },
             normalizedArticle = normalized, brand = null, aliasesJson = "[]", createdAt = now.epoch(),
@@ -478,8 +534,12 @@ class RoomOrdersRepository(
     }
 
     private suspend fun syncPriceRecords(order: OrderEntity, line: OrderLineEntity, now: Instant) {
-        upsertPriceRecord(order, line, PriceEventType.SALE, now)
-        if (line.purchaseUnitPrice != null && line.purchaseCurrency != null && line.purchaseRate != null) {
+        if (line.saleUnitPriceMinor != null && line.quantity != null) {
+            upsertPriceRecord(order, line, PriceEventType.SALE, now)
+        } else {
+            dao.deletePriceRecord(line.id, PriceEventType.SALE.name)
+        }
+        if (line.quantity != null && line.purchaseUnitPrice != null && line.purchaseCurrency != null && line.purchaseRate != null) {
             upsertPriceRecord(order, line, PriceEventType.PURCHASE, now)
         } else {
             dao.deletePriceRecord(line.id, PriceEventType.PURCHASE.name)
@@ -498,9 +558,9 @@ class RoomOrdersRepository(
             id = old?.id ?: UUID.randomUUID().toString(), productId = line.productId, sourceLineId = line.id,
             orderId = order.id, type = type.name,
             eventAt = java.time.LocalDate.parse(order.date).atStartOfDay().toInstant(ZoneOffset.UTC).epoch(),
-            price = if (isSale) Money(line.saleUnitPriceMinor).toBigDecimal().canonical() else line.purchaseUnitPrice!!,
+            price = if (isSale) Money(requireNotNull(line.saleUnitPriceMinor)).toBigDecimal().canonical() else line.purchaseUnitPrice!!,
             currency = if (isSale) Currency.RUB.name else line.purchaseCurrency!!,
-            rate = if (isSale) "1" else line.purchaseRate!!, quantity = line.quantity,
+            rate = if (isSale) "1" else line.purchaseRate!!, quantity = requireNotNull(line.quantity),
             preliminary = !isSale, createdAt = old?.createdAt ?: now.epoch(), updatedAt = now.epoch(),
             revision = (old?.revision ?: 0) + 1,
         )
@@ -548,8 +608,8 @@ class RoomOrdersRepository(
             old.id == new.id?.toString() && old.productId == new.productId?.toString() &&
                 old.productNameSnapshot == new.productName.trim() &&
                 old.articleSnapshot == new.article?.trim()?.ifEmpty { null } &&
-                old.quantity.decimal().compareTo(new.quantity) == 0 &&
-                old.saleUnitPriceMinor == Money.fromRubles(new.saleUnitPrice).minorUnits
+                (old.quantity?.decimal()?.compareTo(new.quantity) == 0 || (old.quantity == null && new.quantity == null)) &&
+                old.saleUnitPriceMinor == new.saleUnitPrice?.let { Money.fromRubles(it).minorUnits }
         }
         if (existing.date != command.date.toString() || existing.counterparty != command.counterparty.trim() ||
             existing.receivedPaymentMinor != Money.fromRubles(command.receivedPayment).minorUnits || !sameLines
@@ -580,3 +640,5 @@ class RoomOrdersRepository(
     private fun throwIfMissingId(id: UUID?): OrderEntity? = if (id == null) null
     else throw DomainValidationException("Заказ не найден")
 }
+
+private fun String.searchKey(): String = Normalizer.normalize(trim(), Normalizer.Form.NFKC).lowercase(Locale.ROOT)

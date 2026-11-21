@@ -47,3 +47,25 @@ dependencies {
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }
+
+// A fresh CI checkout contains historical schemas only. Force the current Room
+// schema to exist before assembling instrumented migration tests.
+tasks.register("verifyCurrentRoomSchema") {
+    dependsOn("kspDebugKotlin")
+    doLast {
+        val schema = file("schemas/ru.liftzip.orders.data.database.OrdersDatabase/13.json")
+        check(schema.isFile && schema.length() > 100) {
+            "Room 13.json missing after KSP: ${schema.absolutePath}"
+        }
+    }
+}
+tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
+    dependsOn("verifyCurrentRoomSchema")
+}
+
+// Room writes schemas outside Gradle's standard build directory. KSP cache hits
+// may skip schema export on a fresh CI checkout, leaving migration tests broken.
+tasks.matching { it.name == "kspDebugKotlin" }.configureEach {
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+}

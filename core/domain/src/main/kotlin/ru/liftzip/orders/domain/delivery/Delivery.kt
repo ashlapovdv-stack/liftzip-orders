@@ -52,7 +52,7 @@ object DeliveryCalculator {
             val w=line.deliveryWeight ?: return null
             val t=line.deliveryTariff ?: return null
             val r=line.deliveryRate ?: return null
-            total += amount(line.quantity.multiply(w),t,r)
+            total += amount((line.quantity ?: continue).multiply(w),t,r)
         }
         return total
     }

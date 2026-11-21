@@ -27,4 +27,7 @@ fun ru.liftzip.orders.domain.model.GroupState.label(): String = when (this) {
     ru.liftzip.orders.domain.model.GroupState.FORMING -> "Формируется"
     ru.liftzip.orders.domain.model.GroupState.CALCULATING -> "На расчёте"
     ru.liftzip.orders.domain.model.GroupState.COMPLETED -> "Выполнена"
+    ru.liftzip.orders.domain.model.GroupState.ACCEPTED -> "Принята"
+    ru.liftzip.orders.domain.model.GroupState.AWAITING_PAYMENT -> "На оплате"
+    ru.liftzip.orders.domain.model.GroupState.IN_DELIVERY -> "Доставка"
 }

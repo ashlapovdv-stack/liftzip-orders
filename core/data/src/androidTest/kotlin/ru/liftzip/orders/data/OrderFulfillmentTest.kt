@@ -96,7 +96,18 @@ class OrderFulfillmentTest {
         assertEquals(GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
         assertEquals(result.nextGroupId, repository.finishGroup(finish).nextGroupId)
         repository.setOrderAction(id, OrderAction.RECEIVED, false)
-        assertEquals(GroupState.CALCULATING, repository.observeOrder(id).first()!!.group.state)
+        assertEquals(GroupState.IN_DELIVERY, repository.observeOrder(id).first()!!.group.state)
+
+        val dao = database.ordersDao()
+        val previous = dao.getGroup(before.group.id.toString())!!
+        dao.updateGroup(previous.copy(state = GroupState.CALCULATING.name))
+        repository.initialize()
+
+        val reopened = repository.observeOrder(id).first()!!
+        assertEquals(GroupState.IN_DELIVERY, reopened.group.state)
+        assertEquals(OrderFulfillment(true, true, false), reopened.order.fulfillment)
+        assertEquals(GroupState.IN_DELIVERY, repository.observeGroups().first()
+            .single { it.group.id == before.group.id }.group.state)
     }
 
     private fun command() = SaveOrderCommand(

@@ -1,12 +1,24 @@
 package ru.liftzip.orders.app.feature.orders
 
+import android.content.ContentResolver
+import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.app.ui.parseDecimal
 import ru.liftzip.orders.domain.calculation.OrderCalculator
 import ru.liftzip.orders.domain.calculation.OrderValidator
@@ -60,6 +72,14 @@ data class EditorLineDraft(
     val deliveryTariff: String = "",
     val deliveryRate: String = "",
     val deliveryPlanDate: LocalDate = LocalDate.now(),
+    val productUrl: String = "",
+    val temporaryProductUrl: String = "",
+    val actualWeight: String = "",
+    val images: List<ByteArray> = emptyList(),
+    val editorId: UUID = id ?: UUID.randomUUID(),
+    val hasDocuments: Boolean = false,
+    val comment: String = "",
+    val catalogReference: String? = null,
 )
 
 data class OrderEditorState(
@@ -87,6 +107,7 @@ data class OrderEditorState(
     val history: List<ChangeEvent> = emptyList(),
     val dirty: Boolean = false,
     val saving: Boolean = false,
+    val mediaWriting: Boolean = false,
     val showLeaveConfirmation: Boolean = false,
     val errors: Map<String, String> = emptyMap(),
     val generalError: String? = null,
@@ -101,7 +122,24 @@ class OrderEditorViewModel(
     private val _state = MutableStateFlow(OrderEditorState(orderId = existingOrderId))
     val state = _state.asStateFlow()
     private var commandId = UUID.randomUUID()
-    private val calculationOrderId = existingOrderId ?: UUID.randomUUID()
+    val attachmentOrderId = existingOrderId ?: UUID.randomUUID()
+    private val calculationOrderId = attachmentOrderId
+
+    data class Preview(val totals: OrderCalculation? = null, val delivery: Money? = null)
+
+    val preview = state.map { snapshot ->
+        val rate = snapshot.orderRate.parseDecimal()
+        val lines = try {
+            snapshot.lines.map { it.toDomain(calculationOrderId, rate) }
+        } catch (_: IllegalArgumentException) {
+            return@map Preview()
+        }
+        Preview(
+            totals = calculatePreview(snapshot, lines),
+            delivery = runCatching { ru.liftzip.orders.domain.delivery.DeliveryCalculator.totalPlan(lines) }.getOrNull(),
+        )
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Preview())
 
     init {
         if (existingOrderId == null) {
@@ -176,13 +214,112 @@ class OrderEditorViewModel(
         state.copy(lines = state.lines.mapIndexed { i, line -> if (i == index) transform(line) else line })
     }
 
-    fun addLine() = update { it.copy(lines = it.lines + EditorLineDraft()) }
+    fun addImagesFromGallery(editorId: UUID, uris: List<Uri>, resolver: ContentResolver) = writeMedia {
+            try {
+                val compressed = withContext(Dispatchers.IO) {
+                    uris.take(8).mapNotNull { uri ->
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@mapNotNull null
+                        val sample = generateSequence(1) { it * 2 }.first {
+                            maxOf(bounds.outWidth, bounds.outHeight) / it <= 2560
+                        }
+                        resolver.openInputStream(uri)?.use { input ->
+                            val source = BitmapFactory.decodeStream(input, null,
+                                BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@use null
+                            try {
+                                val maxSide = maxOf(source.width, source.height)
+                                val scale = (1280f / maxSide).coerceAtMost(1f)
+                                val resized = if (scale < 1f) Bitmap.createScaledBitmap(
+                                    source, (source.width * scale).toInt().coerceAtLeast(1),
+                                    (source.height * scale).toInt().coerceAtLeast(1), true
+                                ) else source
+                                try {
+                                    ByteArrayOutputStream().use { output ->
+                                        resized.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                                        output.toByteArray().takeIf { it.size <= 1_500_000 }
+                                    }
+                                } finally {
+                                    if (resized !== source) resized.recycle()
+                                }
+                            } finally { source.recycle() }
+                        }
+                    }
+                }
+                if (compressed.isNotEmpty()) _state.update { state ->
+                    if (state.lines.none { it.editorId == editorId }) state else state.copy(
+                        lines = state.lines.map {
+                            if (it.editorId == editorId) it.copy(images = (it.images + compressed).take(8)) else it
+                        },
+                        dirty = true,
+                    )
+                }
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                _state.update { it.copy(generalError = "Не удалось прочитать изображение: ${error.message}") }
+            }
+    }
+
+    fun writeMedia(action: suspend () -> Unit) {
+        if (_state.value.mediaWriting || _state.value.saving) return
+        _state.update { it.copy(mediaWriting = true) }
+        viewModelScope.launch {
+            try { action() } finally { _state.update { it.copy(mediaWriting = false) } }
+        }
+    }
+
+    fun markDocuments(editorId: UUID, present: Boolean) = update { state ->
+        state.copy(lines = state.lines.map { if (it.editorId == editorId) it.copy(hasDocuments = present) else it })
+    }
+
+    fun importLines(items: List<InvoiceItem>) {
+        if (items.isEmpty() || _state.value.salesLocked) return
+        update { current ->
+            val imported = items.map { EditorLineDraft(name = it.name.trim(), quantity = it.quantity) }
+            val existing = current.lines.filterNot { it.id == null && it.name.isBlank() && it.article.isBlank() && it.productUrl.isBlank() && it.temporaryProductUrl.isBlank() && it.images.isEmpty() && !it.hasDocuments }
+            current.copy(lines = imported + existing)
+        }
+    }
+
+    fun addLine() = update { it.copy(lines = listOf(EditorLineDraft()) + it.lines) }
     fun removeLine(index: Int) = update { state ->
         state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
     }
 
-    fun selectProduct(index: Int, product: Product) = updateLine(index) {
-        it.copy(productId = product.id, name = product.name, article = product.article.orEmpty())
+    suspend fun selectProduct(editorId: UUID, product: Product) {
+        val source = repository.latestCatalogPosition(product.id, _state.value.orderId)
+        _state.update { state ->
+            if (state.salesLocked || state.saving || state.lines.none { it.editorId == editorId }) return@update state
+            val lines = state.lines.map { current ->
+                if (current.editorId != editorId) return@map current
+                if (source == null) {
+                    return@map current.copy(productId = product.id, name = product.name, article = product.article.orEmpty())
+                }
+                val historical = toEditorLine(source.line)
+                val reference = "Прошлый заказ от ${source.orderDate.formatDate()}: ${source.orderTitle}"
+                val note = current.catalogReference?.let { current.comment.removeSuffix(it).trimEnd() } ?: current.comment
+                val photos = historical.images.filter { photo -> current.images.none { it.contentEquals(photo) } }
+                current.copy(
+                    productId = product.id,
+                    name = product.name,
+                    article = historical.article.ifBlank { product.article.orEmpty() },
+                    salePrice = historical.salePrice,
+                    zeroSalePriceConfirmed = source.line.saleUnitPrice == Money.ZERO,
+                    purchasePrice = historical.purchasePrice,
+                    purchaseCurrency = historical.purchaseCurrency,
+                    deliveryWeight = historical.deliveryWeight,
+                    deliveryTariff = historical.deliveryTariff,
+                    deliveryPlanDate = state.date,
+                    actualWeight = historical.actualWeight,
+                    productUrl = historical.productUrl,
+                    temporaryProductUrl = historical.temporaryProductUrl,
+                    images = (current.images + photos).take(8),
+                    comment = if (note.isBlank()) reference else "$note\n\n$reference",
+                    catalogReference = reference,
+                )
+            }
+            state.copy(lines = lines, dirty = true, generalError = null)
+        }
     }
 
     fun addOrderCost() = update { it.copy(costs = it.costs + EditorCostDraft()) }
@@ -210,7 +347,7 @@ class OrderEditorViewModel(
 
     fun save(onSaved: (UUID) -> Unit) {
         val snapshot = _state.value
-        if (snapshot.saving || snapshot.actionsSaving) return
+        if (snapshot.saving || snapshot.actionsSaving || snapshot.mediaWriting) return
         val command = buildCommand(snapshot) ?: return
         _state.update { it.copy(saving = true, generalError = null, errors = emptyMap()) }
         viewModelScope.launch {
@@ -250,9 +387,7 @@ class OrderEditorViewModel(
         }
     }
 
-    fun preview(): OrderCalculation? = try {
-        val state = _state.value
-        val lines = state.lines.mapIndexed { index, line -> line.toDomain(calculationOrderId, index) }
+    private fun calculatePreview(state: OrderEditorState, lines: List<OrderLine>): OrderCalculation? = try {
         val order = Order(
             id = calculationOrderId, number = state.orderNumber ?: 0, date = state.date,
             counterparty = state.counterparty, groupId = state.groupId ?: calculationOrderId,
@@ -277,24 +412,23 @@ class OrderEditorViewModel(
 
     private fun buildCommand(state: OrderEditorState): SaveOrderCommand? {
         val errors = mutableMapOf<String, String>()
-        if (state.lines.isEmpty()) {
-            _state.update { it.copy(generalError = "Добавьте хотя бы одну позицию или удалите заказ") }
-            return null
-        }
         if (state.counterparty.isBlank()) errors["counterparty"] = "Укажите название заказа"
         val payment = state.payment.parseDecimal() ?: BigDecimal.ZERO
         val lines = state.lines.mapIndexed { index, line ->
             val name = line.name.trim()
             if (name.isEmpty()) errors["line_${index}_name"] = "Укажите название"
             val quantity = line.quantity.parseDecimal()
-            if (quantity == null || quantity <= BigDecimal.ZERO) errors["line_${index}_quantity"] = "Количество больше нуля"
+            if (line.quantity.isNotBlank() && (quantity == null || quantity <= BigDecimal.ZERO)) errors["line_${index}_quantity"] = "Количество больше нуля"
             val sale = line.salePrice.parseDecimal()
-            if (line.salePrice.isBlank() || sale == null) errors["line_${index}_sale"] = "Укажите цену продажи"
+            if (line.salePrice.isNotBlank() && sale == null) errors["line_${index}_sale"] = "Укажите корректную цену продажи"
             if (sale?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 errors["line_${index}_zero"] = "Подтвердите осознанную нулевую цену"
             }
-            if (listOf(line.deliveryWeight, line.deliveryTariff).any { it.isNotBlank() && it.parseDecimal() == null }) {
+            if (listOf(line.deliveryWeight, line.deliveryTariff, line.actualWeight).any { it.isNotBlank() && it.parseDecimal() == null }) {
                 errors["line_${index}_delivery"] = "Проверьте числовые значения доставки"
+            }
+            if (line.actualWeight.isNotBlank() && (line.actualWeight.parseDecimal() == null || line.actualWeight.parseDecimal()!! < BigDecimal.ZERO)) {
+                errors["line_${index}_delivery"] = "Реальный вес должен быть неотрицательным числом"
             }
             val purchase = line.purchasePrice.parseDecimal()
             if (line.purchasePrice.isNotBlank() && purchase == null) {
@@ -303,9 +437,10 @@ class OrderEditorViewModel(
             val rate = if (line.purchaseCurrency == Currency.RUB) BigDecimal.ONE else state.orderRate.parseDecimal()
             if (purchase != null && line.purchaseCurrency == Currency.CNY && (rate == null || rate <= BigDecimal.ZERO)) errors["line_${index}_rate"] = "Укажите курс заказа"
             OrderLineDraft(
-                id = line.id, productId = line.productId, productName = name,
-                article = line.article.ifBlank { null }, quantity = quantity ?: BigDecimal.ONE,
-                saleUnitPrice = sale ?: BigDecimal.ZERO, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
+                id = line.id ?: line.editorId, productId = line.productId, productName = name,
+                article = line.article.ifBlank { null }, productUrl = line.productUrl.ifBlank { null }, temporaryProductUrl = line.temporaryProductUrl.ifBlank { null }, actualWeight = line.actualWeight.parseDecimal(), images = line.images, quantity = quantity,
+                comment = line.comment,
+                saleUnitPrice = sale, zeroSalePriceConfirmed = line.zeroSalePriceConfirmed,
                 purchaseUnitPrice = purchase,
                 purchaseCurrency = if (purchase == null) null else line.purchaseCurrency,
                 purchaseRate = if (purchase == null) null else rate,
@@ -339,7 +474,7 @@ class OrderEditorViewModel(
             counterparty = state.counterparty.trim(), receivedPayment = payment,
             comment = state.comment, costsConfirmed = state.costsConfirmed, lines = lines, costs = costs,
             manualDeliveryPrice = state.manualDeliveryPrice.parseDecimal(),
-            orderRate = state.orderRate.parseDecimal(),
+            orderRate = state.orderRate.parseDecimal(), creationId = attachmentOrderId,
         )
         try {
             OrderValidator.validate(command)
@@ -391,35 +526,32 @@ class OrderEditorViewModel(
         comment = comment, createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
     )
 
-    private fun EditorLineDraft.toDomain(orderId: UUID, index: Int) = OrderLine(
-        id = id ?: UUID.nameUUIDFromBytes("$orderId-preview-$index".toByteArray()), orderId = orderId,
+    private fun EditorLineDraft.toDomain(orderId: UUID, orderRate: BigDecimal?) = OrderLine(
+        id = editorId, orderId = orderId,
         productId = productId ?: orderId, productNameSnapshot = name, articleSnapshot = article.ifBlank { null },
-        quantity = quantity.parseDecimal() ?: BigDecimal.ONE,
-        saleUnitPrice = Money.fromRubles(salePrice.parseDecimal() ?: BigDecimal.ZERO),
+        quantity = quantity.parseDecimal(),
+        saleUnitPrice = salePrice.parseDecimal()?.let(Money::fromRubles),
         purchaseUnitPrice = purchasePrice.parseDecimal(),
         purchaseCurrency = if (purchasePrice.isBlank()) null else purchaseCurrency,
-        purchaseRate = if (purchasePrice.isBlank()) null else if (purchaseCurrency == Currency.RUB) BigDecimal.ONE else _state.value.orderRate.parseDecimal(),
+        purchaseRate = if (purchasePrice.isBlank()) null else if (purchaseCurrency == Currency.RUB) BigDecimal.ONE else orderRate,
         createdAt = Instant.EPOCH, updatedAt = Instant.EPOCH, revision = 0,
         deliveryWeight = deliveryWeight.parseDecimal(), deliveryTariff = deliveryTariff.parseDecimal(),
-        deliveryRate = _state.value.orderRate.parseDecimal(), deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
+        deliveryRate = orderRate, deliveryPlanDate = if(deliveryWeight.isBlank()) null else deliveryPlanDate,
+        productUrl = productUrl.ifBlank { null }, temporaryProductUrl = temporaryProductUrl.ifBlank { null }, actualWeight = actualWeight.parseDecimal(), images = images,
     )
 
     private fun toEditorLine(line: OrderLine) = EditorLineDraft(
         id = line.id, productId = line.productId, name = line.productNameSnapshot,
-        article = line.articleSnapshot.orEmpty(), quantity = line.quantity.stripTrailingZeros().toPlainString(),
-        salePrice = line.saleUnitPrice.toBigDecimal().toPlainString(), zeroSalePriceConfirmed = true,
+        article = line.articleSnapshot.orEmpty(), productUrl = line.productUrl.orEmpty(), temporaryProductUrl = line.temporaryProductUrl.orEmpty(), quantity = line.quantity?.stripTrailingZeros()?.toPlainString().orEmpty(),
+        salePrice = line.saleUnitPrice?.toBigDecimal()?.toPlainString().orEmpty(), zeroSalePriceConfirmed = true,
         purchasePrice = line.purchaseUnitPrice?.toPlainString().orEmpty(),
         purchaseCurrency = line.purchaseCurrency ?: Currency.RUB,
         purchaseRate = line.purchaseRate?.toPlainString() ?: "1",
         costs = emptyList(), deliveryWeight = line.deliveryWeight?.toPlainString().orEmpty(),
         deliveryTariff = line.deliveryTariff?.toPlainString().orEmpty(), deliveryRate = "",
         deliveryPlanDate = line.deliveryPlanDate ?: LocalDate.now(),
+        actualWeight = line.actualWeight?.toPlainString().orEmpty(), images = line.images, comment = line.comment,
     )
-
-    fun deliveryPreview(): Money? = try {
-        val state=_state.value
-        ru.liftzip.orders.domain.delivery.DeliveryCalculator.totalPlan(state.lines.mapIndexed { i,l -> l.toDomain(calculationOrderId,i) })
-    } catch (_:Exception) { null }
 
     private fun toEditorCost(cost: CostEntry) = EditorCostDraft(
         id = cost.id, kind = cost.kind, amount = cost.amount.toPlainString(), currency = cost.currency,
