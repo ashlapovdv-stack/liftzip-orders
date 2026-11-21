@@ -58,6 +58,15 @@ android {
     }
 }
 
+androidComponents {
+    finalizeDsl { androidDsl ->
+        val release = androidDsl.buildTypes.getByName("release")
+        check(release.isMinifyEnabled && release.isShrinkResources) {
+            "Orders release builds require R8 and resource shrinking."
+        }
+    }
+}
+
 dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:data"))

@@ -25,6 +25,10 @@ if [ "${GITHUB_HEAD_REF:-}" = "diagnostics/taobao-short-link" ]; then
 fi
 if [ "$test_status" -eq 0 ] && [ -n "${ORDERS_KEYSTORE_PATH:-}" ]; then
     (
+        if [ ! -s app/build/outputs/mapping/release/mapping.txt ]; then
+            echo "Release build did not produce a non-empty R8 mapping file."
+            exit 1
+        fi
         ./gradlew :app:assembleDebugAndroidTest -PordersReleaseSmoke=true --no-daemon || exit 1
         adb install -r app/build/outputs/apk/debug/app-debug.apk || exit 1
         adb install -r app/build/outputs/apk/release/app-release.apk || exit 1
