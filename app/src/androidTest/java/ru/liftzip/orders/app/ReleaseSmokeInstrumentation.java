@@ -146,13 +146,23 @@ public class ReleaseSmokeInstrumentation extends Instrumentation {
     private AccessibilityNodeInfo await(String label, long timeout, boolean scroll,
                                         Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + timeout;
+        long nextScroll = SystemClock.uptimeMillis() + 600;
+        boolean forward = true;
         while (SystemClock.uptimeMillis() < deadline) {
             AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
             AccessibilityNodeInfo found = find(root, node -> node.isVisibleToUser() && match.test(node));
             if (found != null) return found;
-            if (scroll) {
-                AccessibilityNodeInfo list = find(root, AccessibilityNodeInfo::isScrollable);
-                if (list != null) list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            if (scroll && SystemClock.uptimeMillis() >= nextScroll) {
+                AccessibilityNodeInfo list = find(root, node -> node.isVisibleToUser() && node.isScrollable());
+                if (list != null) {
+                    AccessibilityNodeInfo.AccessibilityAction direction = forward
+                            ? AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD
+                            : AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD;
+                    if (!list.getActionList().contains(direction) || !list.performAction(direction.getId())) {
+                        forward = !forward;
+                    }
+                }
+                nextScroll = SystemClock.uptimeMillis() + 650;
             }
             SystemClock.sleep(200);
         }
