@@ -27,18 +27,14 @@ if [ "$test_status" -eq 0 ] && [ -n "${ORDERS_KEYSTORE_PATH:-}" ]; then
     (
         adb install -r app/build/outputs/apk/debug/app-debug.apk || exit 1
         adb install -r app/build/outputs/apk/release/app-release.apk || exit 1
-        adb shell am start -W -n ru.liftzip.orders/.app.MainActivity || exit 1
-        for attempt in {1..3}; do
-            if adb shell uiautomator dump /sdcard/orders-release-smoke.xml >/dev/null; then
-                screen="$(adb shell cat /sdcard/orders-release-smoke.xml)"
-                if grep -Fq 'content-desc="Новый заказ"' <<< "$screen"; then
-                    echo "Non-debuggable APK updated and opened the orders screen"
-                    exit 0
-                fi
-            fi
-        done
-        echo "Non-debuggable APK did not open the orders screen" >&2
-        exit 1
+        adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || exit 1
+        set -o pipefail
+        adb shell am instrument -w \
+            -e class ru.liftzip.orders.app.ReleaseSmokeTest \
+            -e ordersReleaseSmoke true \
+            ru.liftzip.orders.test/androidx.test.runner.AndroidJUnitRunner \
+            | tee artifacts/release-smoke.txt || exit 1
+        grep -q '^OK (1 test)' artifacts/release-smoke.txt
     ) || test_status=1
 fi
 if [ "$test_status" -ne 0 ]; then
