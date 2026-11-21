@@ -123,16 +123,7 @@ jobs:
             test "$CERTIFICATE" = "82a94fb920b5eb7ef1afe9ab250b0f59d3fecf52ec789fad9734b83eb7a73200"
           done
 
-      - name: Upload installable APK
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Orders-debug-apk-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload non-debuggable APK
+      - name: Upload optimized release APK
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
