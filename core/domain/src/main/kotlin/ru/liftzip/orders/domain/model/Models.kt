@@ -131,6 +131,12 @@ data class OrderLine(
     val comment: String = "",
 )
 
+data class CatalogPositionSource(
+    val line: OrderLine,
+    val orderDate: LocalDate,
+    val orderTitle: String,
+)
+
 data class CostEntry(
     val id: UUID,
     val ownerType: CostOwnerType,

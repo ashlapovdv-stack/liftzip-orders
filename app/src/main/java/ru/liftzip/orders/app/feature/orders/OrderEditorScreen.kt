@@ -232,7 +232,7 @@ fun OrderEditorScreen(
     var browserLink by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var resolveJob by remember { mutableStateOf<Job?>(null) }
     var editingLine by remember { mutableStateOf<Int?>(null) }
-    var catalogLine by remember { mutableStateOf<Int?>(null) }
+    var catalogLine by remember { mutableStateOf<UUID?>(null) }
     var historyExpanded by remember { mutableStateOf(false) }
     var confirmDeleteOrder by remember { mutableStateOf(false) }
     var deleteLineIndex by remember { mutableStateOf<Int?>(null) }
@@ -470,7 +470,7 @@ fun OrderEditorScreen(
                         CompactItemSection {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Товар", style = MaterialTheme.typography.titleSmall)
-                                TextButton(onClick = { catalogLine = index }, enabled = !state.salesLocked) { Text("Из каталога") }
+                                TextButton(onClick = { catalogLine = line.editorId }, enabled = !state.salesLocked) { Text("Из каталога") }
                             }
                             CompactPositionField(line.name, { value -> model.updateLine(index) { it.copy(name = value, productId = null) } },
                                 "Название товара", error = state.errors["line_${index}_name"], enabled = !state.salesLocked)
@@ -920,9 +920,12 @@ fun OrderEditorScreen(
         )
     }
 
-    catalogLine?.let { lineIndex ->
+    catalogLine?.let { editorId ->
         ProductCatalogDialog(repository, onDismiss = { catalogLine = null }, onSelect = {
-            model.selectProduct(lineIndex, it); catalogLine = null
+            resolveJob?.cancel()
+            resolvingLineId = null
+            model.selectProduct(editorId, it)
+            catalogLine = null
         })
     }
 
@@ -955,11 +958,14 @@ private fun PositionEditorOverlay(title: String, content: @Composable () -> Unit
 private fun ProductCatalogDialog(
     repository: OrdersRepository,
     onDismiss: () -> Unit,
-    onSelect: (ru.liftzip.orders.domain.model.Product) -> Unit,
+    onSelect: suspend (ru.liftzip.orders.domain.model.Product) -> Unit,
 ) {
     val model = viewModel<PriceSearchViewModel>(factory = viewModelFactory { initializer { PriceSearchViewModel(repository) } })
     val products by model.products.collectAsState()
     val query by model.currentQuery.collectAsState()
+    val scope = rememberCoroutineScope()
+    var selecting by remember { mutableStateOf(false) }
+    var selectionError by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.safeDrawingPadding(),
@@ -968,10 +974,26 @@ private fun ProductCatalogDialog(
         text = {
             Column(Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppTextField(query, model::search, "Название или артикул")
+                if (selecting) Text("Заполняем позицию…", style = MaterialTheme.typography.bodySmall)
+                if (selectionError) Text("Не удалось загрузить данные товара", color = MaterialTheme.colorScheme.error)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (products.isEmpty()) item { EmptyState("Товар не найден") }
                     items(products, key = { it.id }) { product ->
-                        Card(Modifier.fillMaxWidth().clickable { onSelect(product) }) {
+                        Card(Modifier.fillMaxWidth().clickable(enabled = !selecting) {
+                            selecting = true
+                            selectionError = false
+                            scope.launch {
+                                try {
+                                    onSelect(product)
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (_: Exception) {
+                                    selectionError = true
+                                } finally {
+                                    selecting = false
+                                }
+                            }
+                        }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(product.name, fontWeight = FontWeight.SemiBold)
                                 product.article?.let { Text("Артикул: $it") }

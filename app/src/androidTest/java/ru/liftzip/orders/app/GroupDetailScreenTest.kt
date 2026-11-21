@@ -580,6 +580,74 @@ class GroupDetailScreenTest {
         })
     }
 
+    @Test fun catalogUsesLatestOrderFieldsAndKeepsEnteredQuantity() {
+        val product = "Каталожный контактор"
+        val lastOrder = SaveOrderCommand(
+            commandId = UUID.randomUUID(),
+            date = LocalDate.parse("2026-11-20"),
+            counterparty = "Прежний заказ для каталога",
+            receivedPayment = BigDecimal.ZERO,
+            costsConfirmed = false,
+            orderRate = BigDecimal("12"),
+            lines = listOf(OrderLineDraft(
+                productName = product, article = "ZIP-448", quantity = BigDecimal("23"),
+                saleUnitPrice = BigDecimal("1850"), purchaseUnitPrice = BigDecimal("75"),
+                purchaseCurrency = Currency.CNY, purchaseRate = BigDecimal("12"),
+                productUrl = "https://item.taobao.com/item.htm?id=45184215152",
+                temporaryProductUrl = "https://e.tb.cn/fixture",
+                deliveryWeight = BigDecimal("0.25"), deliveryTariff = BigDecimal("40"),
+                actualWeight = BigDecimal("0.3"),
+            )),
+            costs = emptyList(),
+        )
+        runBlocking {
+            val id = repository.saveOrder(lastOrder)
+            val line = repository.observeOrder(id).first()!!.lines.single()
+            repository.saveOrder(lastOrder.copy(
+                commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-09"),
+                counterparty = "Заказ, введённый позже задним числом",
+                lines = listOf(lastOrder.lines.single().copy(productId = line.productId, saleUnitPrice = BigDecimal("9999"))),
+            ))
+        }
+
+        showOrder = true
+        newOrderPreview = true
+        showScreen(1f)
+        compose.onNodeWithText("Название заказа").performTextReplacement("Новый заказ из каталога")
+        compose.onNodeWithText("Курс, ₽/¥").performTextReplacement("13")
+        compose.onNodeWithText("Новая позиция").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Количество").performScrollTo().performTextReplacement("7")
+        val note = compose.onNodeWithContentDescription("Комментарий к позиции")
+        note.performScrollTo().performTextReplacement("Проверить упаковку")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        compose.onNodeWithText("Из каталога").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(product).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(product).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Каталог товаров").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithContentDescription("Количество").performScrollTo().assertTextContains("7")
+        note.performScrollTo().assertTextContains("Проверить упаковку\n\nПрошлый заказ от 20.11.2026: Прежний заказ для каталога")
+        compose.onNodeWithText("Готово").performClick()
+        compose.onNodeWithText("Сохранить", useUnmergedTree = true).performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Новый заказ из каталога").fetchSemanticsNodes().isNotEmpty() }
+        val saved = runBlocking {
+            val summary = repository.observeOrders("Новый заказ из каталога", OrdersFilter.ALL, 50).first().single()
+            repository.observeOrder(summary.order.id).first()!!
+        }
+        val selected = saved.lines.single()
+        val expected = lastOrder.lines.single()
+        assertEquals(expected.article, selected.articleSnapshot)
+        assertEquals(expected.saleUnitPrice?.let(Money::fromRubles), selected.saleUnitPrice)
+        assertEquals(expected.purchaseUnitPrice, selected.purchaseUnitPrice)
+        assertEquals(expected.purchaseCurrency, selected.purchaseCurrency)
+        assertEquals(expected.productUrl, selected.productUrl)
+        assertEquals(expected.temporaryProductUrl, selected.temporaryProductUrl)
+        assertEquals(expected.deliveryWeight, selected.deliveryWeight)
+        assertEquals(expected.deliveryTariff, selected.deliveryTariff)
+        assertEquals(expected.actualWeight, selected.actualWeight)
+        assertEquals(BigDecimal("7"), selected.quantity)
+        assertEquals(BigDecimal("13"), saved.order.orderRate)
+    }
+
     @Test fun approvedFormulaAndMissingPurchaseAreConsistentInOrderAndGroup() {
         val command = SaveOrderCommand(commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"),
             counterparty = longTitle, receivedPayment = BigDecimal.ZERO, costsConfirmed = false,

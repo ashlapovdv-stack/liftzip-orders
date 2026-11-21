@@ -39,6 +39,7 @@ import ru.liftzip.orders.domain.calculation.OrderCalculator
 import ru.liftzip.orders.domain.calculation.OrderValidator
 import ru.liftzip.orders.domain.calculation.normalizeArticle
 import ru.liftzip.orders.domain.model.CalculationState
+import ru.liftzip.orders.domain.model.CatalogPositionSource
 import ru.liftzip.orders.domain.model.CostDraft
 import ru.liftzip.orders.domain.model.CostKind
 import ru.liftzip.orders.domain.model.CostOwnerType
@@ -63,6 +64,7 @@ import ru.liftzip.orders.domain.model.SaveGroupCostsCommand
 import ru.liftzip.orders.domain.model.SaveOrderCommand
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
 import java.util.Locale
@@ -233,6 +235,18 @@ class RoomOrdersRepository(
             }.take(limit.coerceAtLeast(1)).map { it.toDomain() }.toList() }
             .flowOn(Dispatchers.IO)
     }
+
+    override suspend fun latestCatalogPosition(productId: UUID, excludeOrderId: UUID?): CatalogPositionSource? =
+        database.withTransaction {
+            val line = dao.getLatestCatalogLine(productId.toString(), excludeOrderId?.toString())
+                ?: return@withTransaction null
+            val order = checkNotNull(dao.getOrder(line.orderId))
+            CatalogPositionSource(
+                line = line.toDomain().copy(images = dao.getLineImages(line.id).map { it.jpeg }),
+                orderDate = LocalDate.parse(order.date),
+                orderTitle = order.counterparty,
+            )
+        }
 
     override fun observeProductHistory(productId: UUID): Flow<ProductPriceHistory?> = combine(
         dao.observeProduct(productId.toString()),

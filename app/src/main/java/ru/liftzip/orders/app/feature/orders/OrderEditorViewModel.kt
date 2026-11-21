@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.app.ui.parseDecimal
 import ru.liftzip.orders.domain.calculation.OrderCalculator
 import ru.liftzip.orders.domain.calculation.OrderValidator
@@ -78,6 +79,7 @@ data class EditorLineDraft(
     val editorId: UUID = id ?: UUID.randomUUID(),
     val hasDocuments: Boolean = false,
     val comment: String = "",
+    val catalogReference: String? = null,
 )
 
 data class OrderEditorState(
@@ -284,8 +286,40 @@ class OrderEditorViewModel(
         state.copy(lines = state.lines.filterIndexed { i, _ -> i != index })
     }
 
-    fun selectProduct(index: Int, product: Product) = updateLine(index) {
-        it.copy(productId = product.id, name = product.name, article = product.article.orEmpty())
+    suspend fun selectProduct(editorId: UUID, product: Product) {
+        val source = repository.latestCatalogPosition(product.id, _state.value.orderId)
+        _state.update { state ->
+            if (state.salesLocked || state.saving || state.lines.none { it.editorId == editorId }) return@update state
+            val lines = state.lines.map { current ->
+                if (current.editorId != editorId) return@map current
+                if (source == null) {
+                    return@map current.copy(productId = product.id, name = product.name, article = product.article.orEmpty())
+                }
+                val historical = toEditorLine(source.line)
+                val reference = "Прошлый заказ от ${source.orderDate.formatDate()}: ${source.orderTitle}"
+                val note = current.catalogReference?.let { current.comment.removeSuffix(it).trimEnd() } ?: current.comment
+                val photos = historical.images.filter { photo -> current.images.none { it.contentEquals(photo) } }
+                current.copy(
+                    productId = product.id,
+                    name = product.name,
+                    article = historical.article.ifBlank { product.article.orEmpty() },
+                    salePrice = historical.salePrice,
+                    zeroSalePriceConfirmed = source.line.saleUnitPrice == Money.ZERO,
+                    purchasePrice = historical.purchasePrice,
+                    purchaseCurrency = historical.purchaseCurrency,
+                    deliveryWeight = historical.deliveryWeight,
+                    deliveryTariff = historical.deliveryTariff,
+                    deliveryPlanDate = state.date,
+                    actualWeight = historical.actualWeight,
+                    productUrl = historical.productUrl,
+                    temporaryProductUrl = historical.temporaryProductUrl,
+                    images = (current.images + photos).take(8),
+                    comment = if (note.isBlank()) reference else "$note\n\n$reference",
+                    catalogReference = reference,
+                )
+            }
+            state.copy(lines = lines, dirty = true, generalError = null)
+        }
     }
 
     fun addOrderCost() = update { it.copy(costs = it.costs + EditorCostDraft()) }

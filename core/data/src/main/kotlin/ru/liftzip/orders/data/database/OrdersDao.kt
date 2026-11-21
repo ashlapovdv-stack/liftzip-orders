@@ -83,6 +83,13 @@ interface OrdersDao {
     @Query("SELECT COUNT(*) FROM order_line_images i JOIN order_lines l ON i.lineId = l.id WHERE l.productId = :productId")
     fun observeProductImageCount(productId: String): Flow<Int>
 
+    @Query("""
+        SELECT l.* FROM order_lines l JOIN orders o ON o.id = l.orderId
+        WHERE l.productId = :productId AND (:excludeOrderId IS NULL OR o.id != :excludeOrderId)
+        ORDER BY o.date DESC, o.number DESC, l.createdAt DESC, l.id DESC LIMIT 1
+    """)
+    suspend fun getLatestCatalogLine(productId: String, excludeOrderId: String?): OrderLineEntity?
+
     @Query("SELECT * FROM order_lines WHERE productId = :productId")
     fun observeProductLines(productId: String): Flow<List<OrderLineEntity>>
 
