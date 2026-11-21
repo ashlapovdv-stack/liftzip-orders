@@ -1,12 +1,6 @@
 package ru.liftzip.orders.app
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,8 +21,8 @@ class InvoiceImportTest {
         val previousDiagnostics = InvoiceDiagnostics.enabled(context)
         InvoiceDiagnostics.setEnabled(context, true)
         try {
-            writeTestInvoicePdf(pdf)
-            writeTestInvoiceImage(image)
+            InvoiceTestFixture.writePdf(pdf)
+            InvoiceTestFixture.writeImage(image)
 
             val reader = InvoicePdfReader()
             val fromPdf = reader.read(context, context.contentResolver, Uri.fromFile(pdf))
@@ -42,55 +36,4 @@ class InvoiceImportTest {
             image.delete()
         }
     }
-}
-
-internal fun writeTestInvoicePdf(file: File) {
-    val document = PdfDocument()
-    try {
-        val page = document.startPage(PdfDocument.PageInfo.Builder(600, 360, 1).create())
-        drawInvoice(page.canvas)
-        document.finishPage(page)
-        file.outputStream().use(document::writeTo)
-    } finally {
-        document.close()
-    }
-}
-
-internal fun writeTestInvoiceImage(file: File) {
-    val bitmap = Bitmap.createBitmap(1200, 720, Bitmap.Config.ARGB_8888)
-    try {
-        drawInvoice(Canvas(bitmap).apply { scale(2f, 2f) })
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-    } finally {
-        bitmap.recycle()
-    }
-}
-
-private fun drawInvoice(canvas: Canvas) {
-    canvas.drawColor(Color.WHITE)
-    val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
-        strokeWidth = 1.5f
-        textSize = 14f
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-    }
-    for (y in listOf(115f, 142f, 170f, 198f)) canvas.drawLine(36f, y, 558f, y, ink)
-    for (x in listOf(36f, 68f, 318f, 382f, 428f, 485f, 558f)) canvas.drawLine(x, 115f, x, 198f, ink)
-
-    canvas.drawText("Счёт на оплату", 36f, 80f, ink)
-    canvas.drawText("№", 45f, 133f, ink)
-    canvas.drawText("Товары", 171f, 133f, ink)
-    canvas.drawText("Кол-во", 326f, 133f, ink)
-    canvas.drawText("Ед.", 389f, 133f, ink)
-    canvas.drawText("Цена", 435f, 133f, ink)
-    canvas.drawText("Сумма", 496f, 133f, ink)
-    for ((index, y) in listOf(161f, 189f).withIndex()) {
-        canvas.drawText("${index + 1}", 48f, y, ink)
-        canvas.drawText(listOf("Датчик A123", "Катушка B890")[index], 74f, y, ink)
-        canvas.drawText(listOf("5", "8")[index], 373f, y, ink)
-        canvas.drawText("шт", 384f, y, ink)
-        canvas.drawText("100,00", 433f, y, ink)
-        canvas.drawText(listOf("500,00", "800,00")[index], 500f, y, ink)
-    }
-    canvas.drawText("Всего наименований 2", 36f, 245f, ink)
 }
