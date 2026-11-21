@@ -3,6 +3,11 @@ package ru.liftzip.orders.data.backup
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import ru.liftzip.orders.data.database.AppMetadataEntity
+import ru.liftzip.orders.data.database.OrderLineImageEntity
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -28,122 +33,255 @@ class BackupManager(
     private val json = Json { prettyPrint = true; encodeDefaults = true; ignoreUnknownKeys = false }
     private val backupDao = database.backupDao()
 
+    fun closeDatabase() = database.close()
+
+    private data class Snapshot(
+        val payload: BackupPayload,
+        val manifest: BackupManifest,
+        val staging: File,
+    ) {
+        val inspection get() = BackupInspection(
+            manifest.createdAt, manifest.schemaVersion, manifest.counts, manifest.formatVersion >= 2,
+        )
+    }
+
     suspend fun inspect(uri: Uri): BackupInspection = withContext(Dispatchers.IO) {
-        readAndValidate(uri).second
+        withStagedBackup(uri) { it.inspection }
     }
 
     suspend fun exportTo(uri: Uri): BackupInspection = withContext(Dispatchers.IO) {
-        val stream = context.contentResolver.openOutputStream(uri, "w")
-            ?: throw BackupException("Не удалось открыть место сохранения")
-        stream.use { exportSnapshot(it) }
+        mutex.withLock {
+            finishPendingRestore()
+            val stream = context.contentResolver.openOutputStream(uri, "w")
+                ?: throw BackupException("Не удалось открыть место сохранения")
+            stream.use { exportSnapshot(it) }
+        }
     }
 
     suspend fun importFrom(uri: Uri): BackupInspection = withContext(Dispatchers.IO) {
-        val (payload, inspection) = readAndValidate(uri)
-        createLocalRecoveryCopy()
-        replaceDatabase(payload)
-        inspection
+        mutex.withLock {
+            finishPendingRestore()
+            restore(uri, createRecoveryCopy = true)
+        }
     }
 
-    fun latestRecoveryCopy(): File? = File(context.filesDir, "recovery-backups")
-        .listFiles { file -> file.name.endsWith(".zip") }
-        ?.maxByOrNull { it.lastModified() }
+    /** Used only with a separate, empty database from the startup recovery screen. */
+    suspend fun restoreIntoNewDatabase(uri: Uri, activate: () -> Unit): BackupInspection = withContext(Dispatchers.IO) {
+        mutex.withLock { restore(uri, createRecoveryCopy = false, activate = activate) }
+    }
+
+    private suspend fun restore(uri: Uri, createRecoveryCopy: Boolean, activate: () -> Unit = {}): BackupInspection =
+        withStagedBackup(uri) { snapshot ->
+            if (createRecoveryCopy) writeLocalRecoveryCopy()
+            val journalId = UUID.randomUUID().toString().takeIf { snapshot.manifest.formatVersion >= 2 }
+            var journal: File? = null
+            try {
+                if (journalId != null) {
+                    journal = backupJournal(context.filesDir, journalId)
+                    val incoming = File(journal, "incoming").apply { mkdirs() }
+                    for (name in backupRoots) {
+                        val source = File(snapshot.staging, name).apply { mkdirs() }
+                        check(source.renameTo(File(incoming, name))) { "Не удалось подготовить вложения" }
+                    }
+                }
+                replaceDatabase(snapshot, journalId, preservePreviousFiles = !createRecoveryCopy)
+            } catch (error: Exception) {
+                // If COMMIT completed before cancellation, startup owns the journal.
+                if (journalId != null) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    if (backupDao.metadataValue(PENDING) != journalId) journal?.deleteRecursively()
+                }
+                throw error
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                activate()
+                finishPendingRestore()
+            }
+            snapshot.inspection
+        }
+
+    suspend fun recoverPendingRestore() = withContext(Dispatchers.IO) {
+        mutex.withLock { finishPendingRestore() }
+    }
+
+    private suspend fun finishPendingRestore() {
+        val id = backupDao.metadataValue(PENDING) ?: return
+        val journal = backupJournal(context.filesDir, id)
+        val preservePrevious = backupDao.metadataValue(PRESERVE_PREVIOUS) == "true"
+        installBackupFiles(context.filesDir, journal)
+        database.withTransaction {
+            backupDao.deleteMetadataKey(PENDING)
+            backupDao.deleteMetadataKey(PRESERVE_PREVIOUS)
+        }
+        if (!preservePrevious) journal.deleteRecursively()
+    }
+
+    fun latestRecoveryCopy(): File? = latestRecoveryCopy(context.filesDir)
 
     suspend fun createLocalRecoveryCopy(): File = withContext(Dispatchers.IO) {
+        mutex.withLock { finishPendingRestore(); writeLocalRecoveryCopy() }
+    }
+
+    private suspend fun writeLocalRecoveryCopy(): File {
         val directory = File(context.filesDir, "recovery-backups").apply { mkdirs() }
-        val file = File(directory, "before-import-${Instant.now().toEpochMilli()}.zip")
-        file.outputStream().buffered().use { exportSnapshot(it) }
-        file
+        val file = File(directory, "before-import-${Instant.now().toEpochMilli()}-${UUID.randomUUID()}.zip")
+        val pending = File(directory, "${file.name}.tmp")
+        try {
+            pending.outputStream().use { exportSnapshot(it) }
+            withStagedBackup(Uri.fromFile(pending)) { it.inspection }
+            check(pending.renameTo(file)) { "Не удалось записать проверенную копию" }
+            return file
+        } finally {
+            pending.delete()
+        }
     }
 
     private suspend fun exportSnapshot(output: OutputStream): BackupInspection {
-        val payload = database.withTransaction {
-            BackupPayload(
-                products = backupDao.allProducts(), groups = backupDao.allGroups(), orders = backupDao.allOrders(),
-                lines = backupDao.allLines(), costs = backupDao.allCosts(), priceRecords = backupDao.allPriceRecords(),
-                changeEvents = backupDao.allChangeEvents(), orderCommands = backupDao.allOrderCommands(),
-                groupCommands = backupDao.allGroupCommands(), metadata = backupDao.allMetadata(),
-                deliveryInvoices = backupDao.allDeliveryInvoices(), deliveryPayments = backupDao.allDeliveryPayments(),
-            )
+        return ZipOutputStream(output.buffered()).use { zip ->
+            database.withTransaction {
+                val payload = BackupPayload(
+                    products = backupDao.allProducts(), groups = backupDao.allGroups(), orders = backupDao.allOrders(),
+                    lines = backupDao.allLines(), costs = backupDao.allCosts(), priceRecords = backupDao.allPriceRecords(),
+                    changeEvents = backupDao.allChangeEvents(), orderCommands = backupDao.allOrderCommands(),
+                    groupCommands = backupDao.allGroupCommands(), metadata = backupDao.allMetadata().filterNot { it.key == PENDING || it.key == PRESERVE_PREVIOUS },
+                    deliveryInvoices = backupDao.allDeliveryInvoices(), deliveryPayments = backupDao.allDeliveryPayments(),
+                )
+                val data = json.encodeToString(BackupPayload.serializer(), payload).toByteArray(Charsets.UTF_8)
+                if (data.size > 64 * 1024 * 1024) throw BackupException("Данные заказа превышают допустимый размер архива")
+                zip.putNextEntry(ZipEntry("data.json"))
+                zip.write(data)
+                zip.closeEntry()
+                val images = backupDao.imageIndex()
+                val media = mutableListOf<BackupMedia>()
+
+                fun writeMedia(path: String, input: java.io.InputStream, limit: Long = 512L * 1024 * 1024) {
+                    input.use {
+                        zip.putNextEntry(ZipEntry(path))
+                        media += copyBackupFile(it, zip, path, limit)
+                        zip.closeEntry()
+                    }
+                }
+                for (image in images) writeMedia("photos/${image.id}", backupDao.imageBytes(image.id).inputStream(), MAX_PHOTO)
+                val owners = payload.orders.associate { it.id to it.groupId }
+                val lineOwners = payload.lines.associate { it.id to it.orderId }
+                for (root in backupRoots) {
+                    val folder = File(context.filesDir, root)
+                    folder.walkTopDown().onEnter { !it.name.endsWith("-staging") }.filter { it.isFile && !it.name.endsWith(".tmp") }.forEach { file ->
+                        val path = file.relativeTo(context.filesDir).invariantSeparatorsPath
+                        check(isBackupMediaPath(path)) { "Неизвестный путь вложения" }
+                        val segments = path.split('/')
+                        if (root == "order_documents" &&
+                            (segments[1] !in owners || (segments.size == 4 && lineOwners[segments[2]] != segments[1]))
+                        ) return@forEach
+                        if (root == "mail_drafts") {
+                            val orderId = segments[2].take(36)
+                            if (owners[orderId] != segments[1]) return@forEach
+                            if (segments.size == 4) {
+                                val metadata = File(file.parentFile!!.parentFile, "$orderId.json")
+                                if (!metadata.isFile) return@forEach
+                                val generation = json.parseToJsonElement(metadata.readText()) as? kotlinx.serialization.json.JsonObject
+                                val folderName = (generation?.get("generation") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: orderId
+                                if (segments[2] != folderName) return@forEach
+                            }
+                        }
+                        writeMedia(path, file.inputStream())
+                    }
+                }
+                val manifest = BackupManifest(
+                    FORMAT, FORMAT_VERSION, OrdersDatabase.SCHEMA_VERSION, Instant.now().toEpochMilli(),
+                    sha256(data), payload.counts(), images, media,
+                )
+                val manifestBytes = json.encodeToString(BackupManifest.serializer(), manifest).toByteArray(Charsets.UTF_8)
+                if (manifestBytes.size > 16 * 1024 * 1024 || media.sumOf { it.size } > 8L * 1024 * 1024 * 1024) {
+                    throw BackupException("Вложения превышают допустимый размер архива")
+                }
+                zip.putNextEntry(ZipEntry("manifest.json"))
+                zip.write(manifestBytes)
+                zip.closeEntry()
+                BackupInspection(manifest.createdAt, manifest.schemaVersion, manifest.counts, true)
+            }
         }
-        val data = json.encodeToString(BackupPayload.serializer(), payload).toByteArray(Charsets.UTF_8)
-        val counts = payload.counts()
-        val manifest = BackupManifest(
-            format = FORMAT, formatVersion = FORMAT_VERSION, schemaVersion = OrdersDatabase.SCHEMA_VERSION,
-            createdAt = Instant.now().toEpochMilli(), dataSha256 = sha256(data), counts = counts,
-        )
-        val manifestBytes = json.encodeToString(BackupManifest.serializer(), manifest).toByteArray(Charsets.UTF_8)
-        ZipOutputStream(output.buffered()).use { zip ->
-            zip.putNextEntry(ZipEntry("manifest.json"))
-            zip.write(manifestBytes)
-            zip.closeEntry()
-            zip.putNextEntry(ZipEntry("data.json"))
-            zip.write(data)
-            zip.closeEntry()
-        }
-        return BackupInspection(manifest.createdAt, manifest.schemaVersion, counts)
     }
 
-    private fun readAndValidate(uri: Uri): Pair<BackupPayload, BackupInspection> {
-        val input = context.contentResolver.openInputStream(uri)
+    private suspend fun <T> withStagedBackup(uri: Uri, block: suspend (Snapshot) -> T): T {
+        val staging = File(context.filesDir, "backup-staging/${UUID.randomUUID()}").apply { mkdirs() }
+        try {
+            val snapshot = try {
+                readAndValidate(uri, staging)
+            } catch (error: BackupException) {
+                throw error
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                throw BackupException("Не удалось проверить резервную копию", error)
+            }
+            return block(snapshot)
+        } finally {
+            staging.deleteRecursively()
+        }
+    }
+
+    private fun readAndValidate(uri: Uri, staging: File): Snapshot {
+        val stream = context.contentResolver.openInputStream(uri)
             ?: throw BackupException("Не удалось открыть резервную копию")
-        val entries = input.use { stream -> readEntries(ZipInputStream(stream)) }
+        val entries = mutableMapOf<String, ByteArray>()
+        val media = mutableListOf<BackupMedia>()
+        val names = hashSetOf<String>()
+        var total = 0L
+        ZipInputStream(stream.buffered()).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                val path = entry.name
+                if (entry.isDirectory) continue
+                if (!names.add(path)) throw BackupException("Повторяющийся файл в архиве")
+                when (path) {
+                    "manifest.json", "data.json" -> {
+                        val output = ByteArrayOutputStream()
+                        copyBackupFile(zip, output, path, if (path == "manifest.json") 16L * 1024 * 1024 else 64L * 1024 * 1024)
+                        entries[path] = output.toByteArray()
+                    }
+                    else -> {
+                        if (!isBackupMediaPath(path)) throw BackupException("Недопустимый путь в архиве")
+                        val file = File(staging, path)
+                        file.parentFile?.mkdirs()
+                        media += file.outputStream().use { copyBackupFile(zip, it, path, if (path.startsWith("photos/")) MAX_PHOTO else 512L * 1024 * 1024) }
+                        total += media.last().size
+                        if (total > 8L * 1024 * 1024 * 1024) throw BackupException("Архив превышает допустимый размер")
+                    }
+                }
+                zip.closeEntry()
+            }
+        }
         val manifestBytes = entries["manifest.json"] ?: throw BackupException("В архиве нет manifest.json")
         val data = entries["data.json"] ?: throw BackupException("В архиве нет data.json")
-        val manifest = try {
-            json.decodeFromString(BackupManifest.serializer(), manifestBytes.toString(Charsets.UTF_8))
-        } catch (error: Exception) {
-            throw BackupException("Повреждён manifest.json", error)
-        }
-        if (manifest.format != FORMAT || manifest.formatVersion != FORMAT_VERSION) {
-            throw BackupException("Неподдерживаемый формат резервной копии")
-        }
-        if (manifest.schemaVersion !in 2..OrdersDatabase.SCHEMA_VERSION) {
-            val reason = if (manifest.schemaVersion > OrdersDatabase.SCHEMA_VERSION) "более новая" else "другая"
-            throw BackupException("Архив содержит $reason версию схемы: ${manifest.schemaVersion}")
-        }
-        if (!manifest.dataSha256.equals(sha256(data), ignoreCase = true)) {
-            throw BackupException("Контрольная сумма данных не совпадает")
-        }
-        val payload = try {
-            json.decodeFromString(BackupPayload.serializer(), data.toString(Charsets.UTF_8))
-        } catch (error: Exception) {
-            throw BackupException("Повреждены данные резервной копии", error)
-        }
-        if ((if (manifest.schemaVersion == 2) payload.counts().filterKeys { it !in setOf("deliveryInvoices", "deliveryPayments") } else payload.counts()) != manifest.counts) throw BackupException("Количество записей не совпадает с manifest.json")
+        val manifest = json.decodeFromString(BackupManifest.serializer(), manifestBytes.toString(Charsets.UTF_8))
+        if (manifest.format != FORMAT || manifest.formatVersion !in 1..FORMAT_VERSION) throw BackupException("Неподдерживаемый формат резервной копии")
+        if (manifest.schemaVersion !in 2..OrdersDatabase.SCHEMA_VERSION) throw BackupException("Неподдерживаемая версия схемы: ${manifest.schemaVersion}")
+        if (!manifest.dataSha256.equals(sha256(data), ignoreCase = true)) throw BackupException("Контрольная сумма данных не совпадает")
+        val payload = json.decodeFromString(BackupPayload.serializer(), data.toString(Charsets.UTF_8))
+        val counts = if (manifest.schemaVersion == 2) payload.counts().filterKeys { it !in setOf("deliveryInvoices", "deliveryPayments") } else payload.counts()
+        if (counts != manifest.counts) throw BackupException("Количество записей не совпадает с manifest.json")
         if (manifest.schemaVersion == 2 && (payload.deliveryInvoices.isNotEmpty() || payload.deliveryPayments.isNotEmpty())) throw BackupException("Данные доставки не соответствуют версии архива")
+        if (media.sortedBy { it.path } != manifest.media.sortedBy { it.path }) throw BackupException("Не совпадает состав или контрольная сумма вложений")
+        val lines = payload.lines.mapTo(hashSetOf()) { it.id }
+        val images = manifest.images.uniqueBy { it.id }
+        if ((manifest.formatVersion == 1 && (media.isNotEmpty() || images.isNotEmpty())) ||
+            images.values.any { it.lineId !in lines || it.position < 0 || File(staging, "photos/${it.id}").length() == 0L } ||
+            images.keys.map { "photos/$it" }.toSet() != media.map { it.path }.filter { it.startsWith("photos/") }.toSet()
+        ) throw BackupException("Некорректные связи фотографий")
         validatePayload(payload)
-        return payload to BackupInspection(manifest.createdAt, manifest.schemaVersion, manifest.counts)
+        return Snapshot(payload, manifest, staging)
     }
 
-    private fun readEntries(zip: ZipInputStream): Map<String, ByteArray> {
-        val result = mutableMapOf<String, ByteArray>()
-        var total = 0L
-        while (true) {
-            val entry = zip.nextEntry ?: break
-            if (entry.isDirectory) continue
-            if (entry.name !in setOf("manifest.json", "data.json")) continue
-            if (result.containsKey(entry.name)) throw BackupException("Повторяющийся файл в архиве")
-            val limit = if (entry.name == "manifest.json") 1_048_576 else 64 * 1024 * 1024
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = zip.read(buffer)
-                if (read < 0) break
-                total += read
-                if (output.size() + read > limit || total > 66 * 1024 * 1024) {
-                    throw BackupException("Архив превышает допустимый размер")
-                }
-                output.write(buffer, 0, read)
-            }
-            result[entry.name] = output.toByteArray()
-            zip.closeEntry()
-        }
-        return result
-    }
-
-    private suspend fun replaceDatabase(payload: BackupPayload) {
+    private suspend fun replaceDatabase(snapshot: Snapshot, journalId: String?, preservePreviousFiles: Boolean) {
+        val payload = snapshot.payload
+        val manifest = snapshot.manifest
         database.withTransaction {
+            val oldImages = if (manifest.formatVersion == 1) {
+                val lineIds = payload.lines.mapTo(hashSetOf()) { it.id }
+                val legacy = File(snapshot.staging, "legacy-photos").apply { mkdirs() }
+                backupDao.imageIndex().filter { it.lineId in lineIds }.onEach {
+                    File(legacy, it.id).writeBytes(backupDao.imageBytes(it.id))
+                }
+            } else emptyList()
             backupDao.deleteDeliveryPayments()
             backupDao.deleteDeliveryInvoices()
             backupDao.deleteOrderCommands()
@@ -156,18 +294,37 @@ class BackupManager(
             backupDao.deleteProducts()
             backupDao.deleteGroups()
             backupDao.deleteMetadata()
-            backupDao.insertGroups(payload.groups)
+            val ordersByGroup = payload.orders.groupBy { it.groupId }
+            backupDao.insertGroups(payload.groups.map { group ->
+                if (group.state == GroupState.FORMING.name) group
+                else group.copy(state = ru.liftzip.orders.domain.model.groupProgressState(
+                    ordersByGroup[group.id].orEmpty().map { it.toDomain().fulfillment },
+                ).name)
+            })
             backupDao.insertProducts(payload.products)
             backupDao.insertOrders(payload.orders)
             backupDao.insertLines(payload.lines)
+            for (image in oldImages) {
+                val bytes = File(snapshot.staging, "legacy-photos/${image.id}").readBytes()
+                database.ordersDao().insertLineImage(OrderLineImageEntity(image.id, image.lineId, image.position, bytes))
+            }
+            for (image in manifest.images) {
+                val bytes = File(snapshot.staging, "photos/${image.id}").readBytes()
+                database.ordersDao().insertLineImage(OrderLineImageEntity(image.id, image.lineId, image.position, bytes))
+            }
             backupDao.insertCosts(payload.costs)
             backupDao.insertPriceRecords(payload.priceRecords)
             backupDao.insertChangeEvents(payload.changeEvents)
             backupDao.insertOrderCommands(payload.orderCommands)
             backupDao.insertGroupCommands(payload.groupCommands)
-            backupDao.insertMetadata(payload.metadata)
+            backupDao.insertMetadata(payload.metadata.filterNot { it.key == PENDING || it.key == PRESERVE_PREVIOUS })
+            if (journalId != null) {
+                database.ordersDao().putMetadata(AppMetadataEntity(PENDING, journalId))
+                if (preservePreviousFiles) database.ordersDao().putMetadata(AppMetadataEntity(PRESERVE_PREVIOUS, "true"))
+            }
             backupDao.insertDeliveryInvoices(payload.deliveryInvoices)
             backupDao.insertDeliveryPayments(payload.deliveryPayments)
+            database.ordersDao().markEmptyOrdersIncomplete()
         }
     }
 
@@ -205,11 +362,10 @@ class BackupManager(
                 if (order.groupId !in groups) throw BackupException("Заказ ссылается на отсутствующую группу")
                 if (order.receivedPaymentMinor < 0) throw BackupException("Отрицательная оплата в заказе ${order.number}")
                 val orderLines = payload.lines.filter { it.orderId == order.id }
-                if (orderLines.isEmpty()) throw BackupException("Заказ ${order.number} не содержит позиций")
                 orderLines.forEach { line ->
                     if (line.productId !in products) throw BackupException("Позиция ссылается на отсутствующий товар")
                     val domain = line.toDomain()
-                    if (domain.quantity <= java.math.BigDecimal.ZERO || line.saleUnitPriceMinor < 0) {
+                    if ((domain.quantity?.let { it <= java.math.BigDecimal.ZERO } == true) || (line.saleUnitPriceMinor != null && line.saleUnitPriceMinor < 0)) {
                         throw BackupException("Некорректное количество или цена продажи")
                     }
                     val purchaseParts = listOfNotNull(line.purchaseUnitPrice, line.purchaseCurrency, line.purchaseRate)
@@ -258,7 +414,7 @@ class BackupManager(
                 when (domainRecord.type) {
                     ru.liftzip.orders.domain.model.PriceEventType.SALE -> {
                         if (domainRecord.currency != ru.liftzip.orders.domain.model.Currency.RUB ||
-                            domainRecord.price.compareTo(ru.liftzip.orders.domain.model.Money(line.saleUnitPriceMinor).toBigDecimal()) != 0
+                            line.saleUnitPriceMinor == null || line.quantity == null || domainRecord.price.compareTo(ru.liftzip.orders.domain.model.Money(line.saleUnitPriceMinor!!).toBigDecimal()) != 0
                         ) throw BackupException("Запись продажи не совпадает с исходной позицией")
                     }
                     ru.liftzip.orders.domain.model.PriceEventType.PURCHASE -> {
@@ -296,8 +452,20 @@ class BackupManager(
         .digest(data).joinToString("") { String.format(Locale.ROOT, "%02x", it) }
 
     companion object {
+        fun latestRecoveryCopy(filesDir: File): File? = File(filesDir, "recovery-backups")
+                .listFiles { file -> file.isFile && file.name.endsWith(".zip") }
+                ?.sortedByDescending { it.lastModified() }
+                ?.firstOrNull { file ->
+                    runCatching { java.util.zip.ZipFile(file).use { it.getEntry("manifest.json") != null && it.getEntry("data.json") != null } }
+                        .getOrDefault(false)
+                }
+
         const val FORMAT = "liftzip-orders-backup"
-        const val FORMAT_VERSION = 1
+        const val FORMAT_VERSION = 2
+        private const val MAX_PHOTO = 1_500_000L
+        private const val PENDING = "backup_restore_pending"
+        private const val PRESERVE_PREVIOUS = "backup_preserve_previous"
+        private val mutex = Mutex()
     }
 }
 

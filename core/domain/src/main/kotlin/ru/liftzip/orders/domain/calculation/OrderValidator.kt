@@ -11,19 +11,19 @@ import java.text.Normalizer
 object OrderValidator {
     fun validate(command: SaveOrderCommand) {
         if (command.counterparty.isBlank()) fail("Укажите клиента или менеджера")
-        if (command.lines.isEmpty()) fail("Добавьте хотя бы одну позицию")
+        // An order may be saved before its first line has been entered.
         if (command.receivedPayment < BigDecimal.ZERO) fail("Оплата не может быть отрицательной")
         if (command.receivedPayment.stripTrailingZeros().scale() > 2) fail("Оплата задаётся с точностью до копеек")
         Money.fromRubles(command.receivedPayment)
         command.lines.forEachIndexed { index, line ->
-            if (line.productName.isBlank()) fail("Позиция ${index + 1}: укажите название товара")
-            if (line.quantity <= BigDecimal.ZERO) fail("Позиция ${index + 1}: количество должно быть больше нуля")
-            if (line.saleUnitPrice < BigDecimal.ZERO) fail("Позиция ${index + 1}: цена не может быть отрицательной")
-            if (line.saleUnitPrice.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
+            // An incomplete line can be saved; its missing fields remain unknown.
+            if (line.quantity != null && line.quantity <= BigDecimal.ZERO) fail("Позиция ${index + 1}: количество должно быть больше нуля")
+            if (line.saleUnitPrice != null && line.saleUnitPrice < BigDecimal.ZERO) fail("Позиция ${index + 1}: цена не может быть отрицательной")
+            if (line.saleUnitPrice?.compareTo(BigDecimal.ZERO) == 0 && !line.zeroSalePriceConfirmed) {
                 fail("Позиция ${index + 1}: подтвердите нулевую цену продажи")
             }
-            if (line.saleUnitPrice.stripTrailingZeros().scale() > 2) fail("Позиция ${index + 1}: цена продажи задаётся с точностью до копеек")
-            Money.fromRubles(line.saleUnitPrice)
+            if (line.saleUnitPrice != null && line.saleUnitPrice.stripTrailingZeros().scale() > 2) fail("Позиция ${index + 1}: цена продажи задаётся с точностью до копеек")
+            line.saleUnitPrice?.let(Money::fromRubles)
             val hasForecast = line.deliveryWeight != null || line.deliveryTariff != null || line.deliveryPlanDate != null
             ru.liftzip.orders.domain.delivery.DeliveryCalculator.validatePlan(
                 line.deliveryWeight, line.deliveryTariff, if (hasForecast) command.orderRate else null, line.deliveryPlanDate,

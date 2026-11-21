@@ -51,7 +51,10 @@ class MigrationRecoveryTest {
         }
         assertEquals(OrdersDatabase.SCHEMA_VERSION, upgraded.version)
         upgraded.query("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='index_settlement_groups_one_forming'").use { c ->
-            c.moveToFirst(); assertEquals(1, c.getInt(0))
+            c.moveToFirst(); assertEquals(0, c.getInt(0))
+        }
+        upgraded.query("SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'settlement_groups_one_forming_%'").use { c ->
+            c.moveToFirst(); assertEquals(2, c.getInt(0))
         }
         upgraded.query("SELECT orderRate,withdrawn,transferred,received FROM orders").use { c ->
             assertTrue(c.moveToFirst()); assertEquals("13.25", c.getString(0))

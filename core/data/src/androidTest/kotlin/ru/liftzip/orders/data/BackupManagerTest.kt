@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -26,6 +30,7 @@ import ru.liftzip.orders.domain.model.SaveOrderCommand
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.math.BigDecimal
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -63,6 +68,83 @@ class BackupManagerTest {
         assertEquals(orderId, restored.single().order.id)
         assertEquals("Первый", restored.single().order.counterparty)
         assertTrue(File(context.filesDir, "recovery-backups").listFiles()?.isNotEmpty() == true)
+    }
+
+    @Test fun backupRoundTripRestoresPhotosDocumentsDraftAndEmptyOrderOnCleanDatabase() = runTest {
+        val jpeg = byteArrayOf(1, 2, 3)
+        val order = orderCommand("Товар с вложениями")
+        val orderId = repository.saveOrder(order.copy(lines = order.lines.map { it.copy(images = listOf(jpeg), comment = "Комментарий позиции\nВторая строка") }))
+        val details = repository.observeOrder(orderId).first()!!
+        val groupId = details.group.id
+        val lineId = details.lines.single().id
+        val emptyId = repository.saveOrder(orderCommand("Пустой черновик").copy(lines = emptyList()))
+        val document = File(context.filesDir, "order_documents/$orderId/$lineId/test.pdf").apply {
+            parentFile!!.mkdirs()
+            writeText("Тестовый документ")
+        }
+        val draft = File(context.filesDir, "mail_drafts/$groupId/$orderId.json").apply {
+            parentFile!!.mkdirs()
+            writeText("""{"orderId":"$orderId","subject":"Сохранённое письмо","body":"Правка"}""")
+        }
+        val archive = File.createTempFile("media-orders-", ".zip", context.cacheDir)
+        val clean = Room.inMemoryDatabaseBuilder(context, OrdersDatabase::class.java).build()
+        try {
+            val inspection = manager.exportTo(Uri.fromFile(archive))
+            assertTrue(inspection.includesAttachments)
+            document.delete()
+            draft.delete()
+            val cleanRepository = RoomOrdersRepository(clean)
+            cleanRepository.initialize()
+            BackupManager(context, clean).importFrom(Uri.fromFile(archive))
+            val restored = cleanRepository.observeOrder(orderId).first()!!
+            assertTrue(restored.lines.single().images.single().contentEquals(jpeg))
+            assertEquals("Комментарий позиции\nВторая строка", restored.lines.single().comment)
+            assertEquals("Тестовый документ", document.readText())
+            assertTrue(draft.readText().contains("Сохранённое письмо"))
+            assertTrue(cleanRepository.observeOrder(emptyId).first()!!.lines.isEmpty())
+        } finally {
+            clean.close()
+            archive.delete()
+            document.delete()
+            draft.delete()
+        }
+    }
+
+    @Test fun legacyZipPreservesPhotosAlreadyPresentForMatchingLineIds() = runTest {
+        val draft = orderCommand("Архив старого формата")
+        val id = repository.saveOrder(draft.copy(lines = draft.lines.map { it.copy(images = listOf(byteArrayOf(7, 8))) }))
+        val current = File.createTempFile("current-orders-", ".zip", context.cacheDir)
+        val legacy = File.createTempFile("legacy-orders-", ".zip", context.cacheDir)
+        try {
+            manager.exportTo(Uri.fromFile(current))
+            java.util.zip.ZipFile(current).use { source ->
+                val manifest = source.getInputStream(source.getEntry("manifest.json")).bufferedReader()
+                    .use { Json.decodeFromString(BackupManifest.serializer(), it.readText()) }
+                val payload = source.getInputStream(source.getEntry("data.json")).bufferedReader()
+                    .use { Json.parseToJsonElement(it.readText()).jsonObject }
+                val legacyLines = payload.getValue("lines").jsonArray.map { JsonObject(it.jsonObject - "comment") }
+                val data = JsonObject(payload + ("lines" to JsonArray(legacyLines))).toString().toByteArray()
+                val checksum = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
+                ZipOutputStream(legacy.outputStream()).use { target ->
+                    target.putNextEntry(ZipEntry("manifest.json"))
+                    target.write(Json.encodeToString(BackupManifest.serializer(), manifest.copy(
+                        formatVersion = 1, schemaVersion = 12, dataSha256 = checksum, images = emptyList(), media = emptyList(),
+                    )).toByteArray())
+                    target.closeEntry()
+                    target.putNextEntry(ZipEntry("data.json"))
+                    target.write(data)
+                    target.closeEntry()
+                }
+            }
+            val inspection = manager.importFrom(Uri.fromFile(legacy))
+            assertEquals(false, inspection.includesAttachments)
+            val restored = repository.observeOrder(id).first()!!.lines.single()
+            assertEquals("", restored.comment)
+            assertTrue(restored.images.single().contentEquals(byteArrayOf(7, 8)))
+        } finally {
+            current.delete()
+            legacy.delete()
+        }
     }
 
     @Test fun corruptAndNewerArchivesLeaveCurrentDataUntouched() = runTest {

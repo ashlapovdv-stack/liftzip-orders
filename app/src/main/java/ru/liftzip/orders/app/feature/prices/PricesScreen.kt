@@ -35,6 +35,7 @@ fun PricesScreen(repository: OrdersRepository, onOpenProduct: (UUID) -> Unit) {
     val model = viewModel<PriceSearchViewModel>(factory = viewModelFactory { initializer { PriceSearchViewModel(repository) } })
     val products by model.products.collectAsState()
     val query by model.currentQuery.collectAsState()
+    val limit by model.currentLimit.collectAsState()
     LazyColumn(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -43,7 +44,10 @@ fun PricesScreen(repository: OrdersRepository, onOpenProduct: (UUID) -> Unit) {
             ru.liftzip.orders.app.ui.CompactSearchField(query, model::search, "Поиск товара", "Поиск по названию, артикулу и вариантам", "prices-search")
         }
         if (products.isEmpty()) item { EmptyState("Товары появятся после сохранения заказа") }
-        items(products, key = { it.id }) { product -> ProductCard(product) { onOpenProduct(product.id) } }
+        items(products, key = { it.id }, contentType = { "product" }) { product -> ProductCard(product) { onOpenProduct(product.id) } }
+        if (products.size >= limit) item {
+            androidx.compose.material3.OutlinedButton(onClick = model::showMore) { Text("Показать ещё") }
+        }
     }
 }
 

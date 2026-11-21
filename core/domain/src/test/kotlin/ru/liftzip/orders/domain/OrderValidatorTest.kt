@@ -75,6 +75,18 @@ class OrderValidatorTest {
         assertThrows(DomainValidationException::class.java) { OrderValidator.validate(command("100.001", "100")) }
     }
 
+    @Test
+    fun `incomplete order can be saved without inventing quantity or sale price`() {
+        val incomplete = command("0", "100").copy(
+            lines = listOf(
+                line("100").copy(productName = "", quantity = null, saleUnitPrice = null),
+            ),
+        )
+        OrderValidator.validate(incomplete)
+        org.junit.Assert.assertNull(incomplete.lines.single().quantity)
+        org.junit.Assert.assertNull(incomplete.lines.single().saleUnitPrice)
+    }
+
     private fun command(payment: String, sale: String) = SaveOrderCommand(
         commandId = UUID.randomUUID(), date = LocalDate.parse("2026-11-11"), counterparty = "Тест",
         receivedPayment = BigDecimal(payment), costsConfirmed = false, lines = listOf(line(sale)), costs = emptyList(),

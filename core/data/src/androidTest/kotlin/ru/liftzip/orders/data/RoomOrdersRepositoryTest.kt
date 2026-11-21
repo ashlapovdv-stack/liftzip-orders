@@ -40,6 +40,25 @@ class RoomOrdersRepositoryTest {
 
     @After fun tearDown() { database.close() }
 
+    @Test fun taobaoUrlSurvivesSaveAndEditWithoutChangingOrderTotals() = runTest {
+        val canonical = "https://item.taobao.com/item.htm?id=45184215152"
+        val command = orderCommand().copy(lines = listOf(
+            orderCommand().lines.single().copy(productUrl = canonical),
+        ))
+        val id = repository.saveOrder(command)
+        val before = repository.observeOrder(id).first()!!
+        assertEquals(canonical, before.lines.single().productUrl)
+        val line = before.lines.single()
+        repository.saveOrder(command.copy(
+            commandId = UUID.randomUUID(), orderId = id,
+            lines = listOf(command.lines.single().copy(id = line.id, productId = line.productId)),
+        ))
+        val after = repository.observeOrder(id).first()!!
+        assertEquals(canonical, after.lines.single().productUrl)
+        assertEquals(before.order.receivedPayment, after.order.receivedPayment)
+        assertEquals(before.lines.single().saleUnitPrice, after.lines.single().saleUnitPrice)
+    }
+
     @Test fun saveIsIdempotentAndPriceHistoryDoesNotDuplicate() = runTest {
         val command = orderCommand()
         val id = repository.saveOrder(command)
@@ -88,6 +107,30 @@ class RoomOrdersRepositoryTest {
         val updated = repository.observeProductHistory(productId).first()!!
         assertTrue(updated.records.filter { it.record.orderId == ids.first() }.all { it.unitWeight == BigDecimal("0.45") })
         assertEquals(6, updated.records.size)
+    }
+
+    @Test fun positionCommentSurvivesEditingAFormedOrderAndAppearsInItsProductHistory() = runTest {
+        val command = orderCommand()
+        val line = command.lines.single()
+        val notes = listOf("Проверить маркировку", "Упаковать отдельно")
+        val ids = notes.map { note ->
+            repository.saveOrder(command.copy(
+                commandId = UUID.randomUUID(), comment = "Общий комментарий",
+                lines = listOf(line.copy(comment = note)),
+            ))
+        }
+        val saved = repository.observeOrder(ids.first()).first()!!
+        val savedLine = saved.lines.single()
+        assertEquals(notes.first(), savedLine.comment)
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), saved.group.id))
+        val edited = "Уточнить маркировку\nСверить упаковку"
+        repository.saveOrder(command.copy(
+            commandId = UUID.randomUUID(), orderId = saved.order.id, comment = saved.order.comment,
+            lines = listOf(line.copy(id = savedLine.id, productId = savedLine.productId, comment = edited)),
+        ))
+        val history = repository.observeProductHistory(savedLine.productId).first()!!
+        assertEquals(mapOf(ids[0] to edited, ids[1] to notes[1]), history.lines.associate { it.order.id to it.source.comment })
+        assertTrue(history.lines.all { it.order.comment == "Общий комментарий" })
     }
 
     @Test fun finishIsAtomicAndRepeatedCommandDoesNotCreateThirdGroup() = runTest {
@@ -225,11 +268,36 @@ class RoomOrdersRepositoryTest {
             lines = listOf(draft.lines[1].copy(id = remaining.id, productId = remaining.productId))))
         val after = repository.observeOrder(id).first()!!
         assertEquals(listOf(remaining.id), after.lines.map { it.id })
-        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.orders.single().calculation.priceForDenis.minorUnits)
+        assertEquals(5000L, repository.observeGroup(before.group.id).first()!!.orders.single().calculation.priceForDenis?.minorUnits)
         assertEquals(null, repository.observeGroup(before.group.id).first()!!.summary.income)
         assertTrue(after.costs.isEmpty())
         assertEquals(1, database.backupDao().allPriceRecords().count { it.orderId == id.toString() })
         assertTrue(after.history.any { it.changeType == "UPDATED" && it.beforeJson!!.contains("Первый") })
+    }
+
+    @Test fun unicodeSearchAndIncompleteHistoryShareOneProduct() = runTest {
+        val source = orderCommand()
+        val line = source.lines.single()
+        val first = repository.saveOrder(source.copy(lines = listOf(line.copy(
+            productName = "Контактор", quantity = null, saleUnitPrice = null,
+            purchaseUnitPrice = null, purchaseCurrency = null, purchaseRate = null,
+        ))))
+        val second = repository.saveOrder(source.copy(commandId = UUID.randomUUID(), lines = listOf(line.copy(productName = "КОНТАКТОР"))))
+        val history = repository.observeProducts("контактор").first().single().let { repository.observeProductHistory(it.id).first()!! }
+        assertEquals(setOf(first, second), history.lines.map { it.order.id }.toSet())
+        assertEquals(null, history.lines.single { it.order.id == first }.sale)
+        assertEquals(2, repository.observeOrders("контактор", ru.liftzip.orders.domain.model.OrdersFilter.ALL, 10).first().size)
+    }
+
+    @Test fun deliveryUsesFilterBeforeLimit() = runTest {
+        val old = repository.saveOrder(orderCommand())
+        val groupId = repository.observeOrder(old).first()!!.group.id
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), groupId))
+        repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.WITHDRAWN, true)
+        repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.TRANSFERRED, true)
+        repository.saveOrder(orderCommand().copy(commandId = UUID.randomUUID()))
+        val results = repository.observeOrders("", ru.liftzip.orders.domain.model.OrdersFilter.IN_DELIVERY, 1).first()
+        assertEquals(listOf(old), results.map { it.order.id })
     }
 
     @Test fun deletingOrderWithDeliveryFinancialRecordsIsRejectedAtomically() = runTest {

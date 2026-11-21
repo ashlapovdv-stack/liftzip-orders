@@ -1,6 +1,9 @@
 package ru.liftzip.orders.app.ui
 
 import android.net.Uri
+import android.content.Context
+import java.io.File
+import ru.liftzip.orders.app.feature.settings.DriveArchive
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,7 +28,7 @@ import java.time.Instant
 import java.util.UUID
 
 class MainViewModel(private val settings: SettingsStore) : ViewModel() {
-    val selectedTab = settings.selectedTab.stateIn(viewModelScope, SharingStarted.Eagerly, 2)
+    val selectedTab = settings.selectedTab.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     fun selectTab(index: Int) = viewModelScope.launch { settings.selectTab(index) }
 }
 
@@ -44,7 +47,7 @@ class OrdersViewModel(private val repository: OrdersRepository) : ViewModel() {
 
     fun search(value: String) { query.value = value; limit.value = 50 }
     fun filter(value: OrdersFilter) { filter.value = value; limit.value = 50 }
-    fun showMore() { limit.value = (limit.value + 50).coerceAtMost(500) }
+    fun showMore() { limit.value = limit.value + 50 }
 }
 
 class GroupsViewModel(repository: OrdersRepository) : ViewModel() {
@@ -56,9 +59,13 @@ class PriceSearchViewModel(private val repository: OrdersRepository) : ViewModel
     private val query = MutableStateFlow("")
     val currentQuery = query.asStateFlow()
     @OptIn(ExperimentalCoroutinesApi::class)
-    val products = query.flatMapLatest { repository.observeProducts(it) }
+    private val limit = MutableStateFlow(100)
+    val currentLimit = limit.asStateFlow()
+    val products = combine(query, limit) { value, count -> value to count }
+        .flatMapLatest { (value, count) -> repository.observeProducts(value, count) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList<Product>())
-    fun search(value: String) { query.value = value }
+    fun search(value: String) { query.value = value; limit.value = 100 }
+    fun showMore() { limit.value += 100 }
 }
 
 class GroupDetailViewModel(
@@ -120,8 +127,16 @@ class SettingsViewModel(
     val message = _message.asStateFlow()
     private val _pendingImport = MutableStateFlow<PendingImport?>(null)
     val pendingImport = _pendingImport.asStateFlow()
-    private val _recoveryAvailable = MutableStateFlow(backup.latestRecoveryCopy() != null)
+    private val _recoveryAvailable = MutableStateFlow(false)
     val recoveryAvailable = _recoveryAvailable.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _recoveryAvailable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                backup.latestRecoveryCopy() != null
+            }
+        }
+    }
 
     fun export(uri: Uri) {
         if (_busy.value) return
@@ -149,9 +164,35 @@ class SettingsViewModel(
         }
     }
 
+    fun inspectEncrypted(context: Context, uri: Uri, code: String) {
+        if (_busy.value) return
+        _busy.value = true
+        viewModelScope.launch {
+            var file: File? = null
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    file = DriveArchive.decrypt(context, uri, code)
+                }
+                val unpacked = checkNotNull(file)
+                val localUri = Uri.fromFile(unpacked)
+                _pendingImport.value = PendingImport(localUri, backup.inspect(localUri), unpacked)
+                file = null
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _message.value = "Копия не прошла проверку. Проверьте код восстановления и файл."
+            } finally {
+                file?.delete()
+                _busy.value = false
+            }
+        }
+    }
+
     fun inspectLatestRecovery() {
-        val file = backup.latestRecoveryCopy() ?: return
-        inspect(Uri.fromFile(file))
+        viewModelScope.launch {
+            val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backup.latestRecoveryCopy() }
+            if (file != null) inspect(Uri.fromFile(file))
+        }
     }
 
     fun confirmImport() {
@@ -164,13 +205,24 @@ class SettingsViewModel(
                 _recoveryAvailable.value = true
                 _message.value = "Данные восстановлены. Перед заменой создана локальная копия"
             } catch (error: Exception) {
-                _message.value = error.message ?: "Восстановление не выполнено; текущие данные сохранены"
-            } finally { _busy.value = false }
+                _message.value = error.message ?: "Не удалось завершить восстановление"
+            } finally {
+                pending.temporaryFile?.delete()
+                _recoveryAvailable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    backup.latestRecoveryCopy() != null
+                }
+                _busy.value = false
+            }
         }
     }
 
-    fun cancelImport() { _pendingImport.value = null }
+    fun cancelImport() {
+        _pendingImport.value?.temporaryFile?.delete()
+        _pendingImport.value = null
+    }
+
+    override fun onCleared() { cancelImport() }
     fun clearMessage() { _message.value = null }
 }
 
-data class PendingImport(val uri: Uri, val inspection: BackupInspection)
+data class PendingImport(val uri: Uri, val inspection: BackupInspection, val temporaryFile: File? = null)

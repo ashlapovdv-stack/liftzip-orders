@@ -25,6 +25,27 @@ class OrderCalculatorTest {
     private val lineId = UUID.randomUUID()
     private val groupId = UUID.randomUUID()
 
+    @Test fun emptyOrderCalculationStaysUnknown() {
+        val now = java.time.Instant.EPOCH
+        val id = java.util.UUID.randomUUID()
+        val order = ru.liftzip.orders.domain.model.Order(
+            id, 1, java.time.LocalDate.of(2026, 11, 19), "Черновик", id,
+            ru.liftzip.orders.domain.model.Money.ZERO, "", false,
+            ru.liftzip.orders.domain.model.CalculationState.INCOMPLETE, now, now, 1,
+            ru.liftzip.orders.domain.model.Money(15000),
+        )
+        val purchase = ru.liftzip.orders.domain.model.CostEntry(
+            id, ru.liftzip.orders.domain.model.CostOwnerType.ORDER, id,
+            ru.liftzip.orders.domain.model.CostKind.PURCHASE, java.math.BigDecimal("300"),
+            ru.liftzip.orders.domain.model.Currency.RUB, java.math.BigDecimal.ONE,
+            true, order.date, "", now, now, 1,
+        )
+        val result = ru.liftzip.orders.domain.calculation.OrderCalculator.calculate(order, emptyList(), listOf(purchase))
+        org.junit.Assert.assertNull(result.priceForDenis)
+        org.junit.Assert.assertNull(result.profit)
+        org.junit.Assert.assertFalse(result.isComplete)
+    }
+
     @Test
     fun `acceptance example with CNY and delivery`() {
         val line = line(

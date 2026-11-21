@@ -10,6 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         ProductEntity::class,
+        OrderLineImageEntity::class,
         SettlementGroupEntity::class,
         OrderEntity::class,
         OrderLineEntity::class,
@@ -29,7 +30,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 6
+        const val SCHEMA_VERSION = 13
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -75,23 +76,86 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
-        fun create(context: Context): OrdersDatabase {
-            preserveBeforeMigration(context)
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE order_lines ADD COLUMN productUrl TEXT")
+            }
+        }
+
+        // Room cannot model partial indices. Enforce the one-FORMING-group invariant
+        // with SQLite triggers, which Room does not treat as schema indices.
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS index_settlement_groups_one_forming")
+                createFormationGuards(db)
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE order_lines ADD COLUMN actualWeight TEXT")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS order_line_images (id TEXT NOT NULL PRIMARY KEY, lineId TEXT NOT NULL, position INTEGER NOT NULL, jpeg BLOB NOT NULL, FOREIGN KEY(lineId) REFERENCES order_lines(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_order_line_images_lineId ON order_line_images(lineId)")
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE order_lines ADD COLUMN temporaryProductUrl TEXT")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Room may migrate with foreign keys disabled, leaving dependent rows in place.\n                // Preserve them if cascading deletes occur, without duplicating surviving rows.
+                db.execSQL("CREATE TEMP TABLE saved_line_images AS SELECT * FROM order_line_images")
+                db.execSQL("CREATE TEMP TABLE saved_price_records AS SELECT * FROM price_records")
+                db.execSQL("CREATE TABLE order_lines_new (id TEXT NOT NULL PRIMARY KEY, orderId TEXT NOT NULL, productId TEXT NOT NULL, productNameSnapshot TEXT NOT NULL, articleSnapshot TEXT, quantity TEXT, saleUnitPriceMinor INTEGER, purchaseUnitPrice TEXT, purchaseCurrency TEXT, purchaseRate TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, revision INTEGER NOT NULL, deliveryWeight TEXT, deliveryTariff TEXT, deliveryRate TEXT, deliveryPlanDate TEXT, productUrl TEXT, actualWeight TEXT, temporaryProductUrl TEXT, FOREIGN KEY(orderId) REFERENCES orders(id) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(productId) REFERENCES products(id) ON UPDATE NO ACTION ON DELETE RESTRICT)")
+                db.execSQL("INSERT INTO order_lines_new SELECT * FROM order_lines")
+                db.execSQL("DROP TABLE order_lines")
+                db.execSQL("ALTER TABLE order_lines_new RENAME TO order_lines")
+                db.execSQL("CREATE INDEX index_order_lines_orderId ON order_lines(orderId)")
+                db.execSQL("CREATE INDEX index_order_lines_productId ON order_lines(productId)")
+                db.execSQL("INSERT OR IGNORE INTO order_line_images SELECT * FROM saved_line_images")
+                db.execSQL("INSERT OR IGNORE INTO price_records SELECT * FROM saved_price_records")
+                db.execSQL("DROP TABLE saved_line_images")
+                db.execSQL("DROP TABLE saved_price_records")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE order_lines ADD COLUMN comment TEXT")
+            }
+        }
+
+        fun create(context: Context, name: String = DATABASE_NAME): OrdersDatabase {
+            preserveBeforeMigration(context, name)
             return Room.databaseBuilder(
             context.applicationContext,
             OrdersDatabase::class.java,
-            DATABASE_NAME,
+            name,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
             .addCallback(IntegrityCallback)
             .build()
         }
 
-        private fun preserveBeforeMigration(context: Context) {
-            val source = context.getDatabasePath(DATABASE_NAME)
+        private fun preserveBeforeMigration(context: Context, name: String) {
+            val source = context.getDatabasePath(name)
             if (!source.exists()) return
             val sqlite = android.database.sqlite.SQLiteDatabase.openDatabase(source.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
-            val oldVersion = sqlite.version
+            val oldVersion = try {
+                sqlite.version
+            } catch (error: Exception) {
+                sqlite.close()
+                throw error
+            }
             try {
                 if (oldVersion >= SCHEMA_VERSION) return
                 sqlite.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use {
@@ -99,19 +163,38 @@ abstract class OrdersDatabase : RoomDatabase() {
                 }
             } finally { sqlite.close() }
             val folder = java.io.File(context.filesDir, "db-migration-backups").apply { check(mkdirs() || isDirectory) }
-            source.copyTo(java.io.File(folder, "before-$oldVersion-to-$SCHEMA_VERSION-${System.currentTimeMillis()}.db"))
+            val copy = java.io.File(folder, "before-$oldVersion-to-$SCHEMA_VERSION-${System.currentTimeMillis()}.db")
+            val pending = java.io.File(folder, "${copy.name}.tmp")
+            try {
+                source.copyTo(pending)
+                check(pending.length() == source.length() && pending.renameTo(copy)) { "Не удалось сохранить копию базы" }
+            } finally {
+                pending.delete()
+            }
         }
     }
 }
 
-private object IntegrityCallback : RoomDatabase.Callback() {
-    override fun onCreate(db: SupportSQLiteDatabase) = createIntegrityIndex(db)
-    override fun onOpen(db: SupportSQLiteDatabase) = createIntegrityIndex(db)
+private fun createFormationGuards(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """CREATE TRIGGER IF NOT EXISTS settlement_groups_one_forming_insert
+           BEFORE INSERT ON settlement_groups
+           WHEN NEW.state = 'FORMING' AND EXISTS (
+               SELECT 1 FROM settlement_groups WHERE state = 'FORMING'
+           )
+           BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END"""
+    )
+    db.execSQL(
+        """CREATE TRIGGER IF NOT EXISTS settlement_groups_one_forming_update
+           BEFORE UPDATE OF state ON settlement_groups
+           WHEN NEW.state = 'FORMING' AND EXISTS (
+               SELECT 1 FROM settlement_groups WHERE state = 'FORMING' AND id != OLD.id
+           )
+           BEGIN SELECT RAISE(ABORT, 'Only one forming group is allowed'); END"""
+    )
+}
 
-    private fun createIntegrityIndex(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            "CREATE UNIQUE INDEX IF NOT EXISTS index_settlement_groups_one_forming " +
-                "ON settlement_groups(state) WHERE state = 'FORMING'",
-        )
-    }
+private object IntegrityCallback : RoomDatabase.Callback() {
+    override fun onCreate(db: SupportSQLiteDatabase) = createFormationGuards(db)
+    override fun onOpen(db: SupportSQLiteDatabase) = createFormationGuards(db)
 }
