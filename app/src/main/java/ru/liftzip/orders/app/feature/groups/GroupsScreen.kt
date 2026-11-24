@@ -30,6 +30,7 @@ import ru.liftzip.orders.app.ui.EmptyState
 import ru.liftzip.orders.app.ui.GroupsViewModel
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.format
+import ru.liftzip.orders.app.ui.formatMonth
 import ru.liftzip.orders.domain.model.GroupSummary
 import ru.liftzip.orders.domain.repository.OrdersRepository
 import java.util.UUID
@@ -54,9 +55,13 @@ private fun GroupCard(summary: GroupSummary, onClick: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFD8E1E5))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("Группа №${summary.group.number}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text("Группа №${summary.group.number}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(summary.group.createdAt.formatMonth(), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 GroupStatusBadge(summary.group.state)
             }
             Text(buildString {

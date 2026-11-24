@@ -15,12 +15,15 @@ private val moneyFormat = NumberFormat.getNumberInstance(Locale("ru", "RU")).app
 }
 private val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+private val monthFormatter = DateTimeFormatter.ofPattern("LLLL", Locale.forLanguageTag("ru-RU"))
 
 fun Money.formatAmount(): String = moneyFormat.format(toBigDecimal())
 fun Money.format(): String = "${formatAmount()} ₽"
 fun BigDecimal.formatDecimal(): String = stripTrailingZeros().toPlainString()
 fun LocalDate.formatDate(): String = format(dateFormatter)
 fun Instant.formatDateTime(): String = atZone(ZoneId.systemDefault()).format(dateTimeFormatter)
+fun Instant.formatMonth(): String = atZone(ZoneId.systemDefault()).format(monthFormatter)
+    .replaceFirstChar { it.titlecase() }
 fun String.parseDecimal(): BigDecimal? = trim().replace(',', '.').toBigDecimalOrNull()
 
 fun ru.liftzip.orders.domain.model.GroupState.label(): String = when (this) {
