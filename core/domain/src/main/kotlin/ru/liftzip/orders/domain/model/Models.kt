@@ -11,23 +11,26 @@ enum class GroupState { FORMING, CALCULATING, COMPLETED, ACCEPTED, AWAITING_PAYM
 
 fun groupProgressState(orders: List<OrderFulfillment>): GroupState = when {
     orders.isEmpty() || orders.any { !it.withdrawn || !it.transferred } -> GroupState.CALCULATING
+    orders.any { !it.paid } -> GroupState.AWAITING_PAYMENT
     orders.all { it.received } -> GroupState.COMPLETED
     else -> GroupState.IN_DELIVERY
 }
-enum class OrderAction { WITHDRAWN, TRANSFERRED, RECEIVED }
-enum class OrderStage { ACCEPTED, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
+enum class OrderAction { WITHDRAWN, TRANSFERRED, PAID, RECEIVED }
+enum class OrderStage { ACCEPTED, AWAITING_TRANSFER, AWAITING_PAYMENT, IN_DELIVERY, COMPLETED }
 
 data class OrderFulfillment(
     val withdrawn: Boolean = false,
     val transferred: Boolean = false,
     val received: Boolean = false,
+    val paid: Boolean = false,
 ) {
-    val isComplete: Boolean get() = withdrawn && transferred && received
+    val isComplete: Boolean get() = withdrawn && transferred && paid && received
 
     // Flags remain independent; the earliest unfinished action determines the displayed stage.
     val stage: OrderStage get() = when {
         !withdrawn -> OrderStage.ACCEPTED
-        !transferred -> OrderStage.AWAITING_PAYMENT
+        !transferred -> OrderStage.AWAITING_TRANSFER
+        !paid -> OrderStage.AWAITING_PAYMENT
         !received -> OrderStage.IN_DELIVERY
         else -> OrderStage.COMPLETED
     }
@@ -35,6 +38,7 @@ data class OrderFulfillment(
     fun withAction(action: OrderAction, checked: Boolean): OrderFulfillment = when (action) {
         OrderAction.WITHDRAWN -> copy(withdrawn = checked)
         OrderAction.TRANSFERRED -> copy(transferred = checked)
+        OrderAction.PAID -> copy(paid = checked)
         OrderAction.RECEIVED -> copy(received = checked)
     }
 }

@@ -55,6 +55,8 @@ def compare(db, version):
         expected.execute('ALTER TABLE order_lines ADD COLUMN temporaryProductUrl TEXT')
     if version >= 13:
         expected.execute('ALTER TABLE order_lines ADD COLUMN comment TEXT')
+    if version >= 14:
+        expected.execute('ALTER TABLE orders ADD COLUMN paid INTEGER NOT NULL DEFAULT 0')
     for table in definition['entities'] + ([{'tableName': 'order_line_images'}] if version >= 10 else []):
         name = table['tableName']
         for pragma in ('table_info', 'foreign_key_list'):
@@ -108,10 +110,13 @@ for start in range(1, CURRENT):
         db.execute('UPDATE orders SET manualDeliveryPriceMinor=0')
     if start >= 5:
         db.execute("UPDATE orders SET orderRate='13.25'")
-    if start == 12:
+    if start >= 12:
         migrate(db, 11)
+    if start == 12:
         db.execute("UPDATE order_lines SET quantity=NULL,saleUnitPriceMinor=NULL,productUrl='saved-url'")
         db.execute("INSERT INTO order_line_images VALUES('photo','line',0,X'0102')")
+    if start >= 13:
+        db.execute('ALTER TABLE order_lines ADD COLUMN comment TEXT')
     for version in range(start, CURRENT):
         migrate(db, version)
         compare(db, version + 1)
@@ -120,7 +125,7 @@ for start in range(1, CURRENT):
     assert db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='settlement_groups_one_forming_insert'").fetchone()
     assert db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='settlement_groups_one_forming_update'").fetchone()
     assert db.execute('SELECT receivedPaymentMinor,comment FROM orders').fetchone() == (500000, 'original')
-    assert db.execute('SELECT withdrawn,transferred,received FROM orders').fetchone() == (0, 0, 0)
+    assert db.execute('SELECT withdrawn,transferred,paid,received FROM orders').fetchone() == (0, 0, 0, 0)
     assert db.execute('SELECT orderRate FROM orders').fetchone() == (('13.25' if start >= 3 else None),)
     assert db.execute('SELECT manualDeliveryPriceMinor FROM orders').fetchone() == ((0 if start >= 4 else None),)
     assert db.execute("SELECT amount FROM cost_entries WHERE id='legacy-delivery'").fetchone() == ('350',)
@@ -132,3 +137,22 @@ for start in range(1, CURRENT):
     assert db.execute('SELECT comment FROM order_lines').fetchone() == (None,)
     db.close()
     print(f'PASS: {start}->{CURRENT}; schemas, amounts, rates, null/zero, legacy costs and empty action marks preserved')
+
+with sqlite3.connect(':memory:') as db:
+    create(db, schema(13))
+    db.executemany('INSERT INTO settlement_groups VALUES(?,?,?,0,1,1,1,1)', [
+        ('shipping', 1, 'IN_DELIVERY'), ('completed', 2, 'COMPLETED'), ('forming', 3, 'FORMING'),
+    ])
+    db.executemany("""
+        INSERT INTO orders(id,number,date,counterparty,groupId,receivedPaymentMinor,comment,
+            costsConfirmed,calculationState,createdAt,updatedAt,revision,withdrawn,transferred,received)
+        VALUES(?,?,'2026-11-11','Тест',?,0,'',0,'INCOMPLETE',1,1,1,1,1,?)
+    """, [('shipping', 1, 'shipping', 0), ('completed', 2, 'completed', 1), ('forming', 3, 'forming', 1)])
+    migrate(db, 13)
+    assert db.execute('SELECT withdrawn,transferred,paid,received FROM orders ORDER BY number').fetchall() == [
+        (1, 1, 0, 0), (1, 1, 1, 1), (1, 1, 0, 1),
+    ]
+    assert db.execute('SELECT state FROM settlement_groups ORDER BY number').fetchall() == [
+        ('AWAITING_PAYMENT',), ('COMPLETED',), ('FORMING',),
+    ]
+    print('PASS: existing in-progress, completed and forming groups retain their original marks')

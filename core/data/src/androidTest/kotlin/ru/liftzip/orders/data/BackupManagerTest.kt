@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -24,6 +25,9 @@ import ru.liftzip.orders.data.backup.BackupManager
 import ru.liftzip.orders.data.backup.BackupManifest
 import ru.liftzip.orders.data.database.OrdersDatabase
 import ru.liftzip.orders.data.repository.RoomOrdersRepository
+import ru.liftzip.orders.domain.model.FinishGroupCommand
+import ru.liftzip.orders.domain.model.OrderAction
+import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.OrderLineDraft
 import ru.liftzip.orders.domain.model.OrdersFilter
 import ru.liftzip.orders.domain.model.SaveOrderCommand
@@ -56,6 +60,11 @@ class BackupManagerTest {
 
     @Test fun exportRestorePreservesUuidAndReplacesNewerState() = runTest {
         val orderId = repository.saveOrder(orderCommand("Первый"))
+        val group = repository.observeOrder(orderId).first()!!.group
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), group.id))
+        for (action in listOf(OrderAction.WITHDRAWN, OrderAction.TRANSFERRED, OrderAction.PAID)) {
+            repository.setOrderAction(orderId, action, true)
+        }
         val file = File(context.cacheDir, "roundtrip.zip")
         val uri = Uri.fromFile(file)
         manager.exportTo(uri)
@@ -67,6 +76,8 @@ class BackupManagerTest {
         assertEquals(1, restored.size)
         assertEquals(orderId, restored.single().order.id)
         assertEquals("Первый", restored.single().order.counterparty)
+        assertTrue(restored.single().order.fulfillment.paid)
+        assertEquals(GroupState.IN_DELIVERY, restored.single().groupState)
         assertTrue(File(context.filesDir, "recovery-backups").listFiles()?.isNotEmpty() == true)
     }
 
@@ -245,10 +256,15 @@ class BackupManagerTest {
         manager.exportTo(uri)
         manager.importFrom(uri)
         val saved = repository.observeOrder(id).first()!!
-        assertTrue(saved.order.fulfillment.isComplete)
-        assertEquals(ru.liftzip.orders.domain.model.GroupState.FORMING, saved.group.state)
-        repository.finishGroup(ru.liftzip.orders.domain.model.FinishGroupCommand(UUID.randomUUID(), saved.group.id))
-        assertEquals(ru.liftzip.orders.domain.model.GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
+        assertTrue(saved.order.fulfillment.withdrawn)
+        assertTrue(saved.order.fulfillment.transferred)
+        assertTrue(saved.order.fulfillment.received)
+        assertFalse(saved.order.fulfillment.paid)
+        assertEquals(GroupState.FORMING, saved.group.state)
+        repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), saved.group.id))
+        assertEquals(GroupState.AWAITING_PAYMENT, repository.observeOrder(id).first()!!.group.state)
+        repository.setOrderAction(id, OrderAction.PAID, true)
+        assertEquals(GroupState.COMPLETED, repository.observeOrder(id).first()!!.group.state)
     }
 
     @Test fun backupPreservesManualDeliveryAndAggregatePurchaseForApprovedFormula() = runTest {

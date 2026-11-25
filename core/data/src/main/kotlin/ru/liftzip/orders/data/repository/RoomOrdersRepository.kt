@@ -291,6 +291,7 @@ class RoomOrdersRepository(
             val now = Instant.now()
             val updated = old.copy(
                 withdrawn = progress.withdrawn, transferred = progress.transferred, received = progress.received,
+                paid = progress.paid,
                 updatedAt = now.epoch(), revision = old.revision + 1,
             )
             dao.updateOrder(updated)
@@ -366,6 +367,7 @@ class RoomOrdersRepository(
                 orderRate = command.orderRate?.canonical(),
                 withdrawn = existing?.withdrawn ?: false,
                 transferred = existing?.transferred ?: false,
+                paid = existing?.paid ?: false,
                 received = existing?.received ?: false,
             )
             if (existing == null) dao.insertOrder(order) else dao.updateOrder(order)

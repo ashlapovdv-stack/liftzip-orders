@@ -254,7 +254,7 @@ private fun GroupOrdersTable(
         // Five columns at every phone width. Fit the text to its measured cell;
         // never move actions outside the order's row.
         val amountWidth = (maxWidth - 4.dp) * 0.13f - 2.dp
-        val actionWidth = (maxWidth - 4.dp) * 0.28f / 3f
+        val actionWidth = (maxWidth - 4.dp) * 0.28f / 2f
         val orders = remember(details.orders) { details.orders.sortedBy { it.order.number } }
         val totals = remember(details.summary.income, details.summary.purchaseCost, details.summary.profit) {
             listOf(details.summary.income?.formatAmount() ?: "—", details.summary.purchaseCost?.formatAmount() ?: "—",
@@ -273,7 +273,7 @@ private fun GroupOrdersTable(
                 MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, letterSpacing = 0.sp,
                     fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"))
         }
-        val actionStyle = fittedTableStyle(listOf("Снял", "Передал", "Получено"), actionWidth,
+        val actionStyle = fittedTableStyle(listOf("Снял", "Передал", "Оплата", "Получено"), actionWidth,
             MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 0.sp, fontWeight = FontWeight.Normal))
         Surface(color = Color.White, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, GroupOutline)) {
             Column {
@@ -345,7 +345,7 @@ private fun FinancialRow(
 
 @Composable
 private fun OrderActions(summary: OrderSummary, enabled: Boolean, captionStyle: TextStyle, onAction: (UUID, OrderAction, Boolean) -> Unit) {
-    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, enabled = enabled, captionStyle = captionStyle) { action, checked ->
+    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, enabled = enabled, twoRows = true, captionStyle = captionStyle) { action, checked ->
         onAction(summary.order.id, action, checked)
     }
 }

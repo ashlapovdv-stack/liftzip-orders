@@ -30,7 +30,7 @@ abstract class OrdersDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 13
+        const val SCHEMA_VERSION = 14
         const val DATABASE_NAME = "liftzip-orders.db"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -134,6 +134,15 @@ abstract class OrdersDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orders ADD COLUMN paid INTEGER NOT NULL DEFAULT 0")
+                // Preserve orders that had already completed the previous workflow.
+                db.execSQL("UPDATE orders SET paid = 1 WHERE withdrawn = 1 AND transferred = 1 AND received = 1 AND groupId IN (SELECT id FROM settlement_groups WHERE state != 'FORMING')")
+                db.execSQL("UPDATE settlement_groups SET state = 'AWAITING_PAYMENT' WHERE state = 'IN_DELIVERY' AND EXISTS (SELECT 1 FROM orders WHERE groupId = settlement_groups.id AND paid = 0)")
+            }
+        }
+
         fun create(context: Context, name: String = DATABASE_NAME): OrdersDatabase {
             preserveBeforeMigration(context, name)
             return Room.databaseBuilder(
@@ -141,7 +150,7 @@ abstract class OrdersDatabase : RoomDatabase() {
             OrdersDatabase::class.java,
             name,
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
             .addCallback(IntegrityCallback)
             .build()
         }

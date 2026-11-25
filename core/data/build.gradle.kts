@@ -53,9 +53,9 @@ dependencies {
 tasks.register("verifyCurrentRoomSchema") {
     dependsOn("kspDebugKotlin")
     doLast {
-        val schema = file("schemas/ru.liftzip.orders.data.database.OrdersDatabase/13.json")
+        val schema = file("schemas/ru.liftzip.orders.data.database.OrdersDatabase/14.json")
         check(schema.isFile && schema.length() > 100) {
-            "Room 13.json missing after KSP: ${schema.absolutePath}"
+            "Room 14.json missing after KSP: ${schema.absolutePath}"
         }
     }
 }

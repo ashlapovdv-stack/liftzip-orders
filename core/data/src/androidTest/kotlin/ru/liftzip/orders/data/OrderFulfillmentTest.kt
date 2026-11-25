@@ -40,8 +40,13 @@ class OrderFulfillmentTest {
         repository.setOrderAction(second, OrderAction.TRANSFERRED, true)
         assertEquals(GroupState.CALCULATING, repository.observeOrder(second).first()!!.group.state)
         repository.setOrderAction(second, OrderAction.WITHDRAWN, true)
+        assertEquals(GroupState.AWAITING_PAYMENT, repository.observeOrder(first).first()!!.group.state)
+        repository.setOrderAction(second, OrderAction.PAID, true)
         assertEquals(GroupState.COMPLETED, repository.observeOrder(first).first()!!.group.state)
         assertEquals(1, repository.observeGroups().first().count { it.group.state == GroupState.FORMING })
+        repository.setOrderAction(first, OrderAction.PAID, false)
+        assertEquals(GroupState.AWAITING_PAYMENT, repository.observeOrder(first).first()!!.group.state)
+        assertTrue(repository.observeOrder(first).first()!!.order.fulfillment.received)
         repository.setOrderAction(first, OrderAction.TRANSFERRED, false)
         val reopened = repository.observeOrder(first).first()!!
         assertEquals(GroupState.CALCULATING, reopened.group.state)
@@ -56,8 +61,9 @@ class OrderFulfillmentTest {
         val group = repository.observeOrder(id).first()!!.group
         repository.finishGroup(FinishGroupCommand(UUID.randomUUID(), group.id))
         repository.setOrderAction(id, OrderAction.WITHDRAWN, true)
+        repository.setOrderAction(id, OrderAction.PAID, true)
         val checked = repository.observeOrder(id).first()!!
-        repository.setOrderAction(id, OrderAction.WITHDRAWN, true)
+        repository.setOrderAction(id, OrderAction.PAID, true)
         val repeated = repository.observeOrder(id).first()!!
         assertEquals(checked.order.revision, repeated.order.revision)
         assertEquals(checked.history.size, repeated.history.size)
@@ -68,6 +74,7 @@ class OrderFulfillmentTest {
         ))
         val saved = repository.observeOrder(id).first()!!
         assertTrue(saved.order.fulfillment.withdrawn)
+        assertTrue(saved.order.fulfillment.paid)
         assertFalse(saved.order.fulfillment.transferred)
         assertEquals(Money(10000), saved.order.receivedPayment)
         assertEquals(checked.lines, saved.lines.map { it.copy(updatedAt = checked.lines.single().updatedAt, revision = checked.lines.single().revision) })
@@ -105,7 +112,7 @@ class OrderFulfillmentTest {
 
         val reopened = repository.observeOrder(id).first()!!
         assertEquals(GroupState.IN_DELIVERY, reopened.group.state)
-        assertEquals(OrderFulfillment(true, true, false), reopened.order.fulfillment)
+        assertEquals(OrderFulfillment(withdrawn = true, transferred = true, paid = true), reopened.order.fulfillment)
         assertEquals(GroupState.IN_DELIVERY, repository.observeGroups().first()
             .single { it.group.id == before.group.id }.group.state)
     }

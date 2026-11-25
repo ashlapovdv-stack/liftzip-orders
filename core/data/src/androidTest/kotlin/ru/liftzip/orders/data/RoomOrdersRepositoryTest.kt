@@ -296,6 +296,8 @@ class RoomOrdersRepositoryTest {
         repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.WITHDRAWN, true)
         repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.TRANSFERRED, true)
         repository.saveOrder(orderCommand().copy(commandId = UUID.randomUUID()))
+        assertTrue(repository.observeOrders("", ru.liftzip.orders.domain.model.OrdersFilter.IN_DELIVERY, 1).first().isEmpty())
+        repository.setOrderAction(old, ru.liftzip.orders.domain.model.OrderAction.PAID, true)
         val results = repository.observeOrders("", ru.liftzip.orders.domain.model.OrdersFilter.IN_DELIVERY, 1).first()
         assertEquals(listOf(old), results.map { it.order.id })
     }

@@ -147,6 +147,7 @@ class GroupDetailScreenTest {
             for ((action, description) in listOf(
                 OrderAction.WITHDRAWN to "Получены деньги от Дениса",
                 OrderAction.TRANSFERRED to "Деньги за товар переданы посреднику",
+                OrderAction.PAID to "Оплата товара подтверждена",
                 OrderAction.RECEIVED to "Товар получен",
             )) {
                 clickAction(description, index + 1)
@@ -156,6 +157,7 @@ class GroupDetailScreenTest {
                         when (action) {
                             OrderAction.WITHDRAWN -> p.withdrawn
                             OrderAction.TRANSFERRED -> p.transferred
+                            OrderAction.PAID -> p.paid
                             OrderAction.RECEIVED -> p.received
                         }
                     }
@@ -211,6 +213,8 @@ class GroupDetailScreenTest {
         scrollToEditorField("order-actions")
         waitAction(OrderAction.RECEIVED, true)
         actionNode(OrderAction.TRANSFERRED).assertIsOn()
+        clickAction("Оплата товара подтверждена")
+        waitAction(OrderAction.PAID, true)
         scrollToEditorField("Комментарий")
         compose.onNodeWithText(draft).assertExists()
         scrollToEditorField("order-actions")
@@ -226,6 +230,7 @@ class GroupDetailScreenTest {
         actionNode(OrderAction.WITHDRAWN).assertIsOff()
         actionNode(OrderAction.TRANSFERRED).assertIsOn()
         actionNode(OrderAction.RECEIVED).assertIsOn()
+        actionNode(OrderAction.PAID).assertIsOn()
         org.junit.Assert.assertFalse(actionNode(OrderAction.WITHDRAWN).fetchSemanticsNode().config.contains(SemanticsActions.OnClick))
         capture("orders-list.png")
         compose.onAllNodesWithText("Группа №1 →").onFirst().performScrollTo().performClick()
@@ -248,7 +253,9 @@ class GroupDetailScreenTest {
         runBlocking {
             repository.setOrderAction(orderIds[0], OrderAction.WITHDRAWN, true)
             repository.setOrderAction(orderIds[0], OrderAction.TRANSFERRED, true)
+            repository.setOrderAction(orderIds[0], OrderAction.PAID, true)
             repository.setOrderAction(orderIds[1], OrderAction.WITHDRAWN, true)
+            repository.setOrderAction(orderIds[1], OrderAction.TRANSFERRED, true)
         }
         showOrders = true
         showScreen(1.3f, 320f)
@@ -400,7 +407,7 @@ class GroupDetailScreenTest {
         compose.onNodeWithText("Завершить формирование").performScrollTo().performClick()
         compose.onNodeWithText("Завершить", useUnmergedTree = true).performClick()
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.CALCULATING } }
-        for (description in listOf("Получены деньги от Дениса", "Деньги за товар переданы посреднику", "Товар получен")) {
+        for (description in listOf("Получены деньги от Дениса", "Деньги за товар переданы посреднику", "Оплата товара подтверждена", "Товар получен")) {
             clickAction(description, 4)
         }
         compose.waitUntil(10_000) { runBlocking { repository.observeGroup(formingId).first()!!.summary.group.state == GroupState.COMPLETED } }
@@ -694,6 +701,7 @@ class GroupDetailScreenTest {
                 when (action) {
                     OrderAction.WITHDRAWN -> progress.withdrawn
                     OrderAction.TRANSFERRED -> progress.transferred
+                    OrderAction.PAID -> progress.paid
                     OrderAction.RECEIVED -> progress.received
                 } == checked
             } && actionNode(action).fetchSemanticsNode().config[SemanticsProperties.ToggleableState] ==
@@ -735,9 +743,14 @@ class GroupDetailScreenTest {
             org.junit.Assert.assertTrue(square.left >= profit.right)
             square
         }
-        squares.zipWithNext().forEach { (left, right) ->
+        val (firstRow, secondRow) = squares.chunked(2)
+        for ((left, right) in listOf(firstRow, secondRow)) {
             org.junit.Assert.assertTrue(left.right < right.left)
             org.junit.Assert.assertEquals(left.top, right.top, 1f)
+        }
+        for ((top, bottom) in firstRow.zip(secondRow)) {
+            org.junit.Assert.assertTrue(top.bottom < bottom.top)
+            org.junit.Assert.assertEquals(top.left, bottom.left, 1f)
         }
     }
 
@@ -840,6 +853,7 @@ class GroupDetailScreenTest {
         val action = when (description) {
             "Получены деньги от Дениса" -> OrderAction.WITHDRAWN
             "Деньги за товар переданы посреднику" -> OrderAction.TRANSFERRED
+            "Оплата товара подтверждена" -> OrderAction.PAID
             else -> OrderAction.RECEIVED
         }
         compose.onNodeWithTag("order-$orderNumber-$action-square", useUnmergedTree = true).performTouchInput { click(center) }

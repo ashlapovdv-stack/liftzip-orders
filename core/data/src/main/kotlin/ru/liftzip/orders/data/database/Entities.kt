@@ -66,6 +66,7 @@ data class OrderEntity(
     @ColumnInfo(defaultValue = "0") val withdrawn: Boolean = false,
     @ColumnInfo(defaultValue = "0") val transferred: Boolean = false,
     @ColumnInfo(defaultValue = "0") val received: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val paid: Boolean = false,
 )
 
 @Serializable

@@ -256,7 +256,13 @@ class BackupManager(
         if (manifest.format != FORMAT || manifest.formatVersion !in 1..FORMAT_VERSION) throw BackupException("Неподдерживаемый формат резервной копии")
         if (manifest.schemaVersion !in 2..OrdersDatabase.SCHEMA_VERSION) throw BackupException("Неподдерживаемая версия схемы: ${manifest.schemaVersion}")
         if (!manifest.dataSha256.equals(sha256(data), ignoreCase = true)) throw BackupException("Контрольная сумма данных не совпадает")
-        val payload = json.decodeFromString(BackupPayload.serializer(), data.toString(Charsets.UTF_8))
+        val decoded = json.decodeFromString(BackupPayload.serializer(), data.toString(Charsets.UTF_8))
+        val payload = if (manifest.schemaVersion < 14) {
+            val formingGroups = decoded.groups.filter { it.state == GroupState.FORMING.name }.mapTo(hashSetOf()) { it.id }
+            decoded.copy(orders = decoded.orders.map { order ->
+                order.copy(paid = order.groupId !in formingGroups && order.withdrawn && order.transferred && order.received)
+            })
+        } else decoded
         val counts = if (manifest.schemaVersion == 2) payload.counts().filterKeys { it !in setOf("deliveryInvoices", "deliveryPayments") } else payload.counts()
         if (counts != manifest.counts) throw BackupException("Количество записей не совпадает с manifest.json")
         if (manifest.schemaVersion == 2 && (payload.deliveryInvoices.isNotEmpty() || payload.deliveryPayments.isNotEmpty())) throw BackupException("Данные доставки не соответствуют версии архива")
@@ -353,7 +359,7 @@ class BackupManager(
             payload.groups.forEach { it.toDomain() }
             payload.groups.forEach { group ->
                 val groupOrders = payload.orders.filter { it.groupId == group.id }
-                val allDone = groupOrders.isNotEmpty() && groupOrders.all { it.withdrawn && it.transferred && it.received }
+                val allDone = groupOrders.isNotEmpty() && groupOrders.all { it.toDomain().fulfillment.isComplete }
                 if ((group.state == GroupState.COMPLETED.name) != (group.state != GroupState.FORMING.name && allDone)) {
                     throw BackupException("Статус группы не соответствует отметкам заказов")
                 }

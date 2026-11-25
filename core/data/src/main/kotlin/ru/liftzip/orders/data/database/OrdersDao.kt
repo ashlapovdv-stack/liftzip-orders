@@ -25,7 +25,7 @@ interface OrdersDao {
         SELECT o.* FROM orders o
         WHERE (:filter = 'ALL'
             OR (:filter = 'NEEDS_CALCULATION' AND o.calculationState = 'INCOMPLETE')
-            OR (:filter = 'IN_DELIVERY' AND o.withdrawn = 1 AND o.transferred = 1 AND o.received = 0))
+            OR (:filter = 'IN_DELIVERY' AND o.withdrawn = 1 AND o.transferred = 1 AND o.paid = 1 AND o.received = 0))
         ORDER BY o.date DESC, o.number DESC LIMIT :limit
     """)
     fun observeOrders(filter: String, limit: Int): Flow<List<OrderEntity>>

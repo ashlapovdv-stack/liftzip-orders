@@ -36,6 +36,7 @@ fun OrderFulfillmentActions(
     progress: OrderFulfillment,
     enabled: Boolean = true,
     compact: Boolean = false,
+    twoRows: Boolean = false,
     mailDraftCreated: Boolean? = null,
     captionStyle: TextStyle = MaterialTheme.typography.labelSmall,
     onAction: ((OrderAction, Boolean) -> Unit)? = null,
@@ -44,12 +45,14 @@ fun OrderFulfillmentActions(
     val entries = listOf(
         Triple(OrderAction.WITHDRAWN, "Снял", progress.withdrawn),
         Triple(OrderAction.TRANSFERRED, "Передал", progress.transferred),
+        Triple(OrderAction.PAID, "Оплата", progress.paid),
         Triple(OrderAction.RECEIVED, "Получено", progress.received),
     )
     val render: @Composable (Triple<OrderAction, String, Boolean>, Modifier) -> Unit = { (step, label, checked), layout ->
             val description = when (step) {
                 OrderAction.WITHDRAWN -> "Получены деньги от Дениса"
                 OrderAction.TRANSFERRED -> "Деньги за товар переданы посреднику"
+                OrderAction.PAID -> "Оплата товара подтверждена"
                 OrderAction.RECEIVED -> "Товар получен"
             }
             val tag = "order-${orderNumber ?: "new"}-$step"
@@ -75,7 +78,7 @@ fun OrderFulfillmentActions(
                     Text(label, Modifier.testTag("$tag-caption"), style = captionStyle, maxLines = 1, softWrap = false)
                 }
             } else {
-                Column(cell.heightIn(min = 44.dp),
+                Column(cell.heightIn(min = if (twoRows) 34.dp else 44.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     square()
                     Text(label, Modifier.fillMaxWidth().padding(top = 3.dp).testTag("$tag-caption"),
@@ -118,6 +121,14 @@ fun OrderFulfillmentActions(
             verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (mailDraftCreated != null) mailIndicator(Modifier)
             entries.forEach { render(it, Modifier) }
+        }
+    } else if (twoRows) {
+        Column(Modifier.fillMaxWidth()) {
+            entries.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth()) {
+                    pair.forEach { render(it, Modifier.weight(1f)) }
+                }
+            }
         }
     } else Row(Modifier.fillMaxWidth()) {
         if (mailDraftCreated != null) mailIndicator(Modifier.weight(1f))

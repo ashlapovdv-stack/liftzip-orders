@@ -102,6 +102,7 @@ fun GroupStatusBadge(state: GroupState) {
 fun OrderStatusBadge(stage: ru.liftzip.orders.domain.model.OrderStage) {
     val (text, colors) = when (stage) {
         ru.liftzip.orders.domain.model.OrderStage.ACCEPTED -> "Принят" to (Color(0xFFE6EFFC) to Color(0xFF184D8D))
+        ru.liftzip.orders.domain.model.OrderStage.AWAITING_TRANSFER -> "На передаче" to (Color(0xFFE6EFFC) to Color(0xFF184D8D))
         ru.liftzip.orders.domain.model.OrderStage.AWAITING_PAYMENT -> "На оплате" to (Color(0xFFFFF0CE) to Color(0xFF805600))
         ru.liftzip.orders.domain.model.OrderStage.IN_DELIVERY -> "Доставка" to (Color(0xFFECE6FA) to Color(0xFF604196))
         ru.liftzip.orders.domain.model.OrderStage.COMPLETED -> "Выполнен" to (Color(0xFFD9F0E3) to Color(0xFF17613B))

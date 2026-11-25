@@ -9,42 +9,43 @@ import ru.liftzip.orders.domain.model.GroupState
 import ru.liftzip.orders.domain.model.groupProgressState
 
 class OrderFulfillmentTest {
-    @Test fun groupEntersDeliveryOnceEveryOrderHasBothPaymentMarks() {
-        val delivery = OrderFulfillment(true, true, false)
-        val done = OrderFulfillment(true, true, true)
-        assertEquals(GroupState.IN_DELIVERY, groupProgressState(List(5) { delivery }))
-        assertEquals(GroupState.IN_DELIVERY, groupProgressState(listOf(delivery, done)))
-        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, OrderFulfillment(true, false, true))))
-        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, OrderFulfillment(false, true, true))))
-        assertEquals(GroupState.COMPLETED, groupProgressState(listOf(done, done)))
+    private val awaitingPayment = OrderFulfillment(withdrawn = true, transferred = true)
+    private val delivery = awaitingPayment.copy(paid = true)
+    private val complete = delivery.copy(received = true)
+
+    @Test fun groupFollowsTheEarliestIncompleteStageAcrossOrders() {
         assertEquals(GroupState.CALCULATING, groupProgressState(emptyList()))
+        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, complete.copy(transferred = false))))
+        assertEquals(GroupState.CALCULATING, groupProgressState(listOf(delivery, complete.copy(withdrawn = false))))
+        assertEquals(GroupState.AWAITING_PAYMENT, groupProgressState(listOf(awaitingPayment, delivery)))
+        assertEquals(GroupState.AWAITING_PAYMENT, groupProgressState(listOf(awaitingPayment.copy(received = true), complete)))
+        assertEquals(GroupState.IN_DELIVERY, groupProgressState(listOf(delivery, complete)))
+        assertEquals(GroupState.COMPLETED, groupProgressState(listOf(complete, complete)))
     }
 
-    @Test fun `only all three independent actions complete an order`() {
-        for (mask in 0..7) {
-            val progress = OrderFulfillment(mask and 1 != 0, mask and 2 != 0, mask and 4 != 0)
-            assertEquals(mask == 7, progress.isComplete)
+    @Test fun statusAndCompletionFollowTheFirstUncheckedAction() {
+        val cases = mapOf(
+            OrderStage.ACCEPTED to (0..7),
+            OrderStage.AWAITING_TRANSFER to (8..11),
+            OrderStage.AWAITING_PAYMENT to (12..13),
+            OrderStage.IN_DELIVERY to (14..14),
+            OrderStage.COMPLETED to (15..15),
+        )
+        for ((expected, combinations) in cases) for (mask in combinations) {
+            val progress = OrderFulfillment(
+                withdrawn = mask and 8 != 0, transferred = mask and 4 != 0,
+                paid = mask and 2 != 0, received = mask and 1 != 0,
+            )
+            assertEquals(progress.toString(), expected, progress.stage)
+            assertEquals(mask == 15, progress.isComplete)
         }
     }
-    @Test fun `stage follows the earliest unfinished action for every combination`() {
-        val cases = listOf(
-            OrderFulfillment(false, false, false) to OrderStage.ACCEPTED,
-            OrderFulfillment(false, false, true) to OrderStage.ACCEPTED,
-            OrderFulfillment(false, true, false) to OrderStage.ACCEPTED,
-            OrderFulfillment(false, true, true) to OrderStage.ACCEPTED,
-            OrderFulfillment(true, false, false) to OrderStage.AWAITING_PAYMENT,
-            OrderFulfillment(true, false, true) to OrderStage.AWAITING_PAYMENT,
-            OrderFulfillment(true, true, false) to OrderStage.IN_DELIVERY,
-            OrderFulfillment(true, true, true) to OrderStage.COMPLETED,
-        )
-        cases.forEach { (flags, expected) -> assertEquals(flags.toString(), expected, flags.stage) }
-    }
 
-    @Test fun `changing one action preserves the other actions`() {
-        val complete = OrderFulfillment(true, true, true)
-        assertEquals(OrderFulfillment(false, true, true), complete.withAction(OrderAction.WITHDRAWN, false))
-        assertEquals(OrderFulfillment(true, false, true), complete.withAction(OrderAction.TRANSFERRED, false))
-        assertEquals(OrderFulfillment(true, true, false), complete.withAction(OrderAction.RECEIVED, false))
-        assertEquals(complete, complete.withAction(OrderAction.RECEIVED, true))
+    @Test fun changingOneActionPreservesTheOtherActions() {
+        assertEquals(complete.copy(withdrawn = false), complete.withAction(OrderAction.WITHDRAWN, false))
+        assertEquals(complete.copy(transferred = false), complete.withAction(OrderAction.TRANSFERRED, false))
+        assertEquals(complete.copy(paid = false), complete.withAction(OrderAction.PAID, false))
+        assertEquals(complete.copy(received = false), complete.withAction(OrderAction.RECEIVED, false))
+        assertEquals(complete, complete.withAction(OrderAction.PAID, true))
     }
 }
