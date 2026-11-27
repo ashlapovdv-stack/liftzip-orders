@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull
             ?.toIntOrNull()?.coerceAtLeast(4) ?: 4
-        versionName = "0.4.20"
+        versionName = "0.4.21"
         testInstrumentationRunner = if (providers.gradleProperty("ordersReleaseSmoke").orNull == "true") {
             "ru.liftzip.orders.app.ReleaseSmokeInstrumentation"
         } else {

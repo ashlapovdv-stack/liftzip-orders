@@ -48,6 +48,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -65,12 +67,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import ru.liftzip.orders.app.ui.GroupDetailViewModel
+import ru.liftzip.orders.app.ui.GroupStageHighlight
 import ru.liftzip.orders.app.ui.OrderFulfillmentActions
 import ru.liftzip.orders.app.ui.GroupStatusBadge
 import ru.liftzip.orders.app.ui.format
 import ru.liftzip.orders.app.ui.formatAmount
 import ru.liftzip.orders.app.ui.formatDate
 import ru.liftzip.orders.app.ui.formatDecimal
+import ru.liftzip.orders.app.ui.groupStageHighlight
 import ru.liftzip.orders.app.ui.russian
 import ru.liftzip.orders.domain.model.CostEntry
 import ru.liftzip.orders.domain.model.Currency
@@ -215,6 +219,7 @@ private fun SavedGroupCosts(groupId: UUID, costs: List<CostEntry>) {
 private val GroupBackground = Color(0xFFF8FAFC)
 private val GroupOutline = Color(0xFFD8E1E5)
 private val TableHeading = Color(0xFFEDF3F1)
+private val AlternateOrderRow = Color(0xFFF5F8FA)
 private val TotalBackground = Color(0xFFEAF4EF)
 private val Positive = Color(0xFF17784B)
 
@@ -254,7 +259,8 @@ private fun GroupOrdersTable(
         // Five columns at every phone width. Fit the text to its measured cell;
         // never move actions outside the order's row.
         val amountWidth = (maxWidth - 4.dp) * 0.13f - 2.dp
-        val actionWidth = (maxWidth - 4.dp) * 0.28f / 2f
+        val actionWidth = ((maxWidth - 4.dp) * 0.28f - 1.dp) / 2f
+        val groupFormed = details.summary.group.state != GroupState.FORMING
         val orders = remember(details.orders) { details.orders.sortedBy { it.order.number } }
         val totals = remember(details.summary.income, details.summary.purchaseCost, details.summary.profit) {
             listOf(details.summary.income?.formatAmount() ?: "—", details.summary.purchaseCost?.formatAmount() ?: "—",
@@ -279,14 +285,17 @@ private fun GroupOrdersTable(
             Column {
                 FinancialRow("Заказ", "Д", "К", "∆", amountStyles, heading = true)
                 orders.forEachIndexed { index, summary ->
+                    val highlight = if (groupFormed) summary.order.fulfillment.stage.groupStageHighlight() else null
                     HorizontalDivider(color = GroupOutline, thickness = 1.dp)
                     FinancialRow(
                         name = summary.order.counterparty.ifBlank { "Заказ №${summary.order.number}" },
                         income = values[index][0], costs = values[index][1], profit = values[index][2],
                         amountStyles = amountStyles,
                         profitColor = if ((summary.calculation.profit ?: Money.ZERO) < Money.ZERO) MaterialTheme.colorScheme.error else Positive,
+                        rowColor = if (index % 2 == 0) Color.White else AlternateOrderRow,
+                        stageStripe = highlight?.stripe ?: Color.Transparent,
                         onOpen = { onOpenOrder(summary.order.id) },
-                        actions = { OrderActions(summary, details.summary.group.state != GroupState.FORMING && !busy, actionStyle, onAction) },
+                        actions = { OrderActions(summary, groupFormed && !busy, actionStyle, highlight, onAction) },
                     )
                 }
                 if (orders.isEmpty()) Text("В группе пока нет заказов", Modifier.padding(12.dp))
@@ -315,16 +324,19 @@ private fun fittedTableStyle(values: List<String>, width: Dp, style: TextStyle):
 private fun FinancialRow(
     name: String, income: String, costs: String, profit: String, amountStyles: List<TextStyle>,
     heading: Boolean = false, total: Boolean = false, profitColor: Color = Positive,
+    rowColor: Color = Color.White, stageStripe: Color = Color.Transparent,
     onOpen: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)
-        .background(if (heading) TableHeading else if (total) TotalBackground else Color.White),
+        .background(if (heading) TableHeading else if (total) TotalBackground else rowColor),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(33f).fillMaxHeight()
+            .drawBehind { drawRect(stageStripe, size = Size(4.dp.toPx(), size.height)) }
             .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(horizontal = 6.dp, vertical = if (heading || total) 12.dp else 10.dp), contentAlignment = Alignment.CenterStart) {
+            .padding(start = if (onOpen != null) 8.dp else 6.dp, end = 4.dp)
+            .padding(vertical = if (heading || total) 12.dp else 10.dp), contentAlignment = Alignment.CenterStart) {
             Text(name, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
-                fontWeight = if (heading || total) FontWeight.SemiBold else FontWeight.Medium)
+                fontWeight = FontWeight.SemiBold)
         }
         listOf("Доход" to income, "Расход" to costs, "Прибыль" to profit).forEachIndexed { index, (description, value) ->
             VerticalDivider(color = if (heading || total) Color.Transparent else GroupOutline, thickness = 1.dp)
@@ -336,7 +348,7 @@ private fun FinancialRow(
             }
         }
         VerticalDivider(color = if (heading || total) Color.Transparent else GroupOutline, thickness = 1.dp)
-        Box(Modifier.weight(28f).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.weight(28f).padding(vertical = if (heading || total) 4.dp else 0.dp), contentAlignment = Alignment.Center) {
             if (heading) Text("Действия", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
             else if (actions != null) actions()
         }
@@ -344,8 +356,17 @@ private fun FinancialRow(
 }
 
 @Composable
-private fun OrderActions(summary: OrderSummary, enabled: Boolean, captionStyle: TextStyle, onAction: (UUID, OrderAction, Boolean) -> Unit) {
-    OrderFulfillmentActions(summary.order.number, summary.order.fulfillment, enabled = enabled, twoRows = true, captionStyle = captionStyle) { action, checked ->
+private fun OrderActions(
+    summary: OrderSummary,
+    enabled: Boolean,
+    captionStyle: TextStyle,
+    highlight: GroupStageHighlight?,
+    onAction: (UUID, OrderAction, Boolean) -> Unit,
+) {
+    OrderFulfillmentActions(
+        summary.order.number, summary.order.fulfillment, enabled = enabled, twoRows = true,
+        captionStyle = captionStyle, groupHighlight = highlight,
+    ) { action, checked ->
         onAction(summary.order.id, action, checked)
     }
 }

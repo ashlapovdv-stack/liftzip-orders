@@ -150,6 +150,9 @@ class GroupDetailScreenTest {
                 OrderAction.PAID to "Оплата товара подтверждена",
                 OrderAction.RECEIVED to "Товар получен",
             )) {
+                val nextAction = hasTestTag("order-${index + 1}-$action") and
+                    SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Следующий этап, не отмечено")
+                compose.waitUntil(10_000) { compose.onAllNodes(nextAction, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
                 clickAction(description, index + 1)
                 compose.waitUntil(10_000) {
                     runBlocking {
